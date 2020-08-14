@@ -1,0 +1,7 @@
+# NOTE: This is only for unit testing, for production, carefully evaluate the appropriate
+# settings for each of the variables
+
+# A value of true means that we are running in Nxt Controller mode (can only service sign on
+# requests etc.) and value of false means that we are running in Nxt Server mode (an admin
+# can make Nxt configs via UI / APIs etc.)
+NXT_READONLY=false

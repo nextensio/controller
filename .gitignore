@@ -1,0 +1,4 @@
+go.sum
+nxtsvr/nxtsvr
+test/oauth_fake/oauth_fake
+test/integ/integ
