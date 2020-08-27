@@ -3,6 +3,7 @@ package router
 import (
 	"net/http"
 
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/urfave/negroni"
 )
@@ -42,5 +43,10 @@ func RouterInit(readonly bool) {
 }
 
 func ServeRoutes() {
-	http.ListenAndServe(":8080", nroni)
+	// TODO: The CORS policy allowing "*" needs fixing once we get closer to production
+	headersOk := handlers.AllowedHeaders([]string{"X-Requested-With", "Content-Type", "Referer", "Authorization"})
+	originsOk := handlers.AllowedOrigins([]string{"*"})
+	methodsOk := handlers.AllowedMethods([]string{"GET", "HEAD", "POST", "PUT", "OPTIONS"})
+
+	http.ListenAndServe(":8080", handlers.CORS(originsOk, headersOk, methodsOk)(nroni))
 }

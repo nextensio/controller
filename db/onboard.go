@@ -11,8 +11,8 @@ import (
 
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type Tenant struct {
-	ID       primitive.ObjectID `bson:"_id"`
-	Uuid     string             `json:"uuid" bson:"uuid"`
+	ID       primitive.ObjectID `json:"_id" bson:"_id"`
+	Name     string             `json:"name" bson:"name"`
 	Idp      string             `json:"idp" bson:"idp"`
 	Gateways []string           `json:"gateways" bson:"gateways"`
 }
@@ -26,38 +26,47 @@ func DBAddTenant(data *Tenant) error {
 		}
 	}
 
-	// The upsert option asks the DB to add a tenant if one is not found
-	upsert := true
-	after := options.After
-	opt := options.FindOneAndUpdateOptions{
-		ReturnDocument: &after,
-		Upsert:         &upsert,
-	}
-	err := tenantCltn.FindOneAndUpdate(
+	_, err := tenantCltn.InsertOne(
 		context.TODO(),
-		bson.M{"uuid": data.Uuid},
-		bson.D{
-			{"$set", bson.M{"uuid": data.Uuid, "idp": data.Idp, "gateways": data.Gateways}},
-		},
-		&opt,
+		bson.M{"name": data.Name, "idp": data.Idp, "gateways": data.Gateways},
 	)
 
 	if err != nil {
-		return err.Err()
+		return err
 	}
 	return nil
 }
 
-func DBFindTenant(uuid string) *Tenant {
+func DBFindTenant(id primitive.ObjectID) *Tenant {
 	var tenant Tenant
 	err := tenantCltn.FindOne(
 		context.TODO(),
-		bson.M{"uuid": uuid},
+		bson.M{"_id": id},
 	).Decode(&tenant)
 	if err != nil {
 		return nil
 	}
 	return &tenant
+}
+
+func DBFindAllTenants() []Tenant {
+	var tenants []Tenant
+
+	cursor, err := tenantCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &tenants)
+	if err != nil {
+		return nil
+	}
+
+	return tenants
+}
+
+type Gateway struct {
+	Name   string `json:"name" bson:"_id"`
+	IPAddr string `json:"ipaddr" bson:"ipaddr"`
 }
 
 // This API will add a new gateway or update a gateway if it already exists
@@ -72,9 +81,9 @@ func DBAddGateway(data *Gateway) error {
 	}
 	err := gatewayCltn.FindOneAndUpdate(
 		context.TODO(),
-		bson.M{"name": data.Name},
+		bson.M{"_id": data.Name},
 		bson.D{
-			{"$set", bson.M{"name": data.Name, "zone": data.Zone}},
+			{"$set", bson.M{"_id": data.Name, "ipaddr": data.IPAddr}},
 		},
 		&opt,
 	)
@@ -85,17 +94,11 @@ func DBAddGateway(data *Gateway) error {
 	return nil
 }
 
-type Gateway struct {
-	ID   primitive.ObjectID `bson:"_id"`
-	Name string             `json:"name" bson:"name"`
-	Zone string             `json:"zone" bson:"zone"`
-}
-
 func DBFindGateway(name string) *Gateway {
 	var gateway Gateway
 	err := gatewayCltn.FindOne(
 		context.TODO(),
-		bson.M{"name": name},
+		bson.M{"_id": name},
 	).Decode(&gateway)
 	if err != nil {
 		return nil
@@ -103,10 +106,24 @@ func DBFindGateway(name string) *Gateway {
 	return &gateway
 }
 
+func DBFindAllGateways() []Gateway {
+	var gateways []Gateway
+
+	cursor, err := gatewayCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &gateways)
+	if err != nil {
+		return nil
+	}
+
+	return gateways
+}
+
 type User struct {
-	ID       primitive.ObjectID `bson:"_id"`
-	Tenant   string             `json:"tenant" bson:"tenant"`
-	Userid   string             `json:"userid" bson:"userid"`
+	Userid   string             `json:"userid" bson:"_id"`
+	Tenant   primitive.ObjectID `json:"tenant" bson:"tenant"`
 	Username string             `json:"name" bson:"name"`
 	Email    string             `json:"email" bson:"email"`
 }
@@ -127,9 +144,9 @@ func DBAddUser(data *User) error {
 	}
 	err := userCltn.FindOneAndUpdate(
 		context.TODO(),
-		bson.M{"userid": data.Userid, "tenant": data.Tenant},
+		bson.M{"_id": data.Userid, "tenant": data.Tenant},
 		bson.D{
-			{"$set", bson.M{"userid": data.Userid, "tenant": data.Tenant, "name": data.Username, "email": data.Email}},
+			{"$set", bson.M{"_id": data.Userid, "tenant": data.Tenant, "name": data.Username, "email": data.Email}},
 		},
 		&opt,
 	)
@@ -140,11 +157,11 @@ func DBAddUser(data *User) error {
 	return nil
 }
 
-func DBFindUser(tenant string, userid string) *User {
+func DBFindUser(tenant primitive.ObjectID, userid string) *User {
 	var user User
 	err := userCltn.FindOne(
 		context.TODO(),
-		bson.M{"userid": userid, "tenant": tenant},
+		bson.M{"_id": userid, "tenant": tenant},
 	).Decode(&user)
 	if err != nil {
 		return nil
@@ -152,10 +169,24 @@ func DBFindUser(tenant string, userid string) *User {
 	return &user
 }
 
+func DBFindAllUsers(tenant primitive.ObjectID) []User {
+	var users []User
+
+	cursor, err := userCltn.Find(context.TODO(), bson.M{"tenant": tenant})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &users)
+	if err != nil {
+		return nil
+	}
+
+	return users
+}
+
 type UserAttr struct {
-	Id       primitive.ObjectID `bson:"_id"`
-	Userid   string             `bson:"userid" json:"userid"`
-	Tenant   string             `bson:"tenant" json:"tenant"`
+	Userid   string             `bson:"_id" json:"userid"`
+	Tenant   primitive.ObjectID `bson:"tenant" json:"tenant"`
 	Majver   string             `bson:"majver" json:"maj_ver"`
 	Minver   string             `bson:"minver" json:"min_ver"`
 	Category string             `bson:"category" json:"category"`
@@ -179,11 +210,14 @@ func DBAddUserAttr(data *UserAttr) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
+	// TODO: Need to increment this
+	data.Majver = "1"
+	data.Minver = "0"
 	err := userAttrCltn.FindOneAndUpdate(
 		context.TODO(),
-		bson.M{"userid": data.Userid, "tenant": data.Tenant},
+		bson.M{"_id": data.Userid, "tenant": data.Tenant},
 		bson.D{
-			{"$set", bson.M{"userid": data.Userid, "tenant": data.Tenant, "majver": data.Majver,
+			{"$set", bson.M{"_id": data.Userid, "tenant": data.Tenant, "majver": data.Majver,
 				"minver": data.Minver, "category": data.Category, "type": data.Type, "level": data.Level,
 				"dept": data.Dept, "team": data.Team}},
 		},
@@ -196,11 +230,11 @@ func DBAddUserAttr(data *UserAttr) error {
 	return nil
 }
 
-func DBFindUserAttr(tenant string, userid string) *UserAttr {
+func DBFindUserAttr(tenant primitive.ObjectID, userid string) *UserAttr {
 	var user UserAttr
 	err := userAttrCltn.FindOne(
 		context.TODO(),
-		bson.M{"userid": userid, "tenant": tenant},
+		bson.M{"_id": userid, "tenant": tenant},
 	).Decode(&user)
 	if err != nil {
 		return nil
@@ -208,10 +242,24 @@ func DBFindUserAttr(tenant string, userid string) *UserAttr {
 	return &user
 }
 
+func DBFindAllUserAttrs(tenant primitive.ObjectID) []UserAttr {
+	var userAttrs []UserAttr
+
+	cursor, err := userAttrCltn.Find(context.TODO(), bson.M{"tenant": tenant})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &userAttrs)
+	if err != nil {
+		return nil
+	}
+
+	return userAttrs
+}
+
 type Bundle struct {
-	ID         primitive.ObjectID `bson:"_id"`
-	Tenant     string             `json:"tenant" bson:"tenant"`
-	Bid        string             `json:"bid" bson:"bid"`
+	Bid        string             `json:"bid" bson:"_id"`
+	Tenant     primitive.ObjectID `json:"tenant" bson:"tenant"`
 	Bundlename string             `json:"name" bson:"name"`
 }
 
@@ -231,9 +279,9 @@ func DBAddBundle(data *Bundle) error {
 	}
 	err := appCltn.FindOneAndUpdate(
 		context.TODO(),
-		bson.M{"bid": data.Bid, "tenant": data.Tenant},
+		bson.M{"_id": data.Bid, "tenant": data.Tenant},
 		bson.D{
-			{"$set", bson.M{"bid": data.Bid, "tenant": data.Tenant, "name": data.Bundlename}},
+			{"$set", bson.M{"_id": data.Bid, "tenant": data.Tenant, "name": data.Bundlename}},
 		},
 		&opt,
 	)
@@ -244,11 +292,11 @@ func DBAddBundle(data *Bundle) error {
 	return nil
 }
 
-func DBFindBundle(tenant string, bundleid string) *Bundle {
+func DBFindBundle(tenant primitive.ObjectID, bundleid string) *Bundle {
 	var app Bundle
 	err := appCltn.FindOne(
 		context.TODO(),
-		bson.M{"bid": bundleid, "tenant": tenant},
+		bson.M{"_id": bundleid, "tenant": tenant},
 	).Decode(&app)
 	if err != nil {
 		return nil
@@ -256,10 +304,24 @@ func DBFindBundle(tenant string, bundleid string) *Bundle {
 	return &app
 }
 
+func DBFindAllBundles(tenant primitive.ObjectID) []Bundle {
+	var bundles []Bundle
+
+	cursor, err := appCltn.Find(context.TODO(), bson.M{"tenant": tenant})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &bundles)
+	if err != nil {
+		return nil
+	}
+
+	return bundles
+}
+
 type BundleAttr struct {
-	Id          primitive.ObjectID `bson:"_id"`
-	Bid         string             `bson:"bid" json:"bid"`
-	Tenant      string             `bson:"tenant" json:"tenant"`
+	Bid         string             `bson:"_id" json:"bid"`
+	Tenant      primitive.ObjectID `bson:"tenant" json:"tenant"`
 	Majver      string             `bson:"majver" json:"maj_ver"`
 	Minver      string             `bson:"minver" json:"min_ver"`
 	Team        []string           `bson:"team" json:"team"`
@@ -285,9 +347,9 @@ func DBAddBundleAttr(data *BundleAttr) error {
 	}
 	err := appAttrCltn.FindOneAndUpdate(
 		context.TODO(),
-		bson.M{"bid": data.Bid, "tenant": data.Tenant},
+		bson.M{"_id": data.Bid, "tenant": data.Tenant},
 		bson.D{
-			{"$set", bson.M{"bid": data.Bid, "tenant": data.Tenant, "majver": data.Majver,
+			{"$set", bson.M{"_id": data.Bid, "tenant": data.Tenant, "majver": data.Majver,
 				"minver": data.Minver, "team": data.Team, "dept": data.Dept,
 				"IC": data.Contrib, "manager": data.Manager, "nonemployee": data.Nonemployee}},
 		},
@@ -300,14 +362,29 @@ func DBAddBundleAttr(data *BundleAttr) error {
 	return nil
 }
 
-func DBFindBundleAttr(tenant string, bundleid string) *BundleAttr {
-	var app BundleAttr
+func DBFindBundleAttr(tenant primitive.ObjectID, bundleid string) *BundleAttr {
+	var attr BundleAttr
 	err := appAttrCltn.FindOne(
 		context.TODO(),
-		bson.M{"bid": bundleid, "tenant": tenant},
-	).Decode(&app)
+		bson.M{"_id": bundleid, "tenant": tenant},
+	).Decode(&attr)
 	if err != nil {
 		return nil
 	}
-	return &app
+	return &attr
+}
+
+func DBFindAllBundleAttrs(tenant primitive.ObjectID) []BundleAttr {
+	var bundleAttrs []BundleAttr
+
+	cursor, err := appAttrCltn.Find(context.TODO(), bson.M{"tenant": tenant})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &bundleAttrs)
+	if err != nil {
+		return nil
+	}
+
+	return bundleAttrs
 }

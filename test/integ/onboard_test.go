@@ -11,8 +11,8 @@ import (
 )
 
 type Gateway_v1 struct {
-	Name string `json:"name" bson:"name"`
-	Zone string `json:"zone" bson:"zone"`
+	Name   string `json:"name" bson:"_id"`
+	IPAddr string `json:"ipaddr" bson:"ipaddr"`
 }
 
 func addGateway(gw *Gateway_v1) bool {
@@ -49,7 +49,7 @@ func addGateway(gw *Gateway_v1) bool {
 }
 
 func testGatewayAdd_v1(t *testing.T) {
-	gw := Gateway_v1{Name: "sjc.nextensio.net", Zone: "us-west"}
+	gw := Gateway_v1{Name: "sjc.nextensio.net", IPAddr: "1.1.1.1"}
 	add := addGateway(&gw)
 	if add == false {
 		t.Error()
@@ -62,8 +62,61 @@ func TestGatewayAdd_v1(t *testing.T) {
 	testGatewayAdd_v1(t)
 }
 
+func TestGetAllGateway_v1(t *testing.T) {
+	db.DBReinit()
+	gw := Gateway_v1{Name: "sjc.nextensio.net", IPAddr: "1.1.1.1"}
+	add := addGateway(&gw)
+	if add == false {
+		t.Error()
+		return
+	}
+	gw = Gateway_v1{Name: "ric.nextensio.net", IPAddr: "2.2.2.2"}
+	add = addGateway(&gw)
+	if add == false {
+		t.Error()
+		return
+	}
+
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getallgateways")
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data []db.Gateway
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if len(data) != 2 {
+		t.Error()
+		return
+	}
+	found := 0
+	for i := 0; i < len(data); i++ {
+		if data[i].Name == "sjc.nextensio.net" {
+			found++
+		}
+		if data[i].Name == "ric.nextensio.net" {
+			found++
+		}
+	}
+	if found != 2 {
+		t.Error()
+		return
+	}
+}
+
 type Tenant_v1 struct {
-	Uuid     string   `json:"uuid" bson:"uuid"`
+	ID       string   `json:"_id" bson:"_id"`
+	Name     string   `json:"name" bson:"name"`
 	Idp      string   `json:"idp" bson:"idp"`
 	Gateways []string `json:"gateways"`
 }
@@ -92,16 +145,22 @@ func addTenant(tenant *Tenant_v1) bool {
 		return false
 	}
 
-	dbTenant := db.DBFindTenant(tenant.Uuid)
-	if dbTenant == nil {
+	found := false
+	dbTenants := db.DBFindAllTenants()
+	for i := 0; i < len(dbTenants); i++ {
+		if dbTenants[i].Name == tenant.Name {
+			found = true
+		}
+	}
+	if !found {
 		return false
 	}
 
 	return true
 }
 
-func testAddTenant_v1(t *testing.T) {
-	var tenant = Tenant_v1{Uuid: "foobar", Idp: "http://127.0.0.1:8081/test/api/v1",
+func AddTenant_v1(t *testing.T) {
+	var tenant = Tenant_v1{Name: "foobar", Idp: "http://127.0.0.1:8081/test/api/v1",
 		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"},
 	}
 	add := addTenant(&tenant)
@@ -112,7 +171,7 @@ func testAddTenant_v1(t *testing.T) {
 	}
 
 	// add one gateway, but the tenant add should still fail since only one is added yet
-	gw := Gateway_v1{Name: "sjc.nextensio.net", Zone: "us-west"}
+	gw := Gateway_v1{Name: "sjc.nextensio.net", IPAddr: "1.1.1.1"}
 	add = addGateway(&gw)
 	if add == false {
 		t.Error()
@@ -126,7 +185,7 @@ func testAddTenant_v1(t *testing.T) {
 		return
 	}
 
-	gw = Gateway_v1{Name: "ric.nextensio.net", Zone: "us-west"}
+	gw = Gateway_v1{Name: "ric.nextensio.net", IPAddr: "1.1.1.1"}
 	add = addGateway(&gw)
 	if add == false {
 		t.Error()
@@ -142,24 +201,94 @@ func testAddTenant_v1(t *testing.T) {
 
 func TestAddTenant_v1(t *testing.T) {
 	db.DBReinit()
-	testAddTenant_v1(t)
+	AddTenant_v1(t)
 }
 
-func addGatewayAndTenant(t *testing.T) {
+func TestGetAllTenant_v1(t *testing.T) {
+	db.DBReinit()
+
 	// add one gateway, but the tenant add should still fail since only one is added yet
-	gw := Gateway_v1{Name: "sjc.nextensio.net", Zone: "us-west"}
+	gw := Gateway_v1{Name: "sjc.nextensio.net", IPAddr: "1.1.1.1"}
 	add := addGateway(&gw)
 	if add == false {
 		t.Error()
 		return
 	}
-	gw = Gateway_v1{Name: "ric.nextensio.net", Zone: "us-west"}
+	gw = Gateway_v1{Name: "ric.nextensio.net", IPAddr: "2.2.2.2"}
 	add = addGateway(&gw)
 	if add == false {
 		t.Error()
 		return
 	}
-	var tenant = Tenant_v1{Uuid: "foobar", Idp: "http://127.0.0.1:8081/test/api/v1",
+	var tenant1 = Tenant_v1{Name: "foobar", Idp: "http://127.0.0.1:8081/test/api/v1",
+		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"}}
+	add = addTenant(&tenant1)
+	if add == false {
+		// The above add should NOT succeed because we have not added any gateways yet
+		t.Error()
+		return
+	}
+	var tenant2 = Tenant_v1{Name: "gloobar", Idp: "http://127.0.0.1:8081/test/api/v1",
+		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"}}
+	add = addTenant(&tenant2)
+	if add == false {
+		// The above add should NOT succeed because we have not added any gateways yet
+		t.Error()
+		return
+	}
+
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getalltenants")
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data []db.Tenant
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if len(data) != 2 {
+		t.Error()
+		return
+	}
+	found := 0
+	for i := 0; i < len(data); i++ {
+		if data[i].Name == "foobar" {
+			found++
+		}
+		if data[i].Name == "gloobar" {
+			found++
+		}
+	}
+	if found != 2 {
+		t.Error()
+		return
+	}
+}
+
+func addGatewayAndTenant(t *testing.T) {
+	// add one gateway, but the tenant add should still fail since only one is added yet
+	gw := Gateway_v1{Name: "sjc.nextensio.net", IPAddr: "1.1.1.1"}
+	add := addGateway(&gw)
+	if add == false {
+		t.Error()
+		return
+	}
+	gw = Gateway_v1{Name: "ric.nextensio.net", IPAddr: "2.2.2.2"}
+	add = addGateway(&gw)
+	if add == false {
+		t.Error()
+		return
+	}
+	var tenant = Tenant_v1{Name: "foobar", Idp: "http://127.0.0.1:8081/test/api/v1",
 		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"},
 	}
 	add = addTenant(&tenant)
@@ -174,8 +303,9 @@ func TestOnboard_v1(t *testing.T) {
 	db.DBReinit()
 
 	addGatewayAndTenant(t)
+	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/onboard/foobar/ABCD/abcd")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/onboard/" + dbTenants[0].ID.Hex() + "/ABCD/abcd")
 	if err != nil {
 		t.Error()
 		return
@@ -212,18 +342,21 @@ func TestOnboard_v1(t *testing.T) {
 }
 
 type User_v1 struct {
+	Userid string `json:"userid" bson:"_id"`
 	Tenant string `json:"tenant" bson:"tenant"`
-	Userid string `json:"userid" bson:"userid"`
 	Name   string `json:"name" bson:"name"`
 	Email  string `json:"email" bson:"email"`
 }
 
-func testUserAdd_v1(t *testing.T) {
-	testAddTenant_v1(t)
+func testUserAdd_v1(t *testing.T, tenantadd bool, userid string) {
+	if tenantadd {
+		AddTenant_v1(t)
+	}
+	dbTenants := db.DBFindAllTenants()
 
 	user := User_v1{
-		Tenant: "foobar",
-		Userid: "gopa",
+		Tenant: dbTenants[0].ID.Hex(),
+		Userid: userid,
 		Name:   "Gopa Kumar",
 		Email:  "gopa@nextensio.net",
 	}
@@ -255,7 +388,7 @@ func testUserAdd_v1(t *testing.T) {
 		return
 	}
 
-	dbUser := db.DBFindUser(user.Tenant, user.Userid)
+	dbUser := db.DBFindUser(dbTenants[0].ID, user.Userid)
 	if dbUser == nil {
 		t.Error()
 		return
@@ -264,14 +397,15 @@ func testUserAdd_v1(t *testing.T) {
 
 func TestUserAdd_v1(t *testing.T) {
 	db.DBReinit()
-	testUserAdd_v1(t)
+	testUserAdd_v1(t, true, "gopa")
 }
 
 func TestUserGet_v1(t *testing.T) {
 	db.DBReinit()
-	testUserAdd_v1(t)
+	testUserAdd_v1(t, true, "gopa")
+	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getuser/foobar/gopa")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getuser/" + dbTenants[0].ID.Hex() + "/gopa")
 	if err != nil {
 		t.Error()
 		return
@@ -299,8 +433,53 @@ func TestUserGet_v1(t *testing.T) {
 	}
 }
 
+func TestGetAllUsers_v1(t *testing.T) {
+	db.DBReinit()
+
+	testUserAdd_v1(t, true, "gopa")
+	testUserAdd_v1(t, false, "kumar")
+
+	dbTenants := db.DBFindAllTenants()
+
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getallusers/" + dbTenants[0].ID.Hex())
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data []db.User
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if len(data) != 2 {
+		t.Error()
+		return
+	}
+	found := 0
+	for i := 0; i < len(data); i++ {
+		if data[i].Userid == "gopa" {
+			found++
+		}
+		if data[i].Userid == "kumar" {
+			found++
+		}
+	}
+	if found != 2 {
+		t.Error()
+		return
+	}
+}
+
 type UserAttr_v1 struct {
-	Userid   string   `bson:"userid" json:"userid"`
+	Userid   string   `bson:"_id" json:"userid"`
 	Tenant   string   `bson:"tenant" json:"tenant"`
 	Majver   string   `bson:"majver" json:"maj_ver"`
 	Minver   string   `bson:"minver" json:"min_ver"`
@@ -311,13 +490,13 @@ type UserAttr_v1 struct {
 	Team     []string `bson:"team" json:"team"`
 }
 
-func testUserAttrAdd_v1(t *testing.T) {
-	db.DBReinit()
-	testUserAdd_v1(t)
+func testUserAttrAdd_v1(t *testing.T, tenantadd bool, userid string) {
+	testUserAdd_v1(t, tenantadd, userid)
+	dbTenants := db.DBFindAllTenants()
 
 	attr := UserAttr_v1{
-		Userid:   "gopa",
-		Tenant:   "foobar",
+		Userid:   userid,
+		Tenant:   dbTenants[0].ID.Hex(),
 		Majver:   "1",
 		Minver:   "0",
 		Category: "TODO",
@@ -354,7 +533,7 @@ func testUserAttrAdd_v1(t *testing.T) {
 		return
 	}
 
-	dbAttr := db.DBFindUserAttr(attr.Tenant, attr.Userid)
+	dbAttr := db.DBFindUserAttr(dbTenants[0].ID, attr.Userid)
 	if dbAttr == nil {
 		t.Error()
 		return
@@ -370,14 +549,15 @@ func testUserAttrAdd_v1(t *testing.T) {
 }
 func TestUserAttrAdd_v1(t *testing.T) {
 	db.DBReinit()
-	testUserAttrAdd_v1(t)
+	testUserAttrAdd_v1(t, true, "gopa")
 }
 
 func TestUserAttrGet_v1(t *testing.T) {
 	db.DBReinit()
-	testUserAttrAdd_v1(t)
+	testUserAttrAdd_v1(t, true, "gopa")
+	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getuserattr/foobar/gopa")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getuserattr/" + dbTenants[0].ID.Hex() + "/gopa")
 	if err != nil {
 		t.Error()
 		return
@@ -410,18 +590,66 @@ func TestUserAttrGet_v1(t *testing.T) {
 	}
 }
 
+func TestGetAllUserAttr_v1(t *testing.T) {
+	db.DBReinit()
+
+	testUserAttrAdd_v1(t, true, "gopa")
+	testUserAttrAdd_v1(t, false, "kumar")
+
+	dbTenants := db.DBFindAllTenants()
+
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getalluserattr/" + dbTenants[0].ID.Hex())
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data []db.UserAttr
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if len(data) != 2 {
+		t.Error()
+		return
+	}
+	found := 0
+	for i := 0; i < len(data); i++ {
+		if data[i].Userid == "gopa" {
+			found++
+		}
+		if data[i].Userid == "kumar" {
+			found++
+		}
+	}
+	if found != 2 {
+		t.Error()
+		return
+	}
+}
+
 type Bundle_v1 struct {
-	Bid        string `json:"bid" bson:"bid"`
+	Bid        string `json:"bid" bson:"_id"`
 	Tenant     string `json:"tenant" bson:"tenant"`
 	Bundlename string `json:"name" bson:"name"`
 }
 
-func testBundleAdd_v1(t *testing.T) {
-	testAddTenant_v1(t)
+func testBundleAdd_v1(t *testing.T, tenantadd bool, bid string) {
+	if tenantadd {
+		AddTenant_v1(t)
+	}
+	dbTenants := db.DBFindAllTenants()
 
 	user := Bundle_v1{
-		Bid:        "youtube",
-		Tenant:     "foobar",
+		Bid:        bid,
+		Tenant:     dbTenants[0].ID.Hex(),
 		Bundlename: "Google Youtube service",
 	}
 	body, err := json.Marshal(user)
@@ -452,7 +680,7 @@ func testBundleAdd_v1(t *testing.T) {
 		return
 	}
 
-	dbBundle := db.DBFindBundle(user.Tenant, user.Bid)
+	dbBundle := db.DBFindBundle(dbTenants[0].ID, user.Bid)
 	if dbBundle == nil {
 		t.Error()
 		return
@@ -461,14 +689,15 @@ func testBundleAdd_v1(t *testing.T) {
 
 func TestBundleAdd_v1(t *testing.T) {
 	db.DBReinit()
-	testBundleAdd_v1(t)
+	testBundleAdd_v1(t, true, "youtube")
 }
 
 func TestBundleGet_v1(t *testing.T) {
 	db.DBReinit()
-	testBundleAdd_v1(t)
+	testBundleAdd_v1(t, true, "youtube")
+	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getbundle/foobar/youtube")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getbundle/" + dbTenants[0].ID.Hex() + "/youtube")
 	if err != nil {
 		t.Error()
 		return
@@ -496,8 +725,53 @@ func TestBundleGet_v1(t *testing.T) {
 	}
 }
 
+func TestGetAllBundles_v1(t *testing.T) {
+	db.DBReinit()
+
+	testBundleAdd_v1(t, true, "youtube")
+	testBundleAdd_v1(t, false, "netflix")
+
+	dbTenants := db.DBFindAllTenants()
+
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getallbundles/" + dbTenants[0].ID.Hex())
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data []db.Bundle
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if len(data) != 2 {
+		t.Error()
+		return
+	}
+	found := 0
+	for i := 0; i < len(data); i++ {
+		if data[i].Bid == "youtube" {
+			found++
+		}
+		if data[i].Bid == "netflix" {
+			found++
+		}
+	}
+	if found != 2 {
+		t.Error()
+		return
+	}
+}
+
 type BundleAttr_v1 struct {
-	Bid         string   `bson:"bid" json:"bid"`
+	Bid         string   `bson:"_id" json:"bid"`
 	Tenant      string   `bson:"tenant" json:"tenant"`
 	Majver      string   `bson:"majver" json:"maj_ver"`
 	Minver      string   `bson:"minver" json:"min_ver"`
@@ -508,13 +782,13 @@ type BundleAttr_v1 struct {
 	Nonemployee string   `bson:"nonemployee" json:"nonemployee"`
 }
 
-func testBundleAttrAdd_v1(t *testing.T) {
-	db.DBReinit()
-	testBundleAdd_v1(t)
+func testBundleAttrAdd_v1(t *testing.T, tenantadd bool, bid string) {
+	testBundleAdd_v1(t, tenantadd, bid)
+	dbTenants := db.DBFindAllTenants()
 
 	attr := BundleAttr_v1{
-		Bid:         "youtube",
-		Tenant:      "foobar",
+		Bid:         bid,
+		Tenant:      dbTenants[0].ID.Hex(),
 		Majver:      "1",
 		Minver:      "0",
 		Team:        []string{"TODO"},
@@ -551,7 +825,7 @@ func testBundleAttrAdd_v1(t *testing.T) {
 		return
 	}
 
-	dbAttr := db.DBFindBundleAttr(attr.Tenant, attr.Bid)
+	dbAttr := db.DBFindBundleAttr(dbTenants[0].ID, attr.Bid)
 	if dbAttr == nil {
 		t.Error()
 		return
@@ -567,14 +841,15 @@ func testBundleAttrAdd_v1(t *testing.T) {
 }
 func TestBundleAttrAdd_v1(t *testing.T) {
 	db.DBReinit()
-	testBundleAttrAdd_v1(t)
+	testBundleAttrAdd_v1(t, true, "youtube")
 }
 
 func TestBundleAttrGet_v1(t *testing.T) {
 	db.DBReinit()
-	testBundleAttrAdd_v1(t)
+	testBundleAttrAdd_v1(t, true, "youtube")
+	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getbundleattr/foobar/youtube")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getbundleattr/" + dbTenants[0].ID.Hex() + "/youtube")
 	if err != nil {
 		t.Error()
 		return
@@ -602,6 +877,51 @@ func TestBundleAttrGet_v1(t *testing.T) {
 		return
 	}
 	if data.Dept[0] != "guest" {
+		t.Error()
+		return
+	}
+}
+
+func TestGetAllBundleAttr_v1(t *testing.T) {
+	db.DBReinit()
+
+	testBundleAttrAdd_v1(t, true, "youtube")
+	testBundleAttrAdd_v1(t, false, "netflix")
+
+	dbTenants := db.DBFindAllTenants()
+
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getallbundleattr/" + dbTenants[0].ID.Hex())
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data []db.BundleAttr
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if len(data) != 2 {
+		t.Error()
+		return
+	}
+	found := 0
+	for i := 0; i < len(data); i++ {
+		if data[i].Bid == "youtube" {
+			found++
+		}
+		if data[i].Bid == "netflix" {
+			found++
+		}
+	}
+	if found != 2 {
 		t.Error()
 		return
 	}

@@ -17,6 +17,24 @@ func rdonlyOnboard() {
 	// tenant-id and expects to get information like the gateway in response
 	addRoute("/api/v1/onboard/{tenant-uuid}/{device-id}/{access-token}", "GET", onboardHandler)
 
+	// This route is used to get all gateways
+	addRoute("/api/v1/getallgateways", "GET", getAllGatewaysHandler)
+
+	// This route is used to get all tenants
+	addRoute("/api/v1/getalltenants", "GET", getAllTenantsHandler)
+
+	// This route is used to get all users
+	addRoute("/api/v1/getallusers/{tenant-uuid}", "GET", getAllUsersHandler)
+
+	// This route is used to get all user attributes
+	addRoute("/api/v1/getalluserattr/{tenant-uuid}", "GET", getAllUserAttrHandler)
+
+	// This route is used to get all bundles
+	addRoute("/api/v1/getallbundles/{tenant-uuid}", "GET", getAllBundlesHandler)
+
+	// This route is used to get all bundle attributes
+	addRoute("/api/v1/getallbundleattr/{tenant-uuid}", "GET", getAllBundleAttrHandler)
+
 	// This route is used to get basic user info
 	addRoute("/api/v1/getuser/{tenant-uuid}/{userid}", "GET", getuserHandler)
 
@@ -31,11 +49,11 @@ func rdonlyOnboard() {
 }
 
 func rdwrOnboard() {
-	// This route is used by the controller admin to addd a new tenant
-	addRoute("/api/v1/addtenant", "POST", addtenantHandler)
-
 	// This route is used to add new gateways, gateways can be multi-tenant
 	addRoute("/api/v1/addgateway", "POST", addgatewayHandler)
+
+	// This route is used by the controller admin to addd a new tenant
+	addRoute("/api/v1/addtenant", "POST", addtenantHandler)
 
 	// This route is used to add new users with basic user info
 	addRoute("/api/v1/adduser", "POST", adduserHandler)
@@ -84,6 +102,16 @@ func addtenantHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
+// Get all tenants
+func getAllTenantsHandler(w http.ResponseWriter, r *http.Request) {
+	tenants := db.DBFindAllTenants()
+	if tenants == nil {
+		tenants = make([]db.Tenant, 0)
+	}
+	utils.WriteResult(w, tenants)
+
+}
+
 type AddgatewayResult struct {
 	Result string `json:"Result"`
 }
@@ -117,6 +145,16 @@ func addgatewayHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
+// Get all gateways
+func getAllGatewaysHandler(w http.ResponseWriter, r *http.Request) {
+	gws := db.DBFindAllGateways()
+	if gws == nil {
+		gws = make([]db.Gateway, 0)
+	}
+	utils.WriteResult(w, gws)
+
+}
+
 type onboardData struct {
 	User string `json:"sub"`
 }
@@ -138,7 +176,12 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	v := mux.Vars(r)
 	access := v["access-token"]
 	device := v["device-id"]
-	uuid := v["tenant-uuid"]
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		result.Result = "Bad tenant id"
+		utils.WriteResult(w, result)
+		return
+	}
 
 	tenant := db.DBFindTenant(uuid)
 	if tenant == nil {
@@ -218,6 +261,49 @@ func adduserHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
+type GetuserResult struct {
+	Result string `json:"Result"`
+	db.User
+}
+
+// Get an OPA policy
+func getuserHandler(w http.ResponseWriter, r *http.Request) {
+	var result GetuserResult
+
+	v := mux.Vars(r)
+	userid := v["userid"]
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		result.Result = "Bad tenant id"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	user := db.DBFindUser(uuid, userid)
+	if user == nil {
+		result.Result = "Cannot find user"
+	} else {
+		result = GetuserResult{Result: "ok", User: *user}
+	}
+	utils.WriteResult(w, result)
+}
+
+// Get all users
+func getAllUsersHandler(w http.ResponseWriter, r *http.Request) {
+	v := mux.Vars(r)
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		utils.WriteResult(w, make([]db.User, 0))
+		return
+	}
+	users := db.DBFindAllUsers(uuid)
+	if users == nil {
+		users = make([]db.User, 0)
+	}
+	utils.WriteResult(w, users)
+
+}
+
 type AdduserAttrResult struct {
 	Result string `json:"Result"`
 }
@@ -251,27 +337,6 @@ func adduserAttrHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-type GetuserResult struct {
-	Result string `json:"Result"`
-	db.User
-}
-
-// Get an OPA policy
-func getuserHandler(w http.ResponseWriter, r *http.Request) {
-	var result GetuserResult
-
-	v := mux.Vars(r)
-	uuid := v["tenant-uuid"]
-	userid := v["userid"]
-	user := db.DBFindUser(uuid, userid)
-	if user == nil {
-		result.Result = "Cannot find user"
-	} else {
-		result = GetuserResult{Result: "ok", User: *user}
-	}
-	utils.WriteResult(w, result)
-}
-
 type GetuserAttrResult struct {
 	Result string `json:"Result"`
 	db.UserAttr
@@ -282,8 +347,13 @@ func getuserAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result GetuserAttrResult
 
 	v := mux.Vars(r)
-	uuid := v["tenant-uuid"]
 	userid := v["userid"]
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		result.Result = "Bad tenant id"
+		utils.WriteResult(w, result)
+		return
+	}
 	attr := db.DBFindUserAttr(uuid, userid)
 	if attr == nil {
 		result.Result = "Cannot find user attributes"
@@ -291,6 +361,22 @@ func getuserAttrHandler(w http.ResponseWriter, r *http.Request) {
 		result = GetuserAttrResult{Result: "ok", UserAttr: *attr}
 	}
 	utils.WriteResult(w, result)
+}
+
+// Get all users attributes
+func getAllUserAttrHandler(w http.ResponseWriter, r *http.Request) {
+	v := mux.Vars(r)
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		utils.WriteResult(w, make([]db.UserAttr, 0))
+		return
+	}
+	attrs := db.DBFindAllUserAttrs(uuid)
+	if attrs == nil {
+		attrs = make([]db.UserAttr, 0)
+	}
+	utils.WriteResult(w, attrs)
+
 }
 
 type AddBundleResult struct {
@@ -326,6 +412,49 @@ func addbundleHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
+type GetbundleResult struct {
+	Result string `json:"Result"`
+	db.Bundle
+}
+
+// Get an OPA policy
+func getbundleHandler(w http.ResponseWriter, r *http.Request) {
+	var result GetbundleResult
+
+	v := mux.Vars(r)
+	bid := v["bid"]
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		result.Result = "Bad tenant id"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	bundle := db.DBFindBundle(uuid, bid)
+	if bundle == nil {
+		result.Result = "Cannot find user"
+	} else {
+		result = GetbundleResult{Result: "ok", Bundle: *bundle}
+	}
+	utils.WriteResult(w, result)
+}
+
+// Get all bundles
+func getAllBundlesHandler(w http.ResponseWriter, r *http.Request) {
+	v := mux.Vars(r)
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		utils.WriteResult(w, make([]db.Bundle, 0))
+		return
+	}
+	bundles := db.DBFindAllBundles(uuid)
+	if bundles == nil {
+		bundles = make([]db.Bundle, 0)
+	}
+	utils.WriteResult(w, bundles)
+
+}
+
 type AddbundleAttrResult struct {
 	Result string `json:"Result"`
 }
@@ -359,27 +488,6 @@ func addbundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-type GetbundleResult struct {
-	Result string `json:"Result"`
-	db.Bundle
-}
-
-// Get an OPA policy
-func getbundleHandler(w http.ResponseWriter, r *http.Request) {
-	var result GetbundleResult
-
-	v := mux.Vars(r)
-	uuid := v["tenant-uuid"]
-	bid := v["bid"]
-	bundle := db.DBFindBundle(uuid, bid)
-	if bundle == nil {
-		result.Result = "Cannot find user"
-	} else {
-		result = GetbundleResult{Result: "ok", Bundle: *bundle}
-	}
-	utils.WriteResult(w, result)
-}
-
 type GetbundleAttrResult struct {
 	Result string `json:"Result"`
 	db.BundleAttr
@@ -390,8 +498,14 @@ func getbundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result GetbundleAttrResult
 
 	v := mux.Vars(r)
-	uuid := v["tenant-uuid"]
 	bid := v["bid"]
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		result.Result = "Bad tenant id"
+		utils.WriteResult(w, result)
+		return
+	}
+
 	attr := db.DBFindBundleAttr(uuid, bid)
 	if attr == nil {
 		result.Result = "Cannot find user attributes"
@@ -399,4 +513,20 @@ func getbundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 		result = GetbundleAttrResult{Result: "ok", BundleAttr: *attr}
 	}
 	utils.WriteResult(w, result)
+}
+
+// Get all bundle attributes
+func getAllBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
+	v := mux.Vars(r)
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		utils.WriteResult(w, make([]db.BundleAttr, 0))
+		return
+	}
+	attrs := db.DBFindAllBundleAttrs(uuid)
+	if attrs == nil {
+		attrs = make([]db.BundleAttr, 0)
+	}
+	utils.WriteResult(w, attrs)
+
 }

@@ -7,6 +7,7 @@ import (
 	"nextensio/controller/utils"
 
 	"github.com/golang/glog"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -67,4 +68,8 @@ func DBReinit() {
 func DBInit() {
 	dbConnect()
 	dbCollections()
+}
+
+func StrToObjectid(objid string) (primitive.ObjectID, error) {
+	return primitive.ObjectIDFromHex(objid)
 }
