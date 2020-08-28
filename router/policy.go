@@ -2,6 +2,7 @@ package router
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"nextensio/controller/db"
@@ -13,6 +14,9 @@ import (
 func rdonlyPolicy() {
 	// This route is used to retrieve a policy in a tenant
 	addRoute("/api/v1/getpolicy/{tenant-uuid}/{policy-id}", "GET", getpolicyHandler)
+
+	// This route is used to get all policies
+	addRoute("/api/v1/getallpolicies/{tenant-uuid}", "GET", getAllPoliciesHandler)
 }
 
 func rdwrPolicy() {
@@ -38,6 +42,7 @@ func addpolicyHandler(w http.ResponseWriter, r *http.Request) {
 
 	err = json.Unmarshal(body, &data)
 	if err != nil {
+		fmt.Println(err)
 		result.Result = "Error parsing json"
 		utils.WriteResult(w, result)
 		return
@@ -63,8 +68,14 @@ func getpolicyHandler(w http.ResponseWriter, r *http.Request) {
 	var result GetpolicyResult
 
 	v := mux.Vars(r)
-	uuid := v["tenant-uuid"]
 	pid := v["policy-id"]
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		result.Result = "Bad tenant id"
+		utils.WriteResult(w, result)
+		return
+	}
+
 	policy := db.DBFindPolicy(uuid, pid)
 	if policy == nil {
 		result.Result = "Cannot find policy"
@@ -72,4 +83,21 @@ func getpolicyHandler(w http.ResponseWriter, r *http.Request) {
 		result = GetpolicyResult{Result: "ok", Policy: *policy}
 	}
 	utils.WriteResult(w, result)
+}
+
+// Get all policies
+func getAllPoliciesHandler(w http.ResponseWriter, r *http.Request) {
+	v := mux.Vars(r)
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		utils.WriteResult(w, make([]db.Policy, 0))
+		return
+	}
+
+	policies := db.DBFindAllPolicies(uuid)
+	if policies == nil {
+		policies = make([]db.Policy, 0)
+	}
+	utils.WriteResult(w, policies)
+
 }
