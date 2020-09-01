@@ -13,8 +13,7 @@ import (
 type Policy struct {
 	PolicyId string             `json:"pid" bson:"_id"`
 	Tenant   primitive.ObjectID `json:"tenant" bson:"tenant"`
-	Version  string             `json:"version" bson:"version"`
-	OPA      string             `json:"policy" bson:"policy"`
+	Rego     string             `json:"rego" bson:"rego"`
 }
 
 // This API will add a new policy or update a policy if it already exists
@@ -30,13 +29,11 @@ func DBAddPolicy(data *Policy) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	// TODO: Version has to be set properly
-	data.Version = "1"
 	err := policyCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": data.PolicyId, "tenant": data.Tenant},
 		bson.D{
-			{"$set", bson.M{"_id": data.PolicyId, "tenant": data.Tenant, "version": data.Version, "policy": data.OPA}},
+			{"$set", bson.M{"_id": data.PolicyId, "tenant": data.Tenant, "rego": data.Rego}},
 		},
 		&opt,
 	)
