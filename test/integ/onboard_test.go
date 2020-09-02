@@ -342,7 +342,7 @@ func TestOnboard_v1(t *testing.T) {
 }
 
 type User_v1 struct {
-	Userid string `json:"userid" bson:"_id"`
+	Uid    string `json:"uid" bson:"_id"`
 	Tenant string `json:"tenant" bson:"tenant"`
 	Name   string `json:"name" bson:"name"`
 	Email  string `json:"email" bson:"email"`
@@ -356,7 +356,7 @@ func testUserAdd_v1(t *testing.T, tenantadd bool, userid string) {
 
 	user := User_v1{
 		Tenant: dbTenants[0].ID.Hex(),
-		Userid: userid,
+		Uid:    userid,
 		Name:   "Gopa Kumar",
 		Email:  "gopa@nextensio.net",
 	}
@@ -388,7 +388,7 @@ func testUserAdd_v1(t *testing.T, tenantadd bool, userid string) {
 		return
 	}
 
-	dbUser := db.DBFindUser(dbTenants[0].ID, user.Userid)
+	dbUser := db.DBFindUser(dbTenants[0].ID, user.Uid)
 	if dbUser == nil {
 		t.Error()
 		return
@@ -465,10 +465,156 @@ func TestGetAllUsers_v1(t *testing.T) {
 	}
 	found := 0
 	for i := 0; i < len(data); i++ {
-		if data[i].Userid == "gopa" {
+		if data[i].Uid == "gopa" {
 			found++
 		}
-		if data[i].Userid == "kumar" {
+		if data[i].Uid == "kumar" {
+			found++
+		}
+	}
+	if found != 2 {
+		t.Error()
+		return
+	}
+}
+
+type AttrHdr_v1 struct {
+	ID     string `bson:"_id" json:"ID"`
+	Tenant string `bson:"tenant" json:"tenant"`
+	Majver string `bson:"majver" json:"majver"`
+	Minver string `bson:"minver" json:"minver"`
+}
+
+func testAttrHdrAdd_v1(t *testing.T, tenantadd bool, id string) {
+	testUserAdd_v1(t, tenantadd, id)
+	dbTenants := db.DBFindAllTenants()
+
+	attr := AttrHdr_v1{
+		ID:     id,
+		Tenant: dbTenants[0].ID.Hex(),
+		Majver: "2.0",
+		Minver: "1.0",
+	}
+	body, err := json.Marshal(attr)
+	if err != nil {
+		t.Error()
+		return
+	}
+	resp, err := http.Post("http://127.0.0.1:8080/api/v1/addattrhdr", "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data router.AddAttrHdrResult
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if data.Result != "ok" {
+		t.Error()
+		return
+	}
+
+	dbHdr := db.DBFindAttrHdr(dbTenants[0].ID, attr.ID)
+	if dbHdr == nil {
+		t.Error()
+		return
+	}
+	if dbHdr.Majver != "2.0" {
+		t.Error()
+		return
+	}
+	if dbHdr.Minver != "1.0" {
+		t.Error()
+		return
+	}
+}
+func TestAttrHdrAdd_v1(t *testing.T) {
+	db.DBReinit()
+	testAttrHdrAdd_v1(t, true, "gopa")
+}
+
+func TestAttrHdrGet_v1(t *testing.T) {
+	db.DBReinit()
+	testAttrHdrAdd_v1(t, true, "gopa")
+	dbTenants := db.DBFindAllTenants()
+
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getattrhdr/" + dbTenants[0].ID.Hex() + "/gopa")
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data router.GetAttrHdrResult
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if data.Result != "ok" {
+		t.Error()
+		return
+	}
+	if data.Majver != "2.0" {
+		t.Error()
+		return
+	}
+	if data.Minver != "1.0" {
+		t.Error()
+		return
+	}
+}
+
+func TestGetAllAttrHdr_v1(t *testing.T) {
+	db.DBReinit()
+
+	testAttrHdrAdd_v1(t, true, "gopa")
+	testAttrHdrAdd_v1(t, false, "kumar")
+
+	dbTenants := db.DBFindAllTenants()
+
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getallattrhdr/" + dbTenants[0].ID.Hex())
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data []db.DataHdr
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if len(data) != 2 {
+		t.Error()
+		return
+	}
+	found := 0
+	for i := 0; i < len(data); i++ {
+		if data[i].ID == "gopa" {
+			found++
+		}
+		if data[i].ID == "kumar" {
 			found++
 		}
 	}
@@ -479,10 +625,8 @@ func TestGetAllUsers_v1(t *testing.T) {
 }
 
 type UserAttr_v1 struct {
-	Userid   string   `bson:"_id" json:"userid"`
+	Uid      string   `bson:"_id" json:"uid"`
 	Tenant   string   `bson:"tenant" json:"tenant"`
-	Majver   string   `bson:"majver" json:"maj_ver"`
-	Minver   string   `bson:"minver" json:"min_ver"`
 	Category string   `bson:"category" json:"category"`
 	Type     string   `bson:"type" json:"type"`
 	Level    string   `bson:"level" json:"level"`
@@ -495,10 +639,8 @@ func testUserAttrAdd_v1(t *testing.T, tenantadd bool, userid string) {
 	dbTenants := db.DBFindAllTenants()
 
 	attr := UserAttr_v1{
-		Userid:   userid,
+		Uid:      userid,
 		Tenant:   dbTenants[0].ID.Hex(),
-		Majver:   "1",
-		Minver:   "0",
 		Category: "TODO",
 		Type:     "TODO",
 		Level:    "IC",
@@ -533,7 +675,7 @@ func testUserAttrAdd_v1(t *testing.T, tenantadd bool, userid string) {
 		return
 	}
 
-	dbAttr := db.DBFindUserAttr(dbTenants[0].ID, attr.Userid)
+	dbAttr := db.DBFindUserAttr(dbTenants[0].ID, attr.Uid)
 	if dbAttr == nil {
 		t.Error()
 		return
@@ -622,10 +764,10 @@ func TestGetAllUserAttr_v1(t *testing.T) {
 	}
 	found := 0
 	for i := 0; i < len(data); i++ {
-		if data[i].Userid == "gopa" {
+		if data[i].Uid == "gopa" {
 			found++
 		}
-		if data[i].Userid == "kumar" {
+		if data[i].Uid == "kumar" {
 			found++
 		}
 	}
@@ -773,8 +915,6 @@ func TestGetAllBundles_v1(t *testing.T) {
 type BundleAttr_v1 struct {
 	Bid         string   `bson:"_id" json:"bid"`
 	Tenant      string   `bson:"tenant" json:"tenant"`
-	Majver      string   `bson:"majver" json:"maj_ver"`
-	Minver      string   `bson:"minver" json:"min_ver"`
 	Team        []string `bson:"team" json:"team"`
 	Dept        []string `bson:"dept" json:"dept"`
 	Contrib     string   `bson:"IC" json:"IC"`
@@ -789,8 +929,6 @@ func testBundleAttrAdd_v1(t *testing.T, tenantadd bool, bid string) {
 	attr := BundleAttr_v1{
 		Bid:         bid,
 		Tenant:      dbTenants[0].ID.Hex(),
-		Majver:      "1",
-		Minver:      "0",
 		Team:        []string{"TODO"},
 		Dept:        []string{"guest"},
 		Contrib:     "TODO",
