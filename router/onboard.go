@@ -164,6 +164,19 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
+	err = db.DBDelUserAttrHdr(uuid)
+	if err != nil {
+		result.Result = "Failed to delete user attribute header"
+		utils.WriteResult(w, result)
+		return
+	}
+	err = db.DBDelBundleAttrHdr(uuid)
+	if err != nil {
+		result.Result = "Failed to delete bundle attribute header"
+		utils.WriteResult(w, result)
+		return
+	}
+
 	err = db.DBDelTenant(uuid)
 	if err != nil {
 		result.Result = err.Error()

@@ -245,6 +245,15 @@ func DBFindUserAttrHdr(tenant primitive.ObjectID) *DataHdr {
 	return &attr
 }
 
+func DBDelUserAttrHdr(tenant primitive.ObjectID) error {
+	_, err := userCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": "UserAttr", "tenant": tenant},
+	)
+
+	return err
+}
+
 type UserAttr struct {
 	Uid      string             `bson:"_id" json:"uid"`
 	Tenant   primitive.ObjectID `bson:"tenant" json:"tenant"`
@@ -426,6 +435,15 @@ func DBFindBundleAttrHdr(tenant primitive.ObjectID) *DataHdr {
 		return nil
 	}
 	return &attr
+}
+
+func DBDelBundleAttrHdr(tenant primitive.ObjectID) error {
+	_, err := appCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": "AppAttr", "tenant": tenant},
+	)
+
+	return err
 }
 
 type BundleAttr struct {
