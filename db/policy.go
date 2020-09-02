@@ -70,3 +70,12 @@ func DBFindAllPolicies(tenant primitive.ObjectID) []Policy {
 
 	return policies
 }
+
+func DBDelPolicy(tenant primitive.ObjectID, policyId string) error {
+	_, err := policyCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": policyId, "tenant": tenant},
+	)
+
+	return err
+}

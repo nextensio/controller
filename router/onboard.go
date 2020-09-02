@@ -61,8 +61,14 @@ func rdwrOnboard() {
 	// This route is used by the controller admin to addd a new tenant
 	addRoute("/api/v1/addtenant", "POST", addtenantHandler)
 
+	// This route is used to delete tenants
+	addRoute("/api/v1/deltenant/{tenant-uuid}", "GET", deltenantHandler)
+
 	// This route is used to add new users with basic user info
 	addRoute("/api/v1/adduser", "POST", adduserHandler)
+
+	// This route is used to delete users
+	addRoute("/api/v1/deluser/{tenant-uuid}/{userid}", "GET", deluserHandler)
 
 	// This route is used to add new bundle attribute headers
 	addRoute("/api/v1/addbundleattrhdr", "POST", addBundleAttrHdrHandler)
@@ -75,6 +81,9 @@ func rdwrOnboard() {
 
 	// This route is used to add new applications with basic application info
 	addRoute("/api/v1/addbundle", "POST", addbundleHandler)
+
+	// This route is used to delete bundles
+	addRoute("/api/v1/delbundle/{tenant-uuid}/{bid}", "GET", delbundleHandler)
 
 	// This route is used to add app attributes that are used with OPA policies.
 	addRoute("/api/v1/addbundleattr", "POST", addbundleAttrHandler)
@@ -122,6 +131,46 @@ func getAllTenantsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	utils.WriteResult(w, tenants)
 
+}
+
+type DeltenantResult struct {
+	Result string `json:"Result"`
+}
+
+// Delete a tenant
+func deltenantHandler(w http.ResponseWriter, r *http.Request) {
+	var result GetuserResult
+
+	v := mux.Vars(r)
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		result.Result = "Bad tenant id"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	if db.DBFindAllUsers(uuid) != nil {
+		result.Result = "Tenant still has users"
+		utils.WriteResult(w, result)
+		return
+	}
+	if db.DBFindAllBundles(uuid) != nil {
+		result.Result = "Tenant still has bundles"
+		utils.WriteResult(w, result)
+		return
+	}
+	if db.DBFindAllPolicies(uuid) != nil {
+		result.Result = "Tenant still has policies"
+		utils.WriteResult(w, result)
+		return
+	}
+	err = db.DBDelTenant(uuid)
+	if err != nil {
+		result.Result = err.Error()
+	} else {
+		result = GetuserResult{Result: "ok"}
+	}
+	utils.WriteResult(w, result)
 }
 
 type AddgatewayResult struct {
@@ -314,6 +363,37 @@ func getAllUsersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	utils.WriteResult(w, users)
 
+}
+
+type DeluserResult struct {
+	Result string `json:"Result"`
+}
+
+// Delete a user
+func deluserHandler(w http.ResponseWriter, r *http.Request) {
+	var result GetuserResult
+
+	v := mux.Vars(r)
+	userid := v["userid"]
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		result.Result = "Bad tenant id"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = db.DBDelUserAttr(uuid, userid)
+	if err != nil {
+		result.Result = err.Error()
+	} else {
+		err = db.DBDelUser(uuid, userid)
+		if err != nil {
+			result.Result = err.Error()
+		} else {
+			result = GetuserResult{Result: "ok"}
+		}
+	}
+	utils.WriteResult(w, result)
 }
 
 type AddUserAttrHdrResult struct {
@@ -516,6 +596,37 @@ func getAllBundlesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	utils.WriteResult(w, bundles)
 
+}
+
+type DelbundleResult struct {
+	Result string `json:"Result"`
+}
+
+// Delete a bundle
+func delbundleHandler(w http.ResponseWriter, r *http.Request) {
+	var result GetuserResult
+
+	v := mux.Vars(r)
+	userid := v["bid"]
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		result.Result = "Bad tenant id"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = db.DBDelBundleAttr(uuid, userid)
+	if err != nil {
+		result.Result = err.Error()
+	} else {
+		err = db.DBDelBundle(uuid, userid)
+		if err != nil {
+			result.Result = err.Error()
+		} else {
+			result = GetuserResult{Result: "ok"}
+		}
+	}
+	utils.WriteResult(w, result)
 }
 
 type AddBundleAttrHdrResult struct {

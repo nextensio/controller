@@ -64,6 +64,15 @@ func DBFindAllTenants() []Tenant {
 	return tenants
 }
 
+func DBDelTenant(id primitive.ObjectID) error {
+	_, err := tenantCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": id},
+	)
+
+	return err
+}
+
 type Gateway struct {
 	Name   string `json:"name" bson:"_id"`
 	IPAddr string `json:"ipaddr" bson:"ipaddr"`
@@ -184,6 +193,14 @@ func DBFindAllUsers(tenant primitive.ObjectID) []User {
 	return users
 }
 
+func DBDelUser(tenant primitive.ObjectID, userid string) error {
+	_, err := userCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": userid, "tenant": tenant},
+	)
+	return err
+}
+
 type DataHdr struct {
 	ID     string             `bson:"_id" json:"ID"`
 	Majver string             `bson:"majver" json:"majver"`
@@ -295,6 +312,15 @@ func DBFindAllUserAttrs(tenant primitive.ObjectID) []UserAttr {
 	return userAttrs
 }
 
+func DBDelUserAttr(tenant primitive.ObjectID, userid string) error {
+	_, err := userAttrCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": userid, "tenant": tenant},
+	)
+
+	return err
+}
+
 type Bundle struct {
 	Bid        string             `json:"bid" bson:"_id"`
 	Tenant     primitive.ObjectID `json:"tenant" bson:"tenant"`
@@ -355,6 +381,14 @@ func DBFindAllBundles(tenant primitive.ObjectID) []Bundle {
 	}
 
 	return bundles
+}
+
+func DBDelBundle(tenant primitive.ObjectID, bundleid string) error {
+	_, err := appCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": bundleid, "tenant": tenant},
+	)
+	return err
 }
 
 // This API will add/update a bundle Attribute Header
@@ -459,4 +493,13 @@ func DBFindAllBundleAttrs(tenant primitive.ObjectID) []BundleAttr {
 	}
 
 	return bundleAttrs
+}
+
+func DBDelBundleAttr(tenant primitive.ObjectID, bundleid string) error {
+	_, err := appAttrCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": bundleid, "tenant": tenant},
+	)
+
+	return err
 }
