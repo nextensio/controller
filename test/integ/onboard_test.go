@@ -274,6 +274,66 @@ func TestGetAllTenant_v1(t *testing.T) {
 	}
 }
 
+func testTenantDel(t *testing.T, expect_delete bool) {
+	dbTenants := db.DBFindAllTenants()
+
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/deltenant/" + dbTenants[0].ID.Hex())
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data router.DeltenantResult
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if expect_delete {
+		if data.Result != "ok" {
+			t.Error()
+			return
+		}
+		if db.DBFindAllUsers(dbTenants[0].ID) != nil || db.DBFindAllUserAttrs(dbTenants[0].ID) != nil ||
+			db.DBFindAllBundles(dbTenants[0].ID) != nil || db.DBFindAllBundleAttrs(dbTenants[0].ID) != nil ||
+			db.DBFindAllPolicies(dbTenants[0].ID) != nil {
+			t.Error()
+			return
+		}
+	} else {
+		if data.Result == "ok" {
+			t.Error()
+			return
+		}
+		if db.DBFindAllUsers(dbTenants[0].ID) == nil && db.DBFindAllUserAttrs(dbTenants[0].ID) == nil &&
+			db.DBFindAllBundles(dbTenants[0].ID) == nil && db.DBFindAllBundleAttrs(dbTenants[0].ID) == nil &&
+			db.DBFindAllPolicies(dbTenants[0].ID) == nil {
+			t.Error()
+			return
+		}
+	}
+}
+
+func TestTenantDel(t *testing.T) {
+	db.DBReinit()
+	testUserAttrAdd_v1(t, true, "gopa")
+	testBundleAttrAdd_v1(t, false, "youtube")
+	PolicyAdd_v1(t, false, "agent-access")
+	testTenantDel(t, false)
+	testUserDel(t, "gopa")
+	testTenantDel(t, false)
+	testBundleDel(t, "youtube")
+	testTenantDel(t, false)
+	PolicyDel_v1(t, "agent-access")
+	testTenantDel(t, true)
+}
+
 func addGatewayAndTenant(t *testing.T) {
 	// add one gateway, but the tenant add should still fail since only one is added yet
 	gw := Gateway_v1{Name: "sjc.nextensio.net", IPAddr: "1.1.1.1"}
@@ -731,6 +791,43 @@ func TestGetAllUserAttr_v1(t *testing.T) {
 	}
 }
 
+func testUserDel(t *testing.T, user string) {
+	dbTenants := db.DBFindAllTenants()
+
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/deluser/" + dbTenants[0].ID.Hex() + "/" + user)
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data router.DeluserResult
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if data.Result != "ok" {
+		t.Error()
+		return
+	}
+	if db.DBFindUser(dbTenants[0].ID, user) != nil || db.DBFindUserAttr(dbTenants[0].ID, user) != nil {
+		t.Error()
+		return
+	}
+}
+
+func TestUserDel(t *testing.T) {
+	db.DBReinit()
+	testUserAttrAdd_v1(t, true, "gopa")
+	testUserDel(t, "gopa")
+}
+
 type Bundle_v1 struct {
 	Bid        string `json:"bid" bson:"_id"`
 	Tenant     string `json:"tenant" bson:"tenant"`
@@ -1116,4 +1213,41 @@ func TestGetAllBundleAttr_v1(t *testing.T) {
 		t.Error()
 		return
 	}
+}
+
+func testBundleDel(t *testing.T, bundle string) {
+	dbTenants := db.DBFindAllTenants()
+
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/delbundle/" + dbTenants[0].ID.Hex() + "/" + bundle)
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data router.DelbundleResult
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if data.Result != "ok" {
+		t.Error()
+		return
+	}
+	if db.DBFindBundle(dbTenants[0].ID, bundle) != nil || db.DBFindBundleAttr(dbTenants[0].ID, bundle) != nil {
+		t.Error()
+		return
+	}
+}
+
+func TestBundleDel(t *testing.T) {
+	db.DBReinit()
+	testBundleAttrAdd_v1(t, true, "youtube")
+	testBundleDel(t, "youtube")
 }

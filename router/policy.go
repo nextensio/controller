@@ -22,6 +22,9 @@ func rdonlyPolicy() {
 func rdwrPolicy() {
 	// This route is used by the controller admin to addd a new OPA policy to the tenant
 	addRoute("/api/v1/addpolicy", "POST", addpolicyHandler)
+
+	// This route is used by the controller admin to delete an OPA policy
+	addRoute("/api/v1/delpolicy/{tenant-uuid}/{policy-id}", "GET", delpolicyHandler)
 }
 
 type AddpolicyResult struct {
@@ -100,4 +103,30 @@ func getAllPoliciesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	utils.WriteResult(w, policies)
 
+}
+
+type DelpolicyResult struct {
+	Result string `json:"Result"`
+}
+
+// Get an OPA policy
+func delpolicyHandler(w http.ResponseWriter, r *http.Request) {
+	var result DelpolicyResult
+
+	v := mux.Vars(r)
+	pid := v["policy-id"]
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		result.Result = "Bad tenant id"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = db.DBDelPolicy(uuid, pid)
+	if err != nil {
+		result.Result = err.Error()
+	} else {
+		result = DelpolicyResult{Result: "ok"}
+	}
+	utils.WriteResult(w, result)
 }

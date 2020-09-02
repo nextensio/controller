@@ -16,7 +16,7 @@ type Policy_v1 struct {
 	Rego     string `json:"rego" bson:"rego"`
 }
 
-func testPolicyAdd_v1(t *testing.T, addtenant bool, pid string) {
+func PolicyAdd_v1(t *testing.T, addtenant bool, pid string) {
 	if addtenant {
 		AddTenant_v1(t)
 	}
@@ -64,12 +64,12 @@ func testPolicyAdd_v1(t *testing.T, addtenant bool, pid string) {
 
 func TestPolicyAdd_v1(t *testing.T) {
 	db.DBReinit()
-	testPolicyAdd_v1(t, true, "agent-authorization")
+	PolicyAdd_v1(t, true, "agent-authorization")
 }
 
 func TestPolicyGet_v1(t *testing.T) {
 	db.DBReinit()
-	testPolicyAdd_v1(t, true, "agent-authorization")
+	PolicyAdd_v1(t, true, "agent-authorization")
 	dbTenants := db.DBFindAllTenants()
 
 	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getpolicy/" + dbTenants[0].ID.Hex() + "/agent-authorization")
@@ -103,8 +103,8 @@ func TestPolicyGet_v1(t *testing.T) {
 func TestGetAllPolicies_v1(t *testing.T) {
 	db.DBReinit()
 
-	testPolicyAdd_v1(t, true, "agent-authorization")
-	testPolicyAdd_v1(t, false, "agent-access")
+	PolicyAdd_v1(t, true, "agent-authorization")
+	PolicyAdd_v1(t, false, "agent-access")
 
 	dbTenants := db.DBFindAllTenants()
 
@@ -143,4 +143,41 @@ func TestGetAllPolicies_v1(t *testing.T) {
 		t.Error()
 		return
 	}
+}
+
+func PolicyDel_v1(t *testing.T, name string) {
+	dbTenants := db.DBFindAllTenants()
+
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/delpolicy/" + dbTenants[0].ID.Hex() + "/" + name)
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data router.DelpolicyResult
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if data.Result != "ok" {
+		t.Error()
+		return
+	}
+	if db.DBFindAllPolicies(dbTenants[0].ID) != nil {
+		t.Error()
+		return
+	}
+}
+
+func TestPolicyDel_v1(t *testing.T) {
+	db.DBReinit()
+	PolicyAdd_v1(t, true, "agent-authorization")
+	PolicyDel_v1(t, "agent-authorization")
 }
