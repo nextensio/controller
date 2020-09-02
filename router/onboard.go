@@ -26,8 +26,11 @@ func rdonlyOnboard() {
 	// This route is used to get all users
 	addRoute("/api/v1/getallusers/{tenant-uuid}", "GET", getAllUsersHandler)
 
-	// This route is used to get all attribute headers
-	addRoute("/api/v1/getallattrhdr/{tenant-uuid}", "GET", getAllAttrHdrHandler)
+	// This route is used to get bundle attribute headers
+	addRoute("/api/v1/getbundleattrhdr/{tenant-uuid}", "GET", getBundleAttrHdrHandler)
+
+	// This route is used to get user attribute headers
+	addRoute("/api/v1/getuserattrhdr/{tenant-uuid}", "GET", getUserAttrHdrHandler)
 
 	// This route is used to get all user attributes
 	addRoute("/api/v1/getalluserattr/{tenant-uuid}", "GET", getAllUserAttrHandler)
@@ -37,9 +40,6 @@ func rdonlyOnboard() {
 
 	// This route is used to get all bundle attributes
 	addRoute("/api/v1/getallbundleattr/{tenant-uuid}", "GET", getAllBundleAttrHandler)
-
-	// This route is used to get attribute header given an id
-	addRoute("/api/v1/getattrhdr/{tenant-uuid}/{ID}", "GET", getAttrHdrHandler)
 
 	// This route is used to get basic user info
 	addRoute("/api/v1/getuser/{tenant-uuid}/{userid}", "GET", getuserHandler)
@@ -64,8 +64,11 @@ func rdwrOnboard() {
 	// This route is used to add new users with basic user info
 	addRoute("/api/v1/adduser", "POST", adduserHandler)
 
-	// This route is used to add new attribute headers
-	addRoute("/api/v1/addattrhdr", "POST", addAttrHdrHandler)
+	// This route is used to add new bundle attribute headers
+	addRoute("/api/v1/addbundleattrhdr", "POST", addBundleAttrHdrHandler)
+
+	// This route is used to add new user attribute headers
+	addRoute("/api/v1/adduserattrhdr", "POST", addUserAttrHdrHandler)
 
 	// This route is used to add attributes that decide the policies applied to the user etc.
 	addRoute("/api/v1/adduserattr", "POST", adduserAttrHandler)
@@ -125,7 +128,7 @@ type AddgatewayResult struct {
 	Result string `json:"Result"`
 }
 
-// Add a Nextensio gateway gateway
+// Add a Nextensio gateway
 func addgatewayHandler(w http.ResponseWriter, r *http.Request) {
 	var result AddgatewayResult
 	var data db.Gateway
@@ -275,7 +278,7 @@ type GetuserResult struct {
 	db.User
 }
 
-// Get an OPA policy
+// Get a user
 func getuserHandler(w http.ResponseWriter, r *http.Request) {
 	var result GetuserResult
 
@@ -313,13 +316,13 @@ func getAllUsersHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
-type AddAttrHdrResult struct {
+type AddUserAttrHdrResult struct {
 	Result string `json:"Result"`
 }
 
-// Add a user's attributes, used to decide what policies are applied to the user etc.
-func addAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
-	var result AddAttrHdrResult
+// Add a user's attribute headers
+func addUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
+	var result AddUserAttrHdrResult
 	var data db.DataHdr
 
 	body, err := ioutil.ReadAll(r.Body)
@@ -335,7 +338,7 @@ func addAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBAddAttrHdr(&data)
+	err = db.DBAddUserAttrHdr(&data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -346,46 +349,22 @@ func addAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-type GetAttrHdrResult struct {
-	Result string `json:"Result"`
-	db.DataHdr
-}
-
-// Get an attribute header
-func getAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
-	var result GetAttrHdrResult
-
-	v := mux.Vars(r)
-	id := v["ID"]
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		result.Result = "Bad tenant id"
-		utils.WriteResult(w, result)
-		return
-	}
-	hdr := db.DBFindAttrHdr(uuid, id)
-	if hdr == nil {
-		result.Result = "Cannot find user attributes"
-	} else {
-		result = GetAttrHdrResult{Result: "ok", DataHdr: *hdr}
-	}
-	utils.WriteResult(w, result)
-}
-
-// Get all attribute headers
-func getAllAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
+// Get user attribute header
+func getUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 	v := mux.Vars(r)
 	uuid, err := db.StrToObjectid(v["tenant-uuid"])
 	if err != nil {
 		utils.WriteResult(w, make([]db.UserAttr, 0))
 		return
 	}
-	hdrs := db.DBFindAllAttrHdrs(uuid)
-	if hdrs == nil {
-		hdrs = make([]db.DataHdr, 0)
+	hdr := db.DBFindUserAttrHdr(uuid)
+	if hdr == nil {
+		result := make([]db.DataHdr, 0)
+		utils.WriteResult(w, result)
+	} else {
+		result := []db.DataHdr{*hdr}
+		utils.WriteResult(w, result)
 	}
-	utils.WriteResult(w, hdrs)
-
 }
 
 type AdduserAttrResult struct {
@@ -467,7 +446,7 @@ type AddBundleResult struct {
 	Result string `json:"Result"`
 }
 
-// Add a new user, with basic information that identifies the user
+// Add a new bundle, with basic information that identifies the bundle
 func addbundleHandler(w http.ResponseWriter, r *http.Request) {
 	var result AddBundleResult
 	var data db.Bundle
@@ -539,11 +518,62 @@ func getAllBundlesHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
+type AddBundleAttrHdrResult struct {
+	Result string `json:"Result"`
+}
+
+// Add a bundle's attribute headers
+func addBundleAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
+	var result AddBundleAttrHdrResult
+	var data db.DataHdr
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		result.Result = "Error parsing json"
+		utils.WriteResult(w, result)
+		return
+	}
+	err = db.DBAddBundleAttrHdr(&data)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+// Get bundle attribute header
+func getBundleAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
+	v := mux.Vars(r)
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		utils.WriteResult(w, make([]db.UserAttr, 0))
+		return
+	}
+	hdr := db.DBFindBundleAttrHdr(uuid)
+	if hdr == nil {
+		result := make([]db.DataHdr, 0)
+		utils.WriteResult(w, result)
+	} else {
+		result := []db.DataHdr{*hdr}
+		utils.WriteResult(w, result)
+	}
+}
+
 type AddbundleAttrResult struct {
 	Result string `json:"Result"`
 }
 
-// Add a user's attributes, used to decide what policies are applied to the user etc.
+// Add a bundle's attribute, used to decide what policies are applied to the bundle etc.
 func addbundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result AddbundleAttrResult
 	var data db.BundleAttr
@@ -577,7 +607,7 @@ type GetbundleAttrResult struct {
 	db.BundleAttr
 }
 
-// Get an OPA policy
+// Get bundle attributes
 func getbundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result GetbundleAttrResult
 

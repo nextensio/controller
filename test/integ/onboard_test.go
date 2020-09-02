@@ -478,19 +478,18 @@ func TestGetAllUsers_v1(t *testing.T) {
 	}
 }
 
-type AttrHdr_v1 struct {
-	ID     string `bson:"_id" json:"ID"`
+type UserAttrHdr_v1 struct {
 	Tenant string `bson:"tenant" json:"tenant"`
 	Majver string `bson:"majver" json:"majver"`
 	Minver string `bson:"minver" json:"minver"`
 }
 
-func testAttrHdrAdd_v1(t *testing.T, tenantadd bool, id string) {
-	testUserAdd_v1(t, tenantadd, id)
+func testUserAttrHdrAdd_v1(t *testing.T) {
+	// Just to get a user collection created
+	testUserAdd_v1(t, true, "some-user")
 	dbTenants := db.DBFindAllTenants()
 
-	attr := AttrHdr_v1{
-		ID:     id,
+	attr := UserAttrHdr_v1{
 		Tenant: dbTenants[0].ID.Hex(),
 		Majver: "2.0",
 		Minver: "1.0",
@@ -500,7 +499,7 @@ func testAttrHdrAdd_v1(t *testing.T, tenantadd bool, id string) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/addattrhdr", "application/json", bytes.NewBuffer(body))
+	resp, err := http.Post("http://127.0.0.1:8080/api/v1/adduserattrhdr", "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		t.Error()
 		return
@@ -512,7 +511,7 @@ func testAttrHdrAdd_v1(t *testing.T, tenantadd bool, id string) {
 		t.Error()
 		return
 	}
-	var data router.AddAttrHdrResult
+	var data router.AddUserAttrHdrResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		t.Error()
@@ -523,7 +522,7 @@ func testAttrHdrAdd_v1(t *testing.T, tenantadd bool, id string) {
 		return
 	}
 
-	dbHdr := db.DBFindAttrHdr(dbTenants[0].ID, attr.ID)
+	dbHdr := db.DBFindUserAttrHdr(dbTenants[0].ID)
 	if dbHdr == nil {
 		t.Error()
 		return
@@ -537,57 +536,17 @@ func testAttrHdrAdd_v1(t *testing.T, tenantadd bool, id string) {
 		return
 	}
 }
-func TestAttrHdrAdd_v1(t *testing.T) {
+func TestUserAttrHdrAdd_v1(t *testing.T) {
 	db.DBReinit()
-	testAttrHdrAdd_v1(t, true, "gopa")
+	testUserAttrHdrAdd_v1(t)
 }
 
 func TestAttrHdrGet_v1(t *testing.T) {
 	db.DBReinit()
-	testAttrHdrAdd_v1(t, true, "gopa")
+	testUserAttrHdrAdd_v1(t)
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getattrhdr/" + dbTenants[0].ID.Hex() + "/gopa")
-	if err != nil {
-		t.Error()
-		return
-	}
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		t.Error()
-		return
-	}
-	var data router.GetAttrHdrResult
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		t.Error()
-		return
-	}
-	if data.Result != "ok" {
-		t.Error()
-		return
-	}
-	if data.Majver != "2.0" {
-		t.Error()
-		return
-	}
-	if data.Minver != "1.0" {
-		t.Error()
-		return
-	}
-}
-
-func TestGetAllAttrHdr_v1(t *testing.T) {
-	db.DBReinit()
-
-	testAttrHdrAdd_v1(t, true, "gopa")
-	testAttrHdrAdd_v1(t, false, "kumar")
-
-	dbTenants := db.DBFindAllTenants()
-
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getallattrhdr/" + dbTenants[0].ID.Hex())
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getuserattrhdr/" + dbTenants[0].ID.Hex())
 	if err != nil {
 		t.Error()
 		return
@@ -605,20 +564,15 @@ func TestGetAllAttrHdr_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	if len(data) != 2 {
+	if len(data) != 1 {
 		t.Error()
 		return
 	}
-	found := 0
-	for i := 0; i < len(data); i++ {
-		if data[i].ID == "gopa" {
-			found++
-		}
-		if data[i].ID == "kumar" {
-			found++
-		}
+	if data[0].Majver != "2.0" {
+		t.Error()
+		return
 	}
-	if found != 2 {
+	if data[0].Minver != "1.0" {
 		t.Error()
 		return
 	}
@@ -907,6 +861,105 @@ func TestGetAllBundles_v1(t *testing.T) {
 		}
 	}
 	if found != 2 {
+		t.Error()
+		return
+	}
+}
+
+type BundleAttrHdr_v1 struct {
+	Tenant string `bson:"tenant" json:"tenant"`
+	Majver string `bson:"majver" json:"majver"`
+	Minver string `bson:"minver" json:"minver"`
+}
+
+func testBundleAttrHdrAdd_v1(t *testing.T) {
+	// Just to get a bundle collection created
+	testBundleAdd_v1(t, true, "some-bundle")
+	dbTenants := db.DBFindAllTenants()
+	attr := BundleAttrHdr_v1{
+		Tenant: dbTenants[0].ID.Hex(),
+		Majver: "2.0",
+		Minver: "1.0",
+	}
+	body, err := json.Marshal(attr)
+	if err != nil {
+		t.Error()
+		return
+	}
+	resp, err := http.Post("http://127.0.0.1:8080/api/v1/addbundleattrhdr", "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data router.AddBundleAttrHdrResult
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if data.Result != "ok" {
+		t.Error()
+		return
+	}
+
+	dbHdr := db.DBFindBundleAttrHdr(dbTenants[0].ID)
+	if dbHdr == nil {
+		t.Error()
+		return
+	}
+	if dbHdr.Majver != "2.0" {
+		t.Error()
+		return
+	}
+	if dbHdr.Minver != "1.0" {
+		t.Error()
+		return
+	}
+}
+func TestBundleAttrHdrAdd_v1(t *testing.T) {
+	db.DBReinit()
+	testBundleAttrHdrAdd_v1(t)
+}
+
+func TestBundleAttrHdrGet_v1(t *testing.T) {
+	db.DBReinit()
+	testBundleAttrHdrAdd_v1(t)
+	dbTenants := db.DBFindAllTenants()
+
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getbundleattrhdr/" + dbTenants[0].ID.Hex())
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data []db.DataHdr
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if len(data) != 1 {
+		t.Error()
+		return
+	}
+	if data[0].Majver != "2.0" {
+		t.Error()
+		return
+	}
+	if data[0].Minver != "1.0" {
 		t.Error()
 		return
 	}

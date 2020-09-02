@@ -72,7 +72,7 @@ type Gateway struct {
 // This API will add a new gateway or update a gateway if it already exists
 func DBAddGateway(data *Gateway) error {
 
-	// The upsert option asks the DB to add a tenant if one is not found
+	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
 	opt := options.FindOneAndUpdateOptions{
@@ -128,14 +128,14 @@ type User struct {
 	Email    string             `json:"email" bson:"email"`
 }
 
-// This API will add a new gateway or update a gateway if it already exists
+// This API will add/update a new user
 func DBAddUser(data *User) error {
 
 	if DBFindTenant(data.Tenant) == nil {
 		return fmt.Errorf("Unknown tenant")
 	}
 
-	// The upsert option asks the DB to add a tenant if one is not found
+	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
 	opt := options.FindOneAndUpdateOptions{
@@ -191,25 +191,21 @@ type DataHdr struct {
 	Tenant primitive.ObjectID `bson:"tenant" json:"tenant"`
 }
 
-// This API will add a new gateway or update a gateway if it already exists
-func DBAddAttrHdr(data *DataHdr) error {
+// This API will add/update a user Attribute Header
+func DBAddUserAttrHdr(data *DataHdr) error {
 
-	if DBFindUser(data.Tenant, data.ID) == nil && DBFindBundle(data.Tenant, data.ID) == nil {
-		return fmt.Errorf("Cannot find id ", data.ID)
-	}
-
-	// The upsert option asks the DB to add a tenant if one is not found
+	// The upsert option asks the DB to add  if one is not found
 	upsert := true
 	after := options.After
 	opt := options.FindOneAndUpdateOptions{
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	err := attrHdrCltn.FindOneAndUpdate(
+	err := userCltn.FindOneAndUpdate(
 		context.TODO(),
-		bson.M{"_id": data.ID, "tenant": data.Tenant},
+		bson.M{"_id": "UserAttr", "tenant": data.Tenant},
 		bson.D{
-			{"$set", bson.M{"_id": data.ID, "tenant": data.Tenant, "minver": data.Minver, "majver": data.Majver}},
+			{"$set", bson.M{"_id": "UserAttr", "tenant": data.Tenant, "minver": data.Minver, "majver": data.Majver}},
 		},
 		&opt,
 	)
@@ -220,31 +216,16 @@ func DBAddAttrHdr(data *DataHdr) error {
 	return nil
 }
 
-func DBFindAttrHdr(tenant primitive.ObjectID, id string) *DataHdr {
+func DBFindUserAttrHdr(tenant primitive.ObjectID) *DataHdr {
 	var attr DataHdr
-	err := attrHdrCltn.FindOne(
+	err := userCltn.FindOne(
 		context.TODO(),
-		bson.M{"_id": id, "tenant": tenant},
+		bson.M{"_id": "UserAttr", "tenant": tenant},
 	).Decode(&attr)
 	if err != nil {
 		return nil
 	}
 	return &attr
-}
-
-func DBFindAllAttrHdrs(tenant primitive.ObjectID) []DataHdr {
-	var attrHdrs []DataHdr
-
-	cursor, err := attrHdrCltn.Find(context.TODO(), bson.M{"tenant": tenant})
-	if err != nil {
-		return nil
-	}
-	err = cursor.All(context.TODO(), &attrHdrs)
-	if err != nil {
-		return nil
-	}
-
-	return attrHdrs
 }
 
 type UserAttr struct {
@@ -257,14 +238,14 @@ type UserAttr struct {
 	Team     []string           `bson:"team" json:"team"`
 }
 
-// This API will add a new gateway or update a gateway if it already exists
+// This API will add a new/update user attributes
 func DBAddUserAttr(data *UserAttr) error {
 
 	if DBFindUser(data.Tenant, data.Uid) == nil {
 		return fmt.Errorf("Cannot find user")
 	}
 
-	// The upsert option asks the DB to add a tenant if one is not found
+	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
 	opt := options.FindOneAndUpdateOptions{
@@ -320,14 +301,14 @@ type Bundle struct {
 	Bundlename string             `json:"name" bson:"name"`
 }
 
-// This API will add a new gateway or update a gateway if it already exists
+// This API will add/update a new bundle
 func DBAddBundle(data *Bundle) error {
 
 	if DBFindTenant(data.Tenant) == nil {
 		return fmt.Errorf("Unknown tenant")
 	}
 
-	// The upsert option asks the DB to add a tenant if one is not found
+	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
 	opt := options.FindOneAndUpdateOptions{
@@ -376,6 +357,43 @@ func DBFindAllBundles(tenant primitive.ObjectID) []Bundle {
 	return bundles
 }
 
+// This API will add/update a bundle Attribute Header
+func DBAddBundleAttrHdr(data *DataHdr) error {
+
+	// The upsert option asks the DB to add if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	err := appCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": "AppAttr", "tenant": data.Tenant},
+		bson.D{
+			{"$set", bson.M{"_id": "AppAttr", "tenant": data.Tenant, "minver": data.Minver, "majver": data.Majver}},
+		},
+		&opt,
+	)
+
+	if err != nil {
+		return err.Err()
+	}
+	return nil
+}
+
+func DBFindBundleAttrHdr(tenant primitive.ObjectID) *DataHdr {
+	var attr DataHdr
+	err := appCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": "AppAttr", "tenant": tenant},
+	).Decode(&attr)
+	if err != nil {
+		return nil
+	}
+	return &attr
+}
+
 type BundleAttr struct {
 	Bid         string             `bson:"_id" json:"bid"`
 	Tenant      primitive.ObjectID `bson:"tenant" json:"tenant"`
@@ -386,14 +404,14 @@ type BundleAttr struct {
 	Nonemployee string             `bson:"nonemployee" json:"nonemployee"`
 }
 
-// This API will add a new gateway or update a gateway if it already exists
+// This API will add/update a bundle attribute
 func DBAddBundleAttr(data *BundleAttr) error {
 
 	if DBFindBundle(data.Tenant, data.Bid) == nil {
 		return fmt.Errorf("Cannot find user")
 	}
 
-	// The upsert option asks the DB to add a tenant if one is not found
+	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
 	opt := options.FindOneAndUpdateOptions{
