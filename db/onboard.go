@@ -218,7 +218,7 @@ func DBAddUserAttrHdr(data *DataHdr) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	err := userCltn.FindOneAndUpdate(
+	err := userAttrCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": "UserAttr", "tenant": data.Tenant},
 		bson.D{
@@ -235,7 +235,7 @@ func DBAddUserAttrHdr(data *DataHdr) error {
 
 func DBFindUserAttrHdr(tenant primitive.ObjectID) *DataHdr {
 	var attr DataHdr
-	err := userCltn.FindOne(
+	err := userAttrCltn.FindOne(
 		context.TODO(),
 		bson.M{"_id": "UserAttr", "tenant": tenant},
 	).Decode(&attr)
@@ -246,7 +246,7 @@ func DBFindUserAttrHdr(tenant primitive.ObjectID) *DataHdr {
 }
 
 func DBDelUserAttrHdr(tenant primitive.ObjectID) error {
-	_, err := userCltn.DeleteOne(
+	_, err := userAttrCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": "UserAttr", "tenant": tenant},
 	)
@@ -270,6 +270,10 @@ func DBAddUserAttr(data *UserAttr) error {
 	if DBFindUser(data.Tenant, data.Uid) == nil {
 		return fmt.Errorf("Cannot find user")
 	}
+
+	// TODO: These versions have to be incremented
+	hdr := DataHdr{Majver: "1", Minver: "0", Tenant: data.Tenant}
+	DBAddUserAttrHdr(&hdr)
 
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
@@ -410,7 +414,7 @@ func DBAddBundleAttrHdr(data *DataHdr) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	err := appCltn.FindOneAndUpdate(
+	err := appAttrCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": "AppAttr", "tenant": data.Tenant},
 		bson.D{
@@ -427,7 +431,7 @@ func DBAddBundleAttrHdr(data *DataHdr) error {
 
 func DBFindBundleAttrHdr(tenant primitive.ObjectID) *DataHdr {
 	var attr DataHdr
-	err := appCltn.FindOne(
+	err := appAttrCltn.FindOne(
 		context.TODO(),
 		bson.M{"_id": "AppAttr", "tenant": tenant},
 	).Decode(&attr)
@@ -438,7 +442,7 @@ func DBFindBundleAttrHdr(tenant primitive.ObjectID) *DataHdr {
 }
 
 func DBDelBundleAttrHdr(tenant primitive.ObjectID) error {
-	_, err := appCltn.DeleteOne(
+	_, err := appAttrCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": "AppAttr", "tenant": tenant},
 	)
@@ -462,6 +466,10 @@ func DBAddBundleAttr(data *BundleAttr) error {
 	if DBFindBundle(data.Tenant, data.Bid) == nil {
 		return fmt.Errorf("Cannot find user")
 	}
+
+	// TODO: These versions have to be incremented
+	hdr := DataHdr{Majver: "1", Minver: "0", Tenant: data.Tenant}
+	DBAddBundleAttrHdr(&hdr)
 
 	// The upsert option asks the DB to add if one is not found
 	upsert := true

@@ -12,6 +12,8 @@ import (
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type Policy struct {
 	PolicyId string             `json:"pid" bson:"_id"`
+	Majver   string             `json:"majver" bson:"majver"`
+	Minver   string             `json:"minver" bson:"minver"`
 	Tenant   primitive.ObjectID `json:"tenant" bson:"tenant"`
 	Rego     string             `json:"rego" bson:"rego"`
 }
@@ -22,6 +24,9 @@ func DBAddPolicy(data *Policy) error {
 	if DBFindTenant(data.Tenant) == nil {
 		return fmt.Errorf("Cant find tenant %s", data.Tenant)
 	}
+	// TODO: These versions have to be updated
+	data.Majver = "1"
+	data.Minver = "0"
 	// The upsert option asks the DB to add a tenant if one is not found
 	upsert := true
 	after := options.After
