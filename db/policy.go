@@ -38,7 +38,8 @@ func DBAddPolicy(data *Policy) error {
 		context.TODO(),
 		bson.M{"_id": data.PolicyId, "tenant": data.Tenant},
 		bson.D{
-			{"$set", bson.M{"_id": data.PolicyId, "tenant": data.Tenant, "rego": data.Rego}},
+			{"$set", bson.M{"_id": data.PolicyId, "tenant": data.Tenant, "rego": data.Rego,
+				"majver": data.Majver, "minver": data.Minver}},
 		},
 		&opt,
 	)
