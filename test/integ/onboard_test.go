@@ -772,7 +772,8 @@ func TestGetAllUserAttr_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	if len(data) != 2 {
+	// Two plus one for the attribute header
+	if len(data) != 3 {
 		t.Error()
 		return
 	}
@@ -1196,7 +1197,8 @@ func TestGetAllBundleAttr_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	if len(data) != 2 {
+	// Two plus one for the attribute header
+	if len(data) != 3 {
 		t.Error()
 		return
 	}
