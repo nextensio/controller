@@ -13,7 +13,7 @@ import (
 type Policy_v1 struct {
 	PolicyId string `json:"pid" bson:"_id"`
 	Tenant   string `json:"tenant" bson:"tenant"`
-	Rego     string `json:"rego" bson:"rego"`
+	Rego     []rune `json:"rego" bson:"rego"`
 }
 
 func PolicyAdd_v1(t *testing.T, addtenant bool, pid string) {
@@ -25,7 +25,7 @@ func PolicyAdd_v1(t *testing.T, addtenant bool, pid string) {
 	policy := Policy_v1{
 		PolicyId: pid,
 		Tenant:   dbTenants[0].ID.Hex(),
-		Rego:     "some-json-policy-here",
+		Rego:     []rune("some-json-policy-here"),
 	}
 	body, err := json.Marshal(policy)
 	if err != nil {
@@ -94,7 +94,7 @@ func TestPolicyGet_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	if data.Rego != "some-json-policy-here" {
+	if string(data.Rego) != "some-json-policy-here" {
 		t.Error()
 		return
 	}
