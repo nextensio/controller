@@ -15,7 +15,7 @@ type Policy struct {
 	Majver   string             `json:"majver" bson:"majver"`
 	Minver   string             `json:"minver" bson:"minver"`
 	Tenant   primitive.ObjectID `json:"tenant" bson:"tenant"`
-	Rego     string             `json:"rego" bson:"rego"`
+	Rego     []rune             `json:"rego" bson:"rego"`
 }
 
 // This API will add a new policy or update a policy if it already exists
