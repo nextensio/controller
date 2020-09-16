@@ -13,7 +13,6 @@ import (
 type Tenant struct {
 	ID       primitive.ObjectID `json:"_id" bson:"_id"`
 	Name     string             `json:"name" bson:"name"`
-	Idp      string             `json:"idp" bson:"idp"`
 	Gateways []string           `json:"gateways" bson:"gateways"`
 }
 
@@ -28,7 +27,7 @@ func DBAddTenant(data *Tenant) error {
 
 	_, err := tenantCltn.InsertOne(
 		context.TODO(),
-		bson.M{"name": data.Name, "idp": data.Idp, "gateways": data.Gateways},
+		bson.M{"name": data.Name, "gateways": data.Gateways},
 	)
 
 	if err != nil {

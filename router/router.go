@@ -2,6 +2,7 @@ package router
 
 import (
 	"net/http"
+	"nextensio/controller/utils"
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
@@ -10,6 +11,7 @@ import (
 
 var router *mux.Router
 var nroni *negroni.Negroni
+var IDP string
 
 func addRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
 	router.HandleFunc(route, handler).Methods(methods)
@@ -48,5 +50,6 @@ func ServeRoutes() {
 	originsOk := handlers.AllowedOrigins([]string{"*"})
 	methodsOk := handlers.AllowedMethods([]string{"GET", "HEAD", "POST", "PUT", "OPTIONS"})
 
+	IDP = utils.GetEnv("IDP_URI", "http://127.0.0.1:8081/test/api/v1")
 	http.ListenAndServe(":8080", handlers.CORS(originsOk, headersOk, methodsOk)(nroni))
 }

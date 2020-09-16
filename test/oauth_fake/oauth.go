@@ -10,16 +10,18 @@ import (
 )
 
 type userinfoResult struct {
-	Sub string `json:"sub"`
+	Userid string `json:"email"`
+	Tenant string `json:"organization"`
 }
 
 // A dummy userinfo handler where we just return the access token itself as the user / sub field
 func userinfoHandler(w http.ResponseWriter, r *http.Request) {
 	var result userinfoResult
 	bearer := r.Header.Get("Authorization")
-	re, _ := regexp.Compile(`\s*Bearer\s*(.*)`)
+	re, _ := regexp.Compile(`\s*Bearer\s*(.*)_(.*)`)
 	token := re.FindStringSubmatch(bearer)
-	result.Sub = token[1]
+	result.Userid = token[1]
+	result.Tenant = token[2]
 	utils.WriteResult(w, result)
 }
 

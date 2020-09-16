@@ -10,12 +10,13 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func rdonlyOnboard() {
 	// This route is used by the agent while onboarding, agent presents access-token, device-id and
 	// tenant-id and expects to get information like the gateway in response
-	addRoute("/api/v1/onboard/{tenant-uuid}/{device-id}/{access-token}", "GET", onboardHandler)
+	addRoute("/api/v1/onboard/{access-token}", "GET", onboardHandler)
 
 	// This route is used to get all gateways
 	addRoute("/api/v1/getallgateways", "GET", getAllGatewaysHandler)
@@ -230,11 +231,14 @@ func getAllGatewaysHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 type onboardData struct {
-	User string `json:"sub"`
+	Userid string             `json:"email"`
+	Tenant primitive.ObjectID `json:"organization"`
 }
 type OnboardResult struct {
-	Result   string   `json:"Result"`
-	Gateways []string `json:"gateways"`
+	Result  string `json:"Result"`
+	Userid  string `json:"userid"`
+	Tenant  string `json:"tenant"`
+	Gateway string `json:"gateway"`
 }
 
 // An agent wants to be onboarded, verify its access-token and return
@@ -249,21 +253,8 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	access := v["access-token"]
-	device := v["device-id"]
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		result.Result = "Bad tenant id"
-		utils.WriteResult(w, result)
-		return
-	}
 
-	tenant := db.DBFindTenant(uuid)
-	if tenant == nil {
-		result.Result = "Tenant not found"
-		utils.WriteResult(w, result)
-		return
-	}
-	req, err := http.NewRequest("GET", tenant.Idp+"/userinfo", nil)
+	req, err := http.NewRequest("GET", IDP+"/userinfo", nil)
 	if err != nil {
 		result.Result = "Userinfo req failed"
 		utils.WriteResult(w, result)
@@ -295,11 +286,20 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tenant := db.DBFindTenant(data.Tenant)
+	if tenant == nil {
+		result.Result = "Tenant not found"
+		utils.WriteResult(w, result)
+		return
+	}
+
 	result.Result = "ok"
-	result.Gateways = tenant.Gateways
+	// TODO: This needs modification where we return the appropriate gateway from
+	// the list to the agent, the appropriate geo-located gateway using maxmind maybe ?
+	result.Gateway = tenant.Gateways[0]
 	utils.WriteResult(w, result)
 
-	glog.Info("User ", data.User, " tenant ", tenant, " device ", device, " signed in")
+	glog.Info("User ", data.Userid, " tenant ", data.Tenant, " signed in")
 }
 
 type AdduserResult struct {

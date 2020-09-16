@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"nextensio/controller/db"
@@ -23,6 +24,7 @@ func addGateway(gw *Gateway_v1) bool {
 
 	resp, err := http.Post("http://127.0.0.1:8080/api/v1/addgateway", "application/json", bytes.NewBuffer(body))
 	if err != nil {
+		fmt.Println("Add gw failed")
 		return false
 	}
 	defer resp.Body.Close()
@@ -34,6 +36,7 @@ func addGateway(gw *Gateway_v1) bool {
 	var data router.AddgatewayResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
+		fmt.Println("unmarshall failed")
 		return false
 	}
 	if data.Result != "ok" {
@@ -117,7 +120,6 @@ func TestGetAllGateway_v1(t *testing.T) {
 type Tenant_v1 struct {
 	ID       string   `json:"_id" bson:"_id"`
 	Name     string   `json:"name" bson:"name"`
-	Idp      string   `json:"idp" bson:"idp"`
 	Gateways []string `json:"gateways"`
 }
 
@@ -160,7 +162,7 @@ func addTenant(tenant *Tenant_v1) bool {
 }
 
 func AddTenant_v1(t *testing.T) {
-	var tenant = Tenant_v1{Name: "foobar", Idp: "http://127.0.0.1:8081/test/api/v1",
+	var tenant = Tenant_v1{Name: "foobar",
 		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"},
 	}
 	add := addTenant(&tenant)
@@ -220,7 +222,7 @@ func TestGetAllTenant_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	var tenant1 = Tenant_v1{Name: "foobar", Idp: "http://127.0.0.1:8081/test/api/v1",
+	var tenant1 = Tenant_v1{Name: "foobar",
 		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"}}
 	add = addTenant(&tenant1)
 	if add == false {
@@ -228,7 +230,7 @@ func TestGetAllTenant_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	var tenant2 = Tenant_v1{Name: "gloobar", Idp: "http://127.0.0.1:8081/test/api/v1",
+	var tenant2 = Tenant_v1{Name: "gloobar",
 		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"}}
 	add = addTenant(&tenant2)
 	if add == false {
@@ -348,7 +350,7 @@ func addGatewayAndTenant(t *testing.T) {
 		t.Error()
 		return
 	}
-	var tenant = Tenant_v1{Name: "foobar", Idp: "http://127.0.0.1:8081/test/api/v1",
+	var tenant = Tenant_v1{Name: "foobar",
 		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"},
 	}
 	add = addTenant(&tenant)
@@ -365,7 +367,7 @@ func TestOnboard_v1(t *testing.T) {
 	addGatewayAndTenant(t)
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/onboard/" + dbTenants[0].ID.Hex() + "/ABCD/abcd")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/onboard/abcd_" + dbTenants[0].ID.Hex())
 	if err != nil {
 		t.Error()
 		return
@@ -387,15 +389,7 @@ func TestOnboard_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	if len(data.Gateways) != 2 {
-		t.Error()
-		return
-	}
-	if data.Gateways[0] != "sjc.nextensio.net" {
-		t.Error()
-		return
-	}
-	if data.Gateways[1] != "ric.nextensio.net" {
+	if data.Gateway != "sjc.nextensio.net" && data.Gateway != "ric.nextensio.net" {
 		t.Error()
 		return
 	}
