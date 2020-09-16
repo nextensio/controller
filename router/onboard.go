@@ -232,7 +232,7 @@ func getAllGatewaysHandler(w http.ResponseWriter, r *http.Request) {
 
 type onboardData struct {
 	Userid string             `json:"email"`
-	Tenant primitive.ObjectID `json:"organization"`
+	Tenant primitive.ObjectID `json:"tenant"`
 }
 type OnboardResult struct {
 	Result  string `json:"Result"`
@@ -294,6 +294,8 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result.Result = "ok"
+	result.Userid = data.Userid
+	result.Tenant = data.Tenant.Hex()
 	// TODO: This needs modification where we return the appropriate gateway from
 	// the list to the agent, the appropriate geo-located gateway using maxmind maybe ?
 	result.Gateway = tenant.Gateways[0]
