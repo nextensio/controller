@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -270,10 +271,14 @@ func DBAddUserAttr(data *UserAttr) error {
 		return fmt.Errorf("Cannot find user")
 	}
 
-	// TODO: These versions have to be incremented
-	hdr := DataHdr{Majver: "1", Minver: "0", Tenant: data.Tenant}
-	DBAddUserAttrHdr(&hdr)
-
+	hdr := DBFindUserAttrHdr(data.Tenant)
+	if hdr == nil {
+		dhdr := DataHdr{Majver: "1", Minver: "0", Tenant: data.Tenant}
+		hdr = &dhdr
+	} else {
+		minver, _ := strconv.Atoi(hdr.Minver)
+		hdr.Minver = strconv.Itoa(minver + 1)
+	}
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
@@ -281,7 +286,7 @@ func DBAddUserAttr(data *UserAttr) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	err := userAttrCltn.FindOneAndUpdate(
+	result := userAttrCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": data.Uid, "tenant": data.Tenant},
 		bson.D{
@@ -291,9 +296,11 @@ func DBAddUserAttr(data *UserAttr) error {
 		&opt,
 	)
 
-	if err != nil {
-		return err.Err()
+	if result.Err() != nil {
+		return result.Err()
 	}
+
+	DBAddUserAttrHdr(hdr)
 	return nil
 }
 
@@ -466,9 +473,14 @@ func DBAddBundleAttr(data *BundleAttr) error {
 		return fmt.Errorf("Cannot find user")
 	}
 
-	// TODO: These versions have to be incremented
-	hdr := DataHdr{Majver: "1", Minver: "0", Tenant: data.Tenant}
-	DBAddBundleAttrHdr(&hdr)
+	hdr := DBFindBundleAttrHdr(data.Tenant)
+	if hdr == nil {
+		dhdr := DataHdr{Majver: "1", Minver: "0", Tenant: data.Tenant}
+		hdr = &dhdr
+	} else {
+		minver, _ := strconv.Atoi(hdr.Minver)
+		hdr.Minver = strconv.Itoa(minver + 1)
+	}
 
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
@@ -477,7 +489,7 @@ func DBAddBundleAttr(data *BundleAttr) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	err := appAttrCltn.FindOneAndUpdate(
+	result := appAttrCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": data.Bid, "tenant": data.Tenant},
 		bson.D{
@@ -487,9 +499,12 @@ func DBAddBundleAttr(data *BundleAttr) error {
 		&opt,
 	)
 
-	if err != nil {
-		return err.Err()
+	if result.Err() != nil {
+		return result.Err()
 	}
+
+	DBAddBundleAttrHdr(hdr)
+
 	return nil
 }
 

@@ -11,7 +11,7 @@ import (
 
 type userinfoResult struct {
 	Userid string `json:"email"`
-	Tenant string `json:"organization"`
+	Tenant string `json:"tenant"`
 }
 
 // A dummy userinfo handler where we just return the access token itself as the user / sub field
