@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -24,9 +25,16 @@ func DBAddPolicy(data *Policy) error {
 	if DBFindTenant(data.Tenant) == nil {
 		return fmt.Errorf("Cant find tenant %s", data.Tenant)
 	}
-	// TODO: These versions have to be updated
-	data.Majver = "1"
-	data.Minver = "0"
+	policy := DBFindPolicy(data.Tenant, data.PolicyId)
+	if policy != nil {
+		minver, _ := strconv.Atoi(policy.Minver)
+		data.Minver = strconv.Itoa(minver + 1)
+		data.Majver = policy.Majver
+	} else {
+		data.Majver = "1"
+		data.Minver = "0"
+	}
+
 	// The upsert option asks the DB to add a tenant if one is not found
 	upsert := true
 	after := options.After
