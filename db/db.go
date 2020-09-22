@@ -18,6 +18,7 @@ var dbClient *mongo.Client
 var tenantCltn *mongo.Collection
 var gatewayCltn *mongo.Collection
 var policyCltn *mongo.Collection
+var routeCltn *mongo.Collection
 var userCltn *mongo.Collection
 var userAttrCltn *mongo.Collection
 var appCltn *mongo.Collection
@@ -49,6 +50,7 @@ func dbCollections() {
 	tenantCltn = nxtDB.Collection("NxtTenants")
 	gatewayCltn = nxtDB.Collection("NxtGateways")
 	policyCltn = nxtDB.Collection("NxtPolicies")
+	routeCltn = nxtDB.Collection("NxtRoutes")
 	userCltn = nxtDB.Collection("NxtUsers")
 	userAttrCltn = nxtDB.Collection("NxtUserAttr")
 	appCltn = nxtDB.Collection("NxtApps")

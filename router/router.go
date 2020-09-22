@@ -21,12 +21,14 @@ func addRoute(route string, methods string, handler func(http.ResponseWriter, *h
 func initRdOnlyRoutes() {
 	rdonlyOnboard()
 	rdonlyPolicy()
+	rdonlyRoute()
 }
 
 // Routes which have handlers that might modify the database goes here
 func initRdWrRoutes() {
 	rdwrOnboard()
 	rdwrPolicy()
+	rdwrRoute()
 }
 
 func initRoutes(readonly bool) {

@@ -109,7 +109,7 @@ type DelpolicyResult struct {
 	Result string `json:"Result"`
 }
 
-// Get an OPA policy
+// Delete an OPA policy
 func delpolicyHandler(w http.ResponseWriter, r *http.Request) {
 	var result DelpolicyResult
 
