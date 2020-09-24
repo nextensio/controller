@@ -50,6 +50,7 @@ func addrouteHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
+
 	err = db.DBAddRoute(&data)
 	if err != nil {
 		result.Result = err.Error()

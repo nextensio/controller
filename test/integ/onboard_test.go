@@ -402,7 +402,7 @@ type User_v1 struct {
 	Email  string `json:"email" bson:"email"`
 }
 
-func testUserAdd_v1(t *testing.T, tenantadd bool, userid string) {
+func UserAdd_v1(t *testing.T, tenantadd bool, userid string) {
 	if tenantadd {
 		AddTenant_v1(t)
 	}
@@ -451,12 +451,12 @@ func testUserAdd_v1(t *testing.T, tenantadd bool, userid string) {
 
 func TestUserAdd_v1(t *testing.T) {
 	db.DBReinit()
-	testUserAdd_v1(t, true, "gopa")
+	UserAdd_v1(t, true, "gopa")
 }
 
 func TestUserGet_v1(t *testing.T) {
 	db.DBReinit()
-	testUserAdd_v1(t, true, "gopa")
+	UserAdd_v1(t, true, "gopa")
 	dbTenants := db.DBFindAllTenants()
 
 	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getuser/" + dbTenants[0].ID.Hex() + "/gopa")
@@ -490,8 +490,8 @@ func TestUserGet_v1(t *testing.T) {
 func TestGetAllUsers_v1(t *testing.T) {
 	db.DBReinit()
 
-	testUserAdd_v1(t, true, "gopa")
-	testUserAdd_v1(t, false, "kumar")
+	UserAdd_v1(t, true, "gopa")
+	UserAdd_v1(t, false, "kumar")
 
 	dbTenants := db.DBFindAllTenants()
 
@@ -534,19 +534,19 @@ func TestGetAllUsers_v1(t *testing.T) {
 
 type UserAttrHdr_v1 struct {
 	Tenant string `bson:"tenant" json:"tenant"`
-	Majver string `bson:"majver" json:"majver"`
-	Minver string `bson:"minver" json:"minver"`
+	Majver int    `bson:"majver" json:"majver"`
+	Minver int    `bson:"minver" json:"minver"`
 }
 
 func testUserAttrHdrAdd_v1(t *testing.T) {
 	// Just to get a user collection created
-	testUserAdd_v1(t, true, "some-user")
+	UserAdd_v1(t, true, "some-user")
 	dbTenants := db.DBFindAllTenants()
 
 	attr := UserAttrHdr_v1{
 		Tenant: dbTenants[0].ID.Hex(),
-		Majver: "2.0",
-		Minver: "1.0",
+		Majver: 2,
+		Minver: 1,
 	}
 	body, err := json.Marshal(attr)
 	if err != nil {
@@ -581,11 +581,11 @@ func testUserAttrHdrAdd_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	if dbHdr.Majver != "2.0" {
+	if dbHdr.Majver != 2 {
 		t.Error()
 		return
 	}
-	if dbHdr.Minver != "1.0" {
+	if dbHdr.Minver != 1 {
 		t.Error()
 		return
 	}
@@ -622,11 +622,11 @@ func TestAttrHdrGet_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	if data[0].Majver != "2.0" {
+	if data[0].Majver != 2 {
 		t.Error()
 		return
 	}
-	if data[0].Minver != "1.0" {
+	if data[0].Minver != 1 {
 		t.Error()
 		return
 	}
@@ -637,21 +637,21 @@ type UserAttr_v1 struct {
 	Tenant   string   `bson:"tenant" json:"tenant"`
 	Category string   `bson:"category" json:"category"`
 	Type     string   `bson:"type" json:"type"`
-	Level    string   `bson:"level" json:"level"`
+	Level    int      `bson:"level" json:"level"`
 	Dept     []string `bson:"dept" json:"dept"`
 	Team     []string `bson:"team" json:"team"`
 }
 
 func testUserAttrAdd_v1(t *testing.T, tenantadd bool, userid string) {
-	testUserAdd_v1(t, tenantadd, userid)
+	UserAdd_v1(t, tenantadd, userid)
 	dbTenants := db.DBFindAllTenants()
 
 	attr := UserAttr_v1{
 		Uid:      userid,
 		Tenant:   dbTenants[0].ID.Hex(),
-		Category: "TODO",
-		Type:     "TODO",
-		Level:    "IC",
+		Category: "employee",
+		Type:     "IC",
+		Level:    2,
 		Dept:     []string{"engineering", "marketing"},
 		Team:     []string{"Engineering"},
 	}
@@ -960,8 +960,8 @@ func TestGetAllBundles_v1(t *testing.T) {
 
 type BundleAttrHdr_v1 struct {
 	Tenant string `bson:"tenant" json:"tenant"`
-	Majver string `bson:"majver" json:"majver"`
-	Minver string `bson:"minver" json:"minver"`
+	Majver int    `bson:"majver" json:"majver"`
+	Minver int    `bson:"minver" json:"minver"`
 }
 
 func testBundleAttrHdrAdd_v1(t *testing.T) {
@@ -970,8 +970,8 @@ func testBundleAttrHdrAdd_v1(t *testing.T) {
 	dbTenants := db.DBFindAllTenants()
 	attr := BundleAttrHdr_v1{
 		Tenant: dbTenants[0].ID.Hex(),
-		Majver: "2.0",
-		Minver: "1.0",
+		Majver: 2,
+		Minver: 1,
 	}
 	body, err := json.Marshal(attr)
 	if err != nil {
@@ -1006,11 +1006,11 @@ func testBundleAttrHdrAdd_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	if dbHdr.Majver != "2.0" {
+	if dbHdr.Majver != 2 {
 		t.Error()
 		return
 	}
-	if dbHdr.Minver != "1.0" {
+	if dbHdr.Minver != 1 {
 		t.Error()
 		return
 	}
@@ -1047,11 +1047,11 @@ func TestBundleAttrHdrGet_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	if data[0].Majver != "2.0" {
+	if data[0].Majver != 2 {
 		t.Error()
 		return
 	}
-	if data[0].Minver != "1.0" {
+	if data[0].Minver != 1 {
 		t.Error()
 		return
 	}
@@ -1062,8 +1062,8 @@ type BundleAttr_v1 struct {
 	Tenant      string   `bson:"tenant" json:"tenant"`
 	Team        []string `bson:"team" json:"team"`
 	Dept        []string `bson:"dept" json:"dept"`
-	Contrib     string   `bson:"IC" json:"IC"`
-	Manager     string   `bson:"manager" json:"manager"`
+	Contrib     int      `bson:"IC" json:"IC"`
+	Manager     int      `bson:"manager" json:"manager"`
 	Nonemployee string   `bson:"nonemployee" json:"nonemployee"`
 }
 
@@ -1076,9 +1076,9 @@ func testBundleAttrAdd_v1(t *testing.T, tenantadd bool, bid string) {
 		Tenant:      dbTenants[0].ID.Hex(),
 		Team:        []string{"TODO"},
 		Dept:        []string{"guest"},
-		Contrib:     "TODO",
-		Manager:     "TODO",
-		Nonemployee: "TODO",
+		Contrib:     1,
+		Manager:     1,
+		Nonemployee: "allowed",
 	}
 	body, err := json.Marshal(attr)
 	if err != nil {
