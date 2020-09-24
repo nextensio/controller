@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -203,8 +202,8 @@ func DBDelUser(tenant primitive.ObjectID, userid string) error {
 
 type DataHdr struct {
 	ID     string             `bson:"_id" json:"ID"`
-	Majver string             `bson:"majver" json:"majver"`
-	Minver string             `bson:"minver" json:"minver"`
+	Majver int                `bson:"majver" json:"majver"`
+	Minver int                `bson:"minver" json:"minver"`
 	Tenant primitive.ObjectID `bson:"tenant" json:"tenant"`
 }
 
@@ -259,7 +258,7 @@ type UserAttr struct {
 	Tenant   primitive.ObjectID `bson:"tenant" json:"tenant"`
 	Category string             `bson:"category" json:"category"`
 	Type     string             `bson:"type" json:"type"`
-	Level    string             `bson:"level" json:"level"`
+	Level    int                `bson:"level" json:"level"`
 	Dept     []string           `bson:"dept" json:"dept"`
 	Team     []string           `bson:"team" json:"team"`
 }
@@ -273,11 +272,11 @@ func DBAddUserAttr(data *UserAttr) error {
 
 	hdr := DBFindUserAttrHdr(data.Tenant)
 	if hdr == nil {
-		dhdr := DataHdr{Majver: "1", Minver: "0", Tenant: data.Tenant}
+		dhdr := DataHdr{Majver: 1, Minver: 0, Tenant: data.Tenant}
 		hdr = &dhdr
 	} else {
-		minver, _ := strconv.Atoi(hdr.Minver)
-		hdr.Minver = strconv.Itoa(minver + 1)
+		minver := hdr.Minver
+		hdr.Minver = minver + 1
 	}
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
@@ -461,8 +460,8 @@ type BundleAttr struct {
 	Tenant      primitive.ObjectID `bson:"tenant" json:"tenant"`
 	Team        []string           `bson:"team" json:"team"`
 	Dept        []string           `bson:"dept" json:"dept"`
-	Contrib     string             `bson:"IC" json:"IC"`
-	Manager     string             `bson:"manager" json:"manager"`
+	Contrib     int                `bson:"IC" json:"IC"`
+	Manager     int                `bson:"manager" json:"manager"`
 	Nonemployee string             `bson:"nonemployee" json:"nonemployee"`
 }
 
@@ -475,11 +474,11 @@ func DBAddBundleAttr(data *BundleAttr) error {
 
 	hdr := DBFindBundleAttrHdr(data.Tenant)
 	if hdr == nil {
-		dhdr := DataHdr{Majver: "1", Minver: "0", Tenant: data.Tenant}
+		dhdr := DataHdr{Majver: 1, Minver: 0, Tenant: data.Tenant}
 		hdr = &dhdr
 	} else {
-		minver, _ := strconv.Atoi(hdr.Minver)
-		hdr.Minver = strconv.Itoa(minver + 1)
+		minver := hdr.Minver
+		hdr.Minver = minver + 1
 	}
 
 	// The upsert option asks the DB to add if one is not found

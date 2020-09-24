@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -21,6 +22,14 @@ func DBAddRoute(data *Route) error {
 
 	if DBFindTenant(data.Tenant) == nil {
 		return fmt.Errorf("Cant find tenant %s", data.Tenant)
+	}
+
+	userRoute := strings.Split(data.Route, ":")
+	if len(userRoute) != 2 {
+		return fmt.Errorf("Route should be in format userid:route")
+	}
+	if DBFindUser(data.Tenant, userRoute[0]) == nil {
+		return fmt.Errorf("Cannot find user %s", userRoute[0])
 	}
 
 	// The upsert option asks the DB to add a tenant if one is not found

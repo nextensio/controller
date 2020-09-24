@@ -19,6 +19,7 @@ type Route_v1 struct {
 func RouteAdd_v1(t *testing.T, addtenant bool, routeid string) {
 	if addtenant {
 		AddTenant_v1(t)
+		UserAdd_v1(t, false, "gopa")
 	}
 	dbTenants := db.DBFindAllTenants()
 
@@ -64,15 +65,15 @@ func RouteAdd_v1(t *testing.T, addtenant bool, routeid string) {
 
 func TestRouteAdd_v1(t *testing.T) {
 	db.DBReinit()
-	RouteAdd_v1(t, true, "www.google.com")
+	RouteAdd_v1(t, true, "gopa:www.google.com")
 }
 
 func TestRouteGet_v1(t *testing.T) {
 	db.DBReinit()
-	RouteAdd_v1(t, true, "www.google.com")
+	RouteAdd_v1(t, true, "gopa:www.google.com")
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getroute/" + dbTenants[0].ID.Hex() + "/www.google.com")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getroute/" + dbTenants[0].ID.Hex() + "/gopa:www.google.com")
 	if err != nil {
 		t.Error()
 		return
@@ -103,8 +104,8 @@ func TestRouteGet_v1(t *testing.T) {
 func TestGetAllRoutes_v1(t *testing.T) {
 	db.DBReinit()
 
-	RouteAdd_v1(t, true, "www.google.com")
-	RouteAdd_v1(t, false, "www.yahoo.com")
+	RouteAdd_v1(t, true, "gopa:www.google.com")
+	RouteAdd_v1(t, false, "gopa:www.yahoo.com")
 
 	dbTenants := db.DBFindAllTenants()
 
@@ -132,10 +133,10 @@ func TestGetAllRoutes_v1(t *testing.T) {
 	}
 	found := 0
 	for i := 0; i < len(data); i++ {
-		if data[i].Route == "www.google.com" {
+		if data[i].Route == "gopa:www.google.com" {
 			found++
 		}
-		if data[i].Route == "www.yahoo.com" {
+		if data[i].Route == "gopa:www.yahoo.com" {
 			found++
 		}
 	}
@@ -178,6 +179,6 @@ func RouteDel_v1(t *testing.T, name string) {
 
 func TestRouteDel_v1(t *testing.T) {
 	db.DBReinit()
-	RouteAdd_v1(t, true, "www.google.com")
-	RouteDel_v1(t, "www.google.com")
+	RouteAdd_v1(t, true, "gopa:www.google.com")
+	RouteDel_v1(t, "gopa:www.google.com")
 }

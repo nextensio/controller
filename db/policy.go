@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -13,8 +12,8 @@ import (
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type Policy struct {
 	PolicyId string             `json:"pid" bson:"_id"`
-	Majver   string             `json:"majver" bson:"majver"`
-	Minver   string             `json:"minver" bson:"minver"`
+	Majver   int                `json:"majver" bson:"majver"`
+	Minver   int                `json:"minver" bson:"minver"`
 	Tenant   primitive.ObjectID `json:"tenant" bson:"tenant"`
 	Rego     []rune             `json:"rego" bson:"rego"`
 }
@@ -27,12 +26,12 @@ func DBAddPolicy(data *Policy) error {
 	}
 	policy := DBFindPolicy(data.Tenant, data.PolicyId)
 	if policy != nil {
-		minver, _ := strconv.Atoi(policy.Minver)
-		data.Minver = strconv.Itoa(minver + 1)
+		minver := policy.Minver
+		data.Minver = minver + 1
 		data.Majver = policy.Majver
 	} else {
-		data.Majver = "1"
-		data.Minver = "0"
+		data.Majver = 1
+		data.Minver = 0
 	}
 
 	// The upsert option asks the DB to add a tenant if one is not found
