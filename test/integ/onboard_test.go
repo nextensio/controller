@@ -121,6 +121,8 @@ type Tenant_v1 struct {
 	ID       string   `json:"_id" bson:"_id"`
 	Name     string   `json:"name" bson:"name"`
 	Gateways []string `json:"gateways"`
+	Image    string   `json:"image" bson:"image"`
+	Pods     int      `json:"pods" bson:"pods"`
 }
 
 func addTenant(tenant *Tenant_v1) bool {
@@ -158,12 +160,25 @@ func addTenant(tenant *Tenant_v1) bool {
 		return false
 	}
 
+	found = false
+	dbNamespaces := db.DBFindAllNamespaces()
+	for i := 0; i < len(dbNamespaces); i++ {
+		if dbNamespaces[i].Name == tenant.Name {
+			found = true
+		}
+	}
+	if !found {
+		return false
+	}
+
 	return true
 }
 
 func AddTenant_v1(t *testing.T) {
 	var tenant = Tenant_v1{Name: "foobar",
 		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"},
+		Image:    "davigupta/minion:0.80",
+		Pods:     10,
 	}
 	add := addTenant(&tenant)
 	if add == true {
@@ -304,7 +319,7 @@ func testTenantDel(t *testing.T, expect_delete bool) {
 		}
 		if db.DBFindAllUsers(dbTenants[0].ID) != nil || db.DBFindAllUserAttrs(dbTenants[0].ID) != nil ||
 			db.DBFindAllBundles(dbTenants[0].ID) != nil || db.DBFindAllBundleAttrs(dbTenants[0].ID) != nil ||
-			db.DBFindAllPolicies(dbTenants[0].ID) != nil {
+			db.DBFindAllPolicies(dbTenants[0].ID) != nil || db.DBFindNamespace(dbTenants[0].ID) != nil {
 			t.Error()
 			return
 		}
@@ -365,6 +380,7 @@ func TestOnboard_v1(t *testing.T) {
 	db.DBReinit()
 
 	addGatewayAndTenant(t)
+	UserAdd_v1(t, false, "abcd", []string{})
 	dbTenants := db.DBFindAllTenants()
 
 	resp, err := http.Get("http://127.0.0.1:8080/api/v1/onboard/abcd_" + dbTenants[0].ID.Hex())
@@ -396,23 +412,29 @@ func TestOnboard_v1(t *testing.T) {
 }
 
 type User_v1 struct {
-	Uid    string `json:"uid" bson:"_id"`
-	Tenant string `json:"tenant" bson:"tenant"`
-	Name   string `json:"name" bson:"name"`
-	Email  string `json:"email" bson:"email"`
+	Uid       string   `json:"uid" bson:"_id"`
+	Tenant    string   `json:"tenant" bson:"tenant"`
+	Name      string   `json:"name" bson:"name"`
+	Email     string   `json:"email" bson:"email"`
+	Pod       int      `json:"pod" bson:"pod"`
+	Connectid string   `json:"connectid" bson:"connectid"`
+	Services  []string `json:"services" bson:"services"`
 }
 
-func UserAdd_v1(t *testing.T, tenantadd bool, userid string) {
+func UserAdd_v1(t *testing.T, tenantadd bool, userid string, services []string) {
 	if tenantadd {
 		AddTenant_v1(t)
 	}
 	dbTenants := db.DBFindAllTenants()
 
 	user := User_v1{
-		Tenant: dbTenants[0].ID.Hex(),
-		Uid:    userid,
-		Name:   "Gopa Kumar",
-		Email:  "gopa@nextensio.net",
+		Tenant:    dbTenants[0].ID.Hex(),
+		Uid:       userid,
+		Name:      "Gopa Kumar",
+		Email:     "gopa@nextensio.net",
+		Pod:       1,
+		Connectid: "unused",
+		Services:  services,
 	}
 	body, err := json.Marshal(user)
 	if err != nil {
@@ -447,16 +469,21 @@ func UserAdd_v1(t *testing.T, tenantadd bool, userid string) {
 		t.Error()
 		return
 	}
+	clUser := db.DBFindClusterUser(dbTenants[0].ID, user.Uid)
+	if clUser == nil {
+		t.Error()
+		return
+	}
 }
 
 func TestUserAdd_v1(t *testing.T) {
 	db.DBReinit()
-	UserAdd_v1(t, true, "gopa")
+	UserAdd_v1(t, true, "gopa", []string{})
 }
 
 func TestUserGet_v1(t *testing.T) {
 	db.DBReinit()
-	UserAdd_v1(t, true, "gopa")
+	UserAdd_v1(t, true, "gopa", []string{})
 	dbTenants := db.DBFindAllTenants()
 
 	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getuser/" + dbTenants[0].ID.Hex() + "/gopa")
@@ -490,8 +517,8 @@ func TestUserGet_v1(t *testing.T) {
 func TestGetAllUsers_v1(t *testing.T) {
 	db.DBReinit()
 
-	UserAdd_v1(t, true, "gopa")
-	UserAdd_v1(t, false, "kumar")
+	UserAdd_v1(t, true, "gopa", []string{})
+	UserAdd_v1(t, false, "kumar", []string{})
 
 	dbTenants := db.DBFindAllTenants()
 
@@ -540,7 +567,7 @@ type UserAttrHdr_v1 struct {
 
 func testUserAttrHdrAdd_v1(t *testing.T) {
 	// Just to get a user collection created
-	UserAdd_v1(t, true, "some-user")
+	UserAdd_v1(t, true, "some-user", []string{})
 	dbTenants := db.DBFindAllTenants()
 
 	attr := UserAttrHdr_v1{
@@ -643,7 +670,7 @@ type UserAttr_v1 struct {
 }
 
 func testUserAttrAdd_v1(t *testing.T, tenantadd bool, userid string) {
-	UserAdd_v1(t, tenantadd, userid)
+	UserAdd_v1(t, tenantadd, userid, []string{})
 	dbTenants := db.DBFindAllTenants()
 
 	attr := UserAttr_v1{
@@ -811,7 +838,8 @@ func testUserDel(t *testing.T, user string) {
 		t.Error()
 		return
 	}
-	if db.DBFindUser(dbTenants[0].ID, user) != nil || db.DBFindUserAttr(dbTenants[0].ID, user) != nil {
+	if db.DBFindUser(dbTenants[0].ID, user) != nil || db.DBFindUserAttr(dbTenants[0].ID, user) != nil ||
+		db.DBFindClusterUser(dbTenants[0].ID, user) != nil {
 		t.Error()
 		return
 	}
@@ -824,12 +852,15 @@ func TestUserDel(t *testing.T) {
 }
 
 type Bundle_v1 struct {
-	Bid        string `json:"bid" bson:"_id"`
-	Tenant     string `json:"tenant" bson:"tenant"`
-	Bundlename string `json:"name" bson:"name"`
+	Bid        string   `json:"bid" bson:"_id"`
+	Tenant     string   `json:"tenant" bson:"tenant"`
+	Bundlename string   `json:"name" bson:"name"`
+	Pod        int      `json:"pod" bson:"pod"`
+	Connectid  string   `json:"connectid" bson:"connectid"`
+	Services   []string `json:"services" bson:"services"`
 }
 
-func testBundleAdd_v1(t *testing.T, tenantadd bool, bid string) {
+func testBundleAdd_v1(t *testing.T, tenantadd bool, bid string, services []string) {
 	if tenantadd {
 		AddTenant_v1(t)
 	}
@@ -839,6 +870,9 @@ func testBundleAdd_v1(t *testing.T, tenantadd bool, bid string) {
 		Bid:        bid,
 		Tenant:     dbTenants[0].ID.Hex(),
 		Bundlename: "Google Youtube service",
+		Pod:        1,
+		Connectid:  "unused",
+		Services:   services,
 	}
 	body, err := json.Marshal(user)
 	if err != nil {
@@ -873,16 +907,21 @@ func testBundleAdd_v1(t *testing.T, tenantadd bool, bid string) {
 		t.Error()
 		return
 	}
+	clUser := db.DBFindClusterUser(dbTenants[0].ID, user.Bid)
+	if clUser == nil {
+		t.Error()
+		return
+	}
 }
 
 func TestBundleAdd_v1(t *testing.T) {
 	db.DBReinit()
-	testBundleAdd_v1(t, true, "youtube")
+	testBundleAdd_v1(t, true, "youtube", []string{})
 }
 
 func TestBundleGet_v1(t *testing.T) {
 	db.DBReinit()
-	testBundleAdd_v1(t, true, "youtube")
+	testBundleAdd_v1(t, true, "youtube", []string{})
 	dbTenants := db.DBFindAllTenants()
 
 	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getbundle/" + dbTenants[0].ID.Hex() + "/youtube")
@@ -916,8 +955,8 @@ func TestBundleGet_v1(t *testing.T) {
 func TestGetAllBundles_v1(t *testing.T) {
 	db.DBReinit()
 
-	testBundleAdd_v1(t, true, "youtube")
-	testBundleAdd_v1(t, false, "netflix")
+	testBundleAdd_v1(t, true, "youtube", []string{})
+	testBundleAdd_v1(t, false, "netflix", []string{})
 
 	dbTenants := db.DBFindAllTenants()
 
@@ -966,7 +1005,7 @@ type BundleAttrHdr_v1 struct {
 
 func testBundleAttrHdrAdd_v1(t *testing.T) {
 	// Just to get a bundle collection created
-	testBundleAdd_v1(t, true, "some-bundle")
+	testBundleAdd_v1(t, true, "some-bundle", []string{})
 	dbTenants := db.DBFindAllTenants()
 	attr := BundleAttrHdr_v1{
 		Tenant: dbTenants[0].ID.Hex(),
@@ -1068,7 +1107,7 @@ type BundleAttr_v1 struct {
 }
 
 func testBundleAttrAdd_v1(t *testing.T, tenantadd bool, bid string) {
-	testBundleAdd_v1(t, tenantadd, bid)
+	testBundleAdd_v1(t, tenantadd, bid, []string{})
 	dbTenants := db.DBFindAllTenants()
 
 	attr := BundleAttr_v1{
@@ -1236,7 +1275,8 @@ func testBundleDel(t *testing.T, bundle string) {
 		t.Error()
 		return
 	}
-	if db.DBFindBundle(dbTenants[0].ID, bundle) != nil || db.DBFindBundleAttr(dbTenants[0].ID, bundle) != nil {
+	if db.DBFindBundle(dbTenants[0].ID, bundle) != nil || db.DBFindBundleAttr(dbTenants[0].ID, bundle) != nil ||
+		db.DBFindClusterUser(dbTenants[0].ID, bundle) != nil {
 		t.Error()
 		return
 	}
@@ -1246,4 +1286,168 @@ func TestBundleDel(t *testing.T) {
 	db.DBReinit()
 	testBundleAttrAdd_v1(t, true, "youtube")
 	testBundleDel(t, "youtube")
+}
+
+func TestAgentServiceAdd_v1(t *testing.T) {
+	db.DBReinit()
+	UserAdd_v1(t, true, "gopa", []string{"a"})
+	dbTenants := db.DBFindAllTenants()
+	svc := db.DBFindClusterSvc(dbTenants[0].ID, "a")
+	if svc == nil {
+		t.Error()
+		return
+	}
+	if svc.Agents[0] != "gopa" {
+		t.Error()
+		return
+	}
+	UserAdd_v1(t, false, "gopa", []string{"a", "b"})
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "a")
+	if svc.Agents[0] != "gopa" {
+		t.Error()
+		return
+	}
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "b")
+	if svc.Agents[0] != "gopa" {
+		t.Error()
+		return
+	}
+	UserAdd_v1(t, false, "gopa", []string{"b", "c"})
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "a")
+	if len(svc.Agents) != 0 {
+		t.Error()
+		return
+	}
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "b")
+	if svc.Agents[0] != "gopa" {
+		t.Error()
+		return
+	}
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "c")
+	if svc.Agents[0] != "gopa" {
+		t.Error()
+		return
+	}
+	UserAdd_v1(t, false, "gopa", []string{"c"})
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "a")
+	if len(svc.Agents) != 0 {
+		t.Error()
+		return
+	}
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "b")
+	if len(svc.Agents) != 0 {
+		t.Error()
+		return
+	}
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "c")
+	if svc.Agents[0] != "gopa" {
+		t.Error()
+		return
+	}
+	UserAdd_v1(t, false, "kumar", []string{"c"})
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "c")
+	if len(svc.Agents) != 2 {
+		t.Error()
+		return
+	}
+	if svc.Agents[0] != "gopa" && svc.Agents[1] != "gopa" {
+		t.Error()
+		return
+	}
+	if svc.Agents[0] != "kumar" && svc.Agents[1] != "kumar" {
+		t.Error()
+		return
+	}
+	UserAdd_v1(t, false, "gopa", []string{})
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "c")
+	if len(svc.Agents) != 1 {
+		t.Error()
+		return
+	}
+	if svc.Agents[0] != "kumar" {
+		t.Error()
+		return
+	}
+}
+
+func TestBundleServiceAdd_v1(t *testing.T) {
+	db.DBReinit()
+	testBundleAdd_v1(t, true, "gopa", []string{"a"})
+	dbTenants := db.DBFindAllTenants()
+	svc := db.DBFindClusterSvc(dbTenants[0].ID, "a")
+	if svc == nil {
+		t.Error()
+		return
+	}
+	if svc.Agents[0] != "gopa" {
+		t.Error()
+		return
+	}
+	testBundleAdd_v1(t, false, "gopa", []string{"a", "b"})
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "a")
+	if svc.Agents[0] != "gopa" {
+		t.Error()
+		return
+	}
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "b")
+	if svc.Agents[0] != "gopa" {
+		t.Error()
+		return
+	}
+	testBundleAdd_v1(t, false, "gopa", []string{"b", "c"})
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "a")
+	if len(svc.Agents) != 0 {
+		t.Error()
+		return
+	}
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "b")
+	if svc.Agents[0] != "gopa" {
+		t.Error()
+		return
+	}
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "c")
+	if svc.Agents[0] != "gopa" {
+		t.Error()
+		return
+	}
+	testBundleAdd_v1(t, false, "gopa", []string{"c"})
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "a")
+	if len(svc.Agents) != 0 {
+		t.Error()
+		return
+	}
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "b")
+	if len(svc.Agents) != 0 {
+		t.Error()
+		return
+	}
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "c")
+	if svc.Agents[0] != "gopa" {
+		t.Error()
+		return
+	}
+	testBundleAdd_v1(t, false, "kumar", []string{"c"})
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "c")
+	if len(svc.Agents) != 2 {
+		t.Error()
+		return
+	}
+	if svc.Agents[0] != "gopa" && svc.Agents[1] != "gopa" {
+		t.Error()
+		return
+	}
+	if svc.Agents[0] != "kumar" && svc.Agents[1] != "kumar" {
+		t.Error()
+		return
+	}
+	testBundleAdd_v1(t, false, "gopa", []string{})
+	svc = db.DBFindClusterSvc(dbTenants[0].ID, "c")
+	if len(svc.Agents) != 1 {
+		t.Error()
+		return
+	}
+	if svc.Agents[0] != "kumar" {
+		t.Error()
+		return
+	}
 }

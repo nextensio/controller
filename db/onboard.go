@@ -3,17 +3,31 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+func delEmpty(s []string) []string {
+	var r []string
+	for _, str := range s {
+		if str != "" {
+			r = append(r, str)
+		}
+	}
+	return r
+}
+
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type Tenant struct {
 	ID       primitive.ObjectID `json:"_id" bson:"_id"`
 	Name     string             `json:"name" bson:"name"`
 	Gateways []string           `json:"gateways" bson:"gateways"`
+	Image    string             `json:"image" bson:"image"`
+	Pods     int                `json:"pods" bson:"pods"`
+	Curid    string             `json:"curid" bson:"curid"`
 }
 
 // This API will add a new tenant or update a tenant if it already exists
@@ -25,14 +39,36 @@ func DBAddTenant(data *Tenant) error {
 		}
 	}
 
-	_, err := tenantCltn.InsertOne(
-		context.TODO(),
-		bson.M{"name": data.Name, "gateways": data.Gateways},
-	)
+	change := bson.M{"name": data.Name, "gateways": data.Gateways, "image": data.Image,
+		"pods": data.Pods}
+	ID, err := primitive.ObjectIDFromHex(data.Curid)
+	if err == nil {
+		filter := bson.D{{"_id", ID}}
+		update := bson.D{{"$set", change}}
+		_, err := tenantCltn.UpdateOne(
+			context.TODO(),
+			filter, update,
+		)
+		if err != nil {
+			return err
+		}
+		data.ID = ID
+	} else {
+		result, err := tenantCltn.InsertOne(
+			context.TODO(),
+			change,
+		)
+		if err != nil {
+			return err
+		}
+		data.ID, _ = result.InsertedID.(primitive.ObjectID)
+	}
 
+	err = DBAddNamespace(data)
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -68,6 +104,10 @@ func DBDelTenant(id primitive.ObjectID) error {
 		context.TODO(),
 		bson.M{"_id": id},
 	)
+	if err != nil {
+		return err
+	}
+	err = DBDelNamespace(id)
 
 	return err
 }
@@ -130,10 +170,13 @@ func DBFindAllGateways() []Gateway {
 }
 
 type User struct {
-	Uid      string             `json:"uid" bson:"_id"`
-	Tenant   primitive.ObjectID `json:"tenant" bson:"tenant"`
-	Username string             `json:"name" bson:"name"`
-	Email    string             `json:"email" bson:"email"`
+	Uid       string             `json:"uid" bson:"_id"`
+	Tenant    primitive.ObjectID `json:"tenant" bson:"tenant"`
+	Username  string             `json:"name" bson:"name"`
+	Email     string             `json:"email" bson:"email"`
+	Pod       int                `json:"pod" bson:"pod"`
+	Connectid string             `json:"connectid" bson:"connectid"`
+	Services  []string           `json:"services" bson:"services"`
 }
 
 // This API will add/update a new user
@@ -143,6 +186,8 @@ func DBAddUser(data *User) error {
 		return fmt.Errorf("Unknown tenant")
 	}
 
+	data.Services = delEmpty(data.Services)
+
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
@@ -150,19 +195,52 @@ func DBAddUser(data *User) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	err := userCltn.FindOneAndUpdate(
+	// TODO: Pod assignment is set to 1 below, need an algo for pod assignment
+	data.Pod = 1
+	// Replace @ in email with -
+	// TODO: Same user/uuid can login from multiple devices, in which case the connectid
+	// has to be different, somehow figure out a scheme to make multiple connectids per user
+	// Also the connectid eventually will be of a form where it is podNN-blah so that the
+	// cluster yamls can just install one wildcard rule for podNN-* rather than a rule for
+	// each user on that pod
+	data.Connectid = strings.ReplaceAll(data.Uid, "@", "-")
+	result := userCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": data.Uid, "tenant": data.Tenant},
 		bson.D{
-			{"$set", bson.M{"_id": data.Uid, "tenant": data.Tenant, "name": data.Username, "email": data.Email}},
+			{"$set", bson.M{"_id": data.Uid, "tenant": data.Tenant, "name": data.Username, "email": data.Email,
+				"pod": data.Pod, "services": data.Services}},
 		},
 		&opt,
 	)
 
-	if err != nil {
-		return err.Err()
+	if result.Err() != nil {
+		return result.Err()
 	}
+
+	err := DBAddClusterUser(data)
+	if err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// Purely used for the test environment where we dont want to do the full
+// onboarding and return tenant id as part of onboarding etc.., instead
+// just look for this user in any of the matching tenants - obviously
+// assumption for test environment in that case is that username is unique
+// across tenants
+func DBFindUserAnyTenant(userid string) *primitive.ObjectID {
+	var user User
+	err := userCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": userid},
+	).Decode(&user)
+	if err != nil {
+		return nil
+	}
+	return &user.Tenant
 }
 
 func DBFindUser(tenant primitive.ObjectID, userid string) *User {
@@ -197,7 +275,15 @@ func DBDelUser(tenant primitive.ObjectID, userid string) error {
 		context.TODO(),
 		bson.M{"_id": userid, "tenant": tenant},
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	err = DBDelClusterUser(tenant, userid)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 type DataHdr struct {
@@ -343,6 +429,9 @@ type Bundle struct {
 	Bid        string             `json:"bid" bson:"_id"`
 	Tenant     primitive.ObjectID `json:"tenant" bson:"tenant"`
 	Bundlename string             `json:"name" bson:"name"`
+	Pod        int                `json:"pod" bson:"pod"`
+	Connectid  string             `json:"connectid" bson:"connectid"`
+	Services   []string           `json:"services" bson:"services"`
 }
 
 // This API will add/update a new bundle
@@ -352,6 +441,8 @@ func DBAddBundle(data *Bundle) error {
 		return fmt.Errorf("Unknown tenant")
 	}
 
+	data.Services = delEmpty(data.Services)
+
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
@@ -359,18 +450,33 @@ func DBAddBundle(data *Bundle) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	err := appCltn.FindOneAndUpdate(
+	// TODO: Pod assignment is set to 1 below, need an algo for pod assignment
+	data.Pod = 1
+	// Replace @ in email with -
+	// TODO: Same user/uuid can login from multiple devices, in which case the connectid
+	// has to be different, somehow figure out a scheme to make multiple connectids per user
+	// Also the connectid eventually will be of a form where it is podNN-blah so that the
+	// cluster yamls can just install one wildcard rule for podNN-* rather than a rule for
+	// each user on that pod
+	data.Connectid = strings.ReplaceAll(data.Bid, "@", "-")
+	result := appCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": data.Bid, "tenant": data.Tenant},
 		bson.D{
-			{"$set", bson.M{"_id": data.Bid, "tenant": data.Tenant, "name": data.Bundlename}},
+			{"$set", bson.M{"_id": data.Bid, "tenant": data.Tenant, "name": data.Bundlename,
+				"pod": data.Pod, "services": data.Services}},
 		},
 		&opt,
 	)
-
-	if err != nil {
-		return err.Err()
+	if result.Err() != nil {
+		return result.Err()
 	}
+
+	err := DBAddClusterBundle(data)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -406,6 +512,15 @@ func DBDelBundle(tenant primitive.ObjectID, bundleid string) error {
 		context.TODO(),
 		bson.M{"_id": bundleid, "tenant": tenant},
 	)
+	if err != nil {
+		return err
+	}
+
+	err = DBDelClusterUser(tenant, bundleid)
+	if err != nil {
+		return err
+	}
+
 	return err
 }
 
