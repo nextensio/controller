@@ -4,11 +4,6 @@ import (
 	"nextensio/controller/db"
 	"nextensio/controller/router"
 	"nextensio/controller/utils"
-	"os"
-	"path"
-
-	"github.com/golang/glog"
-	"github.com/joho/godotenv"
 )
 
 func initAll(readonly bool) {
@@ -21,10 +16,6 @@ func initAll(readonly bool) {
 // sign on requests from agents etc. The code is the same, we just dont register the read-write http
 // routes in the controller
 func main() {
-	err := godotenv.Load(path.Join(os.Getenv("HOME"), "nextensio/controller/environment"))
-	if err != nil {
-		glog.Info("Environment load failed")
-	}
 	readonly := utils.GetEnv("NXT_READONLY", "true")
 	if readonly == "true" {
 		initAll(true)

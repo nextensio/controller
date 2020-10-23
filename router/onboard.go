@@ -235,10 +235,11 @@ type onboardData struct {
 	Tenant primitive.ObjectID `json:"tenant"`
 }
 type OnboardResult struct {
-	Result  string `json:"Result"`
-	Userid  string `json:"userid"`
-	Tenant  string `json:"tenant"`
-	Gateway string `json:"gateway"`
+	Result    string `json:"Result"`
+	Userid    string `json:"userid"`
+	Tenant    string `json:"tenant"`
+	Gateway   string `json:"gateway"`
+	Connectid string `json:"connectid"`
 }
 
 // An agent wants to be onboarded, verify its access-token and return
@@ -285,17 +286,31 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-
+	if utils.GetEnv("TEST_ENVIRONMENT", "false") == "true" {
+		tenant := db.DBFindUserAnyTenant(data.Userid)
+		if tenant == nil {
+			result.Result = "Cannot retrieve tenant for user"
+			utils.WriteResult(w, result)
+			return
+		}
+		data.Tenant = *tenant
+	}
 	tenant := db.DBFindTenant(data.Tenant)
 	if tenant == nil {
 		result.Result = "Tenant not found"
 		utils.WriteResult(w, result)
 		return
 	}
-
+	user := db.DBFindUser(data.Tenant, data.Userid)
+	if user.Uid != data.Userid {
+		result.Result = "IDP / controller username mismatch"
+		utils.WriteResult(w, result)
+		return
+	}
 	result.Result = "ok"
 	result.Userid = data.Userid
 	result.Tenant = data.Tenant.Hex()
+	result.Connectid = user.Connectid
 	// TODO: This needs modification where we return the appropriate gateway from
 	// the list to the agent, the appropriate geo-located gateway using maxmind maybe ?
 	result.Gateway = tenant.Gateways[0]

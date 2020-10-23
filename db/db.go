@@ -63,13 +63,17 @@ func dbDrop() {
 
 func DBReinit() {
 	dbConnect()
+	ClusterDBInit(dbClient)
 	dbDrop()
 	dbCollections()
+	ClusterDBDrop()
+	ClusterDBInit(dbClient)
 }
 
 func DBInit() {
 	dbConnect()
 	dbCollections()
+	ClusterDBInit(dbClient)
 }
 
 func StrToObjectid(objid string) (primitive.ObjectID, error) {

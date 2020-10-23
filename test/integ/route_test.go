@@ -19,7 +19,7 @@ type Route_v1 struct {
 func RouteAdd_v1(t *testing.T, addtenant bool, routeid string) {
 	if addtenant {
 		AddTenant_v1(t)
-		UserAdd_v1(t, false, "gopa")
+		UserAdd_v1(t, false, "gopa", []string{})
 	}
 	dbTenants := db.DBFindAllTenants()
 
