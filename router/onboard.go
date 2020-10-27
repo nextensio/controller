@@ -2,6 +2,7 @@ package router
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"nextensio/controller/db"
@@ -20,6 +21,12 @@ func rdonlyOnboard() {
 
 	// This route is used to get all gateways
 	addRoute("/api/v1/getallgateways", "GET", getAllGatewaysHandler)
+
+	// This route is used to retrieve a certificate
+	addRoute("/api/v1/getcert/{certid}", "GET", getcertHandler)
+
+	// This route is used to get all certificates
+	addRoute("/api/v1/getallcerts", "GET", getAllCertsHandler)
 
 	// This route is used to get all tenants
 	addRoute("/api/v1/getalltenants", "GET", getAllTenantsHandler)
@@ -58,6 +65,15 @@ func rdonlyOnboard() {
 func rdwrOnboard() {
 	// This route is used to add new gateways, gateways can be multi-tenant
 	addRoute("/api/v1/addgateway", "POST", addgatewayHandler)
+
+	// This route deletes a gateway that is not in use by any tenant
+	addRoute("/api/v1/delgateway/{name}", "GET", delgatewayHandler)
+
+	// This route is used to add new certificates
+	addRoute("/api/v1/addcert", "POST", addcertHandler)
+
+	// This route deletes a gateway that is not in use by any tenant
+	addRoute("/api/v1/delcert/{certid}", "GET", delcertHandler)
 
 	// This route is used by the controller admin to addd a new tenant
 	addRoute("/api/v1/addtenant", "POST", addtenantHandler)
@@ -220,6 +236,34 @@ func addgatewayHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
+type DelgatewayResult struct {
+	Result string `json:"Result"`
+}
+
+// Delete a Nextensio gateway
+func delgatewayHandler(w http.ResponseWriter, r *http.Request) {
+	var result DelgatewayResult
+
+	v := mux.Vars(r)
+	name := v["name"]
+
+	if db.DBGatewayInUse(name) {
+		result.Result = "Gateway still in use by tenants"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err := db.DBDelGateway(name)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
 // Get all gateways
 func getAllGatewaysHandler(w http.ResponseWriter, r *http.Request) {
 	gws := db.DBFindAllGateways()
@@ -227,6 +271,92 @@ func getAllGatewaysHandler(w http.ResponseWriter, r *http.Request) {
 		gws = make([]db.Gateway, 0)
 	}
 	utils.WriteResult(w, gws)
+
+}
+
+type AddcertResult struct {
+	Result string `json:"Result"`
+}
+
+// Add a Nextensio gateway
+func addcertHandler(w http.ResponseWriter, r *http.Request) {
+	var result AddcertResult
+	var data db.Certificate
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		result.Result = "Error parsing json"
+		utils.WriteResult(w, result)
+		return
+	}
+	err = db.DBAddCert(&data)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+type DelcertResult struct {
+	Result string `json:"Result"`
+}
+
+// Delete a Nextensio gateway
+func delcertHandler(w http.ResponseWriter, r *http.Request) {
+	var result DelcertResult
+
+	v := mux.Vars(r)
+	name := v["certid"]
+
+	err := db.DBDelCert(name)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+type GetcertResult struct {
+	Result string `json:"Result"`
+	db.Certificate
+}
+
+// Get a certificate
+func getcertHandler(w http.ResponseWriter, r *http.Request) {
+	var result GetcertResult
+
+	v := mux.Vars(r)
+	certname := v["certid"]
+
+	cert := db.DBFindCert(certname)
+	if cert == nil {
+		result.Result = "Cannot find certificate"
+	} else {
+		result = GetcertResult{Result: "ok", Certificate: *cert}
+	}
+	utils.WriteResult(w, result)
+}
+
+// Get all gateways
+func getAllCertsHandler(w http.ResponseWriter, r *http.Request) {
+	certs := db.DBFindAllCerts()
+	if certs == nil {
+		certs = make([]db.Certificate, 0)
+	}
+	utils.WriteResult(w, certs)
 
 }
 
@@ -240,6 +370,7 @@ type OnboardResult struct {
 	Tenant    string `json:"tenant"`
 	Gateway   string `json:"gateway"`
 	Connectid string `json:"connectid"`
+	Cacert    []rune `json:"cacert"`
 }
 
 // An agent wants to be onboarded, verify its access-token and return
@@ -289,9 +420,12 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	if utils.GetEnv("TEST_ENVIRONMENT", "false") == "true" {
 		tenant := db.DBFindUserAnyTenant(data.Userid)
 		if tenant == nil {
-			result.Result = "Cannot retrieve tenant for user"
-			utils.WriteResult(w, result)
-			return
+			tenant = db.DBFindBundleAnyTenant(data.Userid)
+			if tenant == nil {
+				result.Result = fmt.Sprintf("Cannot retrieve tenant for user %s", data.Userid)
+				utils.WriteResult(w, result)
+				return
+			}
 		}
 		data.Tenant = *tenant
 	}
@@ -301,19 +435,56 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	user := db.DBFindUser(data.Tenant, data.Userid)
-	if user.Uid != data.Userid {
-		result.Result = "IDP / controller username mismatch"
+	{
+		user := db.DBFindUser(data.Tenant, data.Userid)
+		if user != nil {
+			if user.Uid != data.Userid {
+				result.Result = "IDP / controller username mismatch"
+				utils.WriteResult(w, result)
+				return
+			}
+			result.Connectid = user.Connectid
+			// This is used only in a test environment today, to force-associate
+			// a user to a gateway
+			if user.Gateway != "" {
+				result.Gateway = user.Gateway
+			}
+		} else {
+			bundle := db.DBFindBundle(data.Tenant, data.Userid)
+			if bundle != nil {
+				if bundle.Bid != data.Userid {
+					result.Result = "IDP / controller bundlename mismatch"
+					utils.WriteResult(w, result)
+					return
+				}
+				result.Connectid = bundle.Connectid
+				// This is used only in a test environment today, to force-associate
+				// a user to a gateway
+				if bundle.Gateway != "" {
+					result.Gateway = bundle.Gateway
+				}
+			} else {
+				result.Result = "IDP user/bundle not found on controller"
+				utils.WriteResult(w, result)
+				return
+			}
+		}
+	}
+	cert := db.DBFindCert("CACert")
+	if cert == nil {
+		result.Result = "Unable to find CA cert mismatch"
 		utils.WriteResult(w, result)
 		return
 	}
 	result.Result = "ok"
 	result.Userid = data.Userid
 	result.Tenant = data.Tenant.Hex()
-	result.Connectid = user.Connectid
+	result.Cacert = cert.Cert
 	// TODO: This needs modification where we return the appropriate gateway from
 	// the list to the agent, the appropriate geo-located gateway using maxmind maybe ?
-	result.Gateway = tenant.Gateways[0]
+	if result.Gateway == "" {
+		result.Gateway = tenant.Gateways[0]
+	}
 	utils.WriteResult(w, result)
 
 	glog.Info("User ", data.Userid, " tenant ", data.Tenant, " signed in")

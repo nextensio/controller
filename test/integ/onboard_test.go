@@ -12,8 +12,7 @@ import (
 )
 
 type Gateway_v1 struct {
-	Name   string `json:"name" bson:"_id"`
-	IPAddr string `json:"ipaddr" bson:"ipaddr"`
+	Name string `json:"name" bson:"_id"`
 }
 
 func addGateway(gw *Gateway_v1) bool {
@@ -52,7 +51,7 @@ func addGateway(gw *Gateway_v1) bool {
 }
 
 func testGatewayAdd_v1(t *testing.T) {
-	gw := Gateway_v1{Name: "sjc.nextensio.net", IPAddr: "1.1.1.1"}
+	gw := Gateway_v1{Name: "sjc.nextensio.net"}
 	add := addGateway(&gw)
 	if add == false {
 		t.Error()
@@ -60,20 +59,78 @@ func testGatewayAdd_v1(t *testing.T) {
 	}
 }
 
-func TestGatewayAdd_v1(t *testing.T) {
+func TestAddGateway_v1(t *testing.T) {
 	db.DBReinit()
 	testGatewayAdd_v1(t)
 }
 
+func delGateway(gw *Gateway_v1) bool {
+	body, err := json.Marshal(gw)
+	if err != nil {
+		return false
+	}
+
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/delgateway/" + gw.Name)
+	if err != nil {
+		fmt.Println("Delete gw failed")
+		return false
+	}
+	defer resp.Body.Close()
+
+	body, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return false
+	}
+	var data router.AddgatewayResult
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		fmt.Println("unmarshall failed")
+		return false
+	}
+	if data.Result != "ok" {
+		return false
+	}
+
+	dbGw := db.DBFindGateway(gw.Name)
+	if dbGw != nil {
+		return false
+	}
+
+	return true
+}
+
+func TestDelGateway_v1(t *testing.T) {
+	db.DBReinit()
+	AddTenant_v1(t)
+	gw := Gateway_v1{Name: "sjc.nextensio.net"}
+	if delGateway(&gw) {
+		// should not be able to delete gateway in use
+		t.Error()
+		return
+	}
+	gw = Gateway_v1{Name: "ric.nextensio.net"}
+	if delGateway(&gw) {
+		// should not be able to delete gateway in use
+		t.Error()
+		return
+	}
+	gw = Gateway_v1{Name: "abc.nextensio.net"}
+	addGateway(&gw)
+	if !delGateway(&gw) {
+		t.Error()
+		return
+	}
+}
+
 func TestGetAllGateway_v1(t *testing.T) {
 	db.DBReinit()
-	gw := Gateway_v1{Name: "sjc.nextensio.net", IPAddr: "1.1.1.1"}
+	gw := Gateway_v1{Name: "sjc.nextensio.net"}
 	add := addGateway(&gw)
 	if add == false {
 		t.Error()
 		return
 	}
-	gw = Gateway_v1{Name: "ric.nextensio.net", IPAddr: "2.2.2.2"}
+	gw = Gateway_v1{Name: "ric.nextensio.net"}
 	add = addGateway(&gw)
 	if add == false {
 		t.Error()
@@ -188,7 +245,7 @@ func AddTenant_v1(t *testing.T) {
 	}
 
 	// add one gateway, but the tenant add should still fail since only one is added yet
-	gw := Gateway_v1{Name: "sjc.nextensio.net", IPAddr: "1.1.1.1"}
+	gw := Gateway_v1{Name: "sjc.nextensio.net"}
 	add = addGateway(&gw)
 	if add == false {
 		t.Error()
@@ -202,7 +259,7 @@ func AddTenant_v1(t *testing.T) {
 		return
 	}
 
-	gw = Gateway_v1{Name: "ric.nextensio.net", IPAddr: "1.1.1.1"}
+	gw = Gateway_v1{Name: "ric.nextensio.net"}
 	add = addGateway(&gw)
 	if add == false {
 		t.Error()
@@ -225,13 +282,13 @@ func TestGetAllTenant_v1(t *testing.T) {
 	db.DBReinit()
 
 	// add one gateway, but the tenant add should still fail since only one is added yet
-	gw := Gateway_v1{Name: "sjc.nextensio.net", IPAddr: "1.1.1.1"}
+	gw := Gateway_v1{Name: "sjc.nextensio.net"}
 	add := addGateway(&gw)
 	if add == false {
 		t.Error()
 		return
 	}
-	gw = Gateway_v1{Name: "ric.nextensio.net", IPAddr: "2.2.2.2"}
+	gw = Gateway_v1{Name: "ric.nextensio.net"}
 	add = addGateway(&gw)
 	if add == false {
 		t.Error()
@@ -353,13 +410,13 @@ func TestTenantDel(t *testing.T) {
 
 func addGatewayAndTenant(t *testing.T) {
 	// add one gateway, but the tenant add should still fail since only one is added yet
-	gw := Gateway_v1{Name: "sjc.nextensio.net", IPAddr: "1.1.1.1"}
+	gw := Gateway_v1{Name: "sjc.nextensio.net"}
 	add := addGateway(&gw)
 	if add == false {
 		t.Error()
 		return
 	}
-	gw = Gateway_v1{Name: "ric.nextensio.net", IPAddr: "2.2.2.2"}
+	gw = Gateway_v1{Name: "ric.nextensio.net"}
 	add = addGateway(&gw)
 	if add == false {
 		t.Error()
@@ -416,6 +473,7 @@ type User_v1 struct {
 	Tenant    string   `json:"tenant" bson:"tenant"`
 	Name      string   `json:"name" bson:"name"`
 	Email     string   `json:"email" bson:"email"`
+	Gateway   string   `json:"gateway" bson:"gateway"`
 	Pod       int      `json:"pod" bson:"pod"`
 	Connectid string   `json:"connectid" bson:"connectid"`
 	Services  []string `json:"services" bson:"services"`
@@ -432,6 +490,7 @@ func UserAdd_v1(t *testing.T, tenantadd bool, userid string, services []string) 
 		Uid:       userid,
 		Name:      "Gopa Kumar",
 		Email:     "gopa@nextensio.net",
+		Gateway:   "",
 		Pod:       1,
 		Connectid: "unused",
 		Services:  services,
@@ -855,6 +914,7 @@ type Bundle_v1 struct {
 	Bid        string   `json:"bid" bson:"_id"`
 	Tenant     string   `json:"tenant" bson:"tenant"`
 	Bundlename string   `json:"name" bson:"name"`
+	Gateway    string   `json:"gateway" bson:"gateway"`
 	Pod        int      `json:"pod" bson:"pod"`
 	Connectid  string   `json:"connectid" bson:"connectid"`
 	Services   []string `json:"services" bson:"services"`
@@ -870,6 +930,7 @@ func testBundleAdd_v1(t *testing.T, tenantadd bool, bid string, services []strin
 		Bid:        bid,
 		Tenant:     dbTenants[0].ID.Hex(),
 		Bundlename: "Google Youtube service",
+		Gateway:    "",
 		Pod:        1,
 		Connectid:  "unused",
 		Services:   services,
@@ -1314,7 +1375,7 @@ func TestAgentServiceAdd_v1(t *testing.T) {
 	}
 	UserAdd_v1(t, false, "gopa", []string{"b", "c"})
 	svc = db.DBFindClusterSvc(dbTenants[0].ID, "a")
-	if len(svc.Agents) != 0 {
+	if svc != nil {
 		t.Error()
 		return
 	}
@@ -1330,12 +1391,12 @@ func TestAgentServiceAdd_v1(t *testing.T) {
 	}
 	UserAdd_v1(t, false, "gopa", []string{"c"})
 	svc = db.DBFindClusterSvc(dbTenants[0].ID, "a")
-	if len(svc.Agents) != 0 {
+	if svc != nil {
 		t.Error()
 		return
 	}
 	svc = db.DBFindClusterSvc(dbTenants[0].ID, "b")
-	if len(svc.Agents) != 0 {
+	if svc != nil {
 		t.Error()
 		return
 	}
@@ -1396,7 +1457,7 @@ func TestBundleServiceAdd_v1(t *testing.T) {
 	}
 	testBundleAdd_v1(t, false, "gopa", []string{"b", "c"})
 	svc = db.DBFindClusterSvc(dbTenants[0].ID, "a")
-	if len(svc.Agents) != 0 {
+	if svc != nil {
 		t.Error()
 		return
 	}
@@ -1412,12 +1473,12 @@ func TestBundleServiceAdd_v1(t *testing.T) {
 	}
 	testBundleAdd_v1(t, false, "gopa", []string{"c"})
 	svc = db.DBFindClusterSvc(dbTenants[0].ID, "a")
-	if len(svc.Agents) != 0 {
+	if svc != nil {
 		t.Error()
 		return
 	}
 	svc = db.DBFindClusterSvc(dbTenants[0].ID, "b")
-	if len(svc.Agents) != 0 {
+	if svc != nil {
 		t.Error()
 		return
 	}
@@ -1450,4 +1511,168 @@ func TestBundleServiceAdd_v1(t *testing.T) {
 		t.Error()
 		return
 	}
+}
+
+type Cert_v1 struct {
+	Certid string `json:"certid" bson:"_id"`
+	Cert   []rune `json:"cert" bson:"cert"`
+}
+
+func CertAdd_v1(t *testing.T, name string) {
+	cert := Cert_v1{
+		Certid: name,
+		Cert:   []rune("some-certificate-here"),
+	}
+	body, err := json.Marshal(cert)
+	if err != nil {
+		t.Error()
+		return
+	}
+	resp, err := http.Post("http://127.0.0.1:8080/api/v1/addcert", "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data router.AddcertResult
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if data.Result != "ok" {
+		t.Error()
+		return
+	}
+
+	dbCert := db.DBFindCert(cert.Certid)
+	if dbCert == nil {
+		t.Error()
+		return
+	}
+	if string(dbCert.Cert) != "some-certificate-here" {
+		t.Error()
+		return
+	}
+}
+
+func TestCertAdd_v1(t *testing.T) {
+	db.DBReinit()
+	CertAdd_v1(t, "rootCA")
+}
+
+func TestCertGet_v1(t *testing.T) {
+	db.DBReinit()
+	CertAdd_v1(t, "rootCA")
+
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getcert/" + "rootCA")
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data router.GetcertResult
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if data.Result != "ok" {
+		t.Error()
+		return
+	}
+	if string(data.Cert) != "some-certificate-here" {
+		t.Error()
+		return
+	}
+}
+
+func TestGetAllCerts_v1(t *testing.T) {
+	db.DBReinit()
+
+	CertAdd_v1(t, "rootCA")
+	CertAdd_v1(t, "interCA")
+
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/getallcerts")
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data []db.Certificate
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if len(data) != 2 {
+		t.Error()
+		return
+	}
+	found := 0
+	for i := 0; i < len(data); i++ {
+		if data[i].Certid == "rootCA" {
+			found++
+		}
+		if data[i].Certid == "interCA" {
+			found++
+		}
+	}
+	if found != 2 {
+		t.Error()
+		return
+	}
+}
+
+func CertDel_v1(t *testing.T, name string) {
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/delcert/" + name)
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data router.DelcertResult
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if data.Result != "ok" {
+		t.Error()
+		return
+	}
+	if db.DBFindAllCerts() != nil {
+		t.Error()
+		return
+	}
+}
+
+func TestCertDel_v1(t *testing.T) {
+	db.DBReinit()
+	CertAdd_v1(t, "rootCA")
+	CertDel_v1(t, "rootCA")
 }

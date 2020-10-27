@@ -16,6 +16,7 @@ import (
 // We open a connection to the DB and keep it around for ever
 var dbClient *mongo.Client
 var tenantCltn *mongo.Collection
+var certCltn *mongo.Collection
 var gatewayCltn *mongo.Collection
 var policyCltn *mongo.Collection
 var routeCltn *mongo.Collection
@@ -48,6 +49,7 @@ func dbConnect() {
 
 func dbCollections() {
 	tenantCltn = nxtDB.Collection("NxtTenants")
+	certCltn = nxtDB.Collection("NxtCerts")
 	gatewayCltn = nxtDB.Collection("NxtGateways")
 	policyCltn = nxtDB.Collection("NxtPolicies")
 	routeCltn = nxtDB.Collection("NxtRoutes")
