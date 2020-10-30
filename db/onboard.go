@@ -10,6 +10,10 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+//TODO: The usages of "FindAllXYZ" has to be audited and modified to a more appropriate form,
+//it will be a killer as we scale to thousands of users / tenants etc.. And we will need the
+//UI also to be modified to not use FindAllXYZ and instead find within a given range etc.
+
 func delEmpty(s []string) []string {
 	var r []string
 	for _, str := range s {
@@ -28,6 +32,16 @@ type Tenant struct {
 	Image    string             `json:"image" bson:"image"`
 	Pods     int                `json:"pods" bson:"pods"`
 	Curid    string             `json:"curid" bson:"curid"`
+	NextPod  int                `json:"nextpod" bson:"nextpod"`
+}
+
+func tenantNextPod(tenant *Tenant) int {
+	nextpod := tenant.NextPod + 1 // Pods are created one-based
+	tenant.NextPod = (tenant.NextPod + 1) % tenant.Pods
+	tenant.Curid = tenant.ID.Hex()
+	DBAddTenant(tenant)
+
+	return nextpod
 }
 
 // This API will add a new tenant or update a tenant if it already exists
@@ -40,7 +54,7 @@ func DBAddTenant(data *Tenant) error {
 	}
 
 	change := bson.M{"name": data.Name, "gateways": data.Gateways, "image": data.Image,
-		"pods": data.Pods}
+		"pods": data.Pods, "nextpod": data.NextPod}
 	ID, err := primitive.ObjectIDFromHex(data.Curid)
 	if err == nil {
 		filter := bson.D{{"_id", ID}}
@@ -112,9 +126,80 @@ func DBDelTenant(id primitive.ObjectID) error {
 	return err
 }
 
+// NOTE: The bson decoder will not work if the structure field names dont start with upper case
+type Certificate struct {
+	Certid string `json:"certid" bson:"_id"`
+	Cert   []rune `json:"cert" bson:"cert"`
+}
+
+// This API will add a new gateway or update a gateway if it already exists
+func DBAddCert(data *Certificate) error {
+
+	// The upsert option asks the DB to add if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	err := certCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": data.Certid},
+		bson.D{
+			{"$set", bson.M{"_id": data.Certid, "cert": data.Cert}},
+		},
+		&opt,
+	)
+
+	if err != nil {
+		return err.Err()
+	}
+	return nil
+}
+
+// This API will delete a gateway if its not in use by any tenants
+func DBDelCert(name string) error {
+
+	_, err := certCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": name},
+	)
+
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func DBFindCert(name string) *Certificate {
+	var cert Certificate
+	err := certCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": name},
+	).Decode(&cert)
+	if err != nil {
+		return nil
+	}
+	return &cert
+}
+
+func DBFindAllCerts() []Certificate {
+	var certs []Certificate
+
+	cursor, err := certCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &certs)
+	if err != nil {
+		return nil
+	}
+
+	return certs
+}
+
 type Gateway struct {
-	Name   string `json:"name" bson:"_id"`
-	IPAddr string `json:"ipaddr" bson:"ipaddr"`
+	Name string `json:"name" bson:"_id"`
 }
 
 // This API will add a new gateway or update a gateway if it already exists
@@ -131,13 +216,39 @@ func DBAddGateway(data *Gateway) error {
 		context.TODO(),
 		bson.M{"_id": data.Name},
 		bson.D{
-			{"$set", bson.M{"_id": data.Name, "ipaddr": data.IPAddr}},
+			{"$set", bson.M{"_id": data.Name}},
 		},
 		&opt,
 	)
 
 	if err != nil {
 		return err.Err()
+	}
+	return nil
+}
+
+func DBGatewayInUse(name string) bool {
+	tenants := DBFindAllTenants()
+	for _, t := range tenants {
+		for _, n := range t.Gateways {
+			if name == n {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// This API will delete a gateway if its not in use by any tenants
+func DBDelGateway(name string) error {
+
+	_, err := gatewayCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": name},
+	)
+
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -174,6 +285,7 @@ type User struct {
 	Tenant    primitive.ObjectID `json:"tenant" bson:"tenant"`
 	Username  string             `json:"name" bson:"name"`
 	Email     string             `json:"email" bson:"email"`
+	Gateway   string             `json:"gateway" bson:"gateway"`
 	Pod       int                `json:"pod" bson:"pod"`
 	Connectid string             `json:"connectid" bson:"connectid"`
 	Services  []string           `json:"services" bson:"services"`
@@ -182,8 +294,16 @@ type User struct {
 // This API will add/update a new user
 func DBAddUser(data *User) error {
 
-	if DBFindTenant(data.Tenant) == nil {
+	tenant := DBFindTenant(data.Tenant)
+	if tenant == nil {
 		return fmt.Errorf("Unknown tenant")
+	}
+
+	data.Gateway = strings.TrimSpace(data.Gateway)
+	if data.Gateway != "" {
+		if DBFindGateway(data.Gateway) == nil {
+			return fmt.Errorf("Gateway %s not configured", data.Gateway)
+		}
 	}
 
 	data.Services = delEmpty(data.Services)
@@ -195,21 +315,23 @@ func DBAddUser(data *User) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	// TODO: Pod assignment is set to 1 below, need an algo for pod assignment
-	data.Pod = 1
-	// Replace @ in email with -
+	// TODO:  need a a better algo for pod assignment
+	data.Pod = tenantNextPod(tenant)
+	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
+	// not happy with @, minion wants to replace dot with dash, keep everyone happy
 	// TODO: Same user/uuid can login from multiple devices, in which case the connectid
 	// has to be different, somehow figure out a scheme to make multiple connectids per user
 	// Also the connectid eventually will be of a form where it is podNN-blah so that the
 	// cluster yamls can just install one wildcard rule for podNN-* rather than a rule for
 	// each user on that pod
 	data.Connectid = strings.ReplaceAll(data.Uid, "@", "-")
+	data.Connectid = strings.ReplaceAll(data.Connectid, ".", "-")
 	result := userCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": data.Uid, "tenant": data.Tenant},
 		bson.D{
 			{"$set", bson.M{"_id": data.Uid, "tenant": data.Tenant, "name": data.Username, "email": data.Email,
-				"pod": data.Pod, "services": data.Services}},
+				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid, "services": data.Services}},
 		},
 		&opt,
 	)
@@ -429,6 +551,7 @@ type Bundle struct {
 	Bid        string             `json:"bid" bson:"_id"`
 	Tenant     primitive.ObjectID `json:"tenant" bson:"tenant"`
 	Bundlename string             `json:"name" bson:"name"`
+	Gateway    string             `json:"gateway" bson:"gateway"`
 	Pod        int                `json:"pod" bson:"pod"`
 	Connectid  string             `json:"connectid" bson:"connectid"`
 	Services   []string           `json:"services" bson:"services"`
@@ -437,8 +560,16 @@ type Bundle struct {
 // This API will add/update a new bundle
 func DBAddBundle(data *Bundle) error {
 
-	if DBFindTenant(data.Tenant) == nil {
+	tenant := DBFindTenant(data.Tenant)
+	if tenant == nil {
 		return fmt.Errorf("Unknown tenant")
+	}
+
+	data.Gateway = strings.TrimSpace(data.Gateway)
+	if data.Gateway != "" {
+		if DBFindGateway(data.Gateway) == nil {
+			return fmt.Errorf("Gateway %s not configured", data.Gateway)
+		}
 	}
 
 	data.Services = delEmpty(data.Services)
@@ -450,8 +581,8 @@ func DBAddBundle(data *Bundle) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	// TODO: Pod assignment is set to 1 below, need an algo for pod assignment
-	data.Pod = 1
+	// TODO:  need a a better algo for pod assignment
+	data.Pod = tenantNextPod(tenant)
 	// Replace @ in email with -
 	// TODO: Same user/uuid can login from multiple devices, in which case the connectid
 	// has to be different, somehow figure out a scheme to make multiple connectids per user
@@ -464,7 +595,7 @@ func DBAddBundle(data *Bundle) error {
 		bson.M{"_id": data.Bid, "tenant": data.Tenant},
 		bson.D{
 			{"$set", bson.M{"_id": data.Bid, "tenant": data.Tenant, "name": data.Bundlename,
-				"pod": data.Pod, "services": data.Services}},
+				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid, "services": data.Services}},
 		},
 		&opt,
 	)
@@ -478,6 +609,23 @@ func DBAddBundle(data *Bundle) error {
 	}
 
 	return nil
+}
+
+// Purely used for the test environment where we dont want to do the full
+// onboarding and return tenant id as part of onboarding etc.., instead
+// just look for this user in any of the matching tenants - obviously
+// assumption for test environment in that case is that username is unique
+// across tenants
+func DBFindBundleAnyTenant(bundleid string) *primitive.ObjectID {
+	var app Bundle
+	err := appCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": bundleid},
+	).Decode(&app)
+	if err != nil {
+		return nil
+	}
+	return &app.Tenant
 }
 
 func DBFindBundle(tenant primitive.ObjectID, bundleid string) *Bundle {
