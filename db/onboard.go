@@ -583,13 +583,15 @@ func DBAddBundle(data *Bundle) error {
 	}
 	// TODO:  need a a better algo for pod assignment
 	data.Pod = tenantNextPod(tenant)
-	// Replace @ in email with -
+	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
+	// not happy with @, minion wants to replace dot with dash, keep everyone happy
 	// TODO: Same user/uuid can login from multiple devices, in which case the connectid
 	// has to be different, somehow figure out a scheme to make multiple connectids per user
 	// Also the connectid eventually will be of a form where it is podNN-blah so that the
 	// cluster yamls can just install one wildcard rule for podNN-* rather than a rule for
 	// each user on that pod
 	data.Connectid = strings.ReplaceAll(data.Bid, "@", "-")
+	data.Connectid = strings.ReplaceAll(data.Connectid, ".", "-")
 	result := appCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": data.Bid, "tenant": data.Tenant},
