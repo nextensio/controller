@@ -1,8 +1,5 @@
 FROM golang:1.13-alpine3.12
-# Add the below two repos for mongodb
-RUN echo 'http://dl-cdn.alpinelinux.org/alpine/v3.6/main' >> /etc/apk/repositories
-RUN echo 'http://dl-cdn.alpinelinux.org/alpine/v3.6/community' >> /etc/apk/repositories
-RUN apk update && apk add git && apk add mongodb
+RUN apk update && apk add git
 
 MAINTAINER Gopa Kumar <gopa@nextensio.net>
 COPY files /go
@@ -12,16 +9,11 @@ COPY nxtsvr ./nxtsvr/
 COPY router ./router/
 COPY utils ./utils/
 
-# mongodb stuff
-RUN mkdir /data
-RUN mkdir /data/db
-
 RUN go get -d -v ./... \
     && go install -v ./... \
     && \rm -r -f /go/src/nextensio/* \
     && \rm -r -f /go/pkg/mod \
     && \rm -r -f /go/pkg/sumdb
 
-EXPOSE 8080/tcp 27017/tcp
-CMD mongod --bind_ip 0.0.0.0 --fork --logpath /var/log/mongodb/mongod.log; /go/bin/nxtsvr
-
+EXPOSE 8080/tcp
+CMD /go/bin/nxtsvr
