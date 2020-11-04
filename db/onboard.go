@@ -29,6 +29,7 @@ type Tenant struct {
 	ID       primitive.ObjectID `json:"_id" bson:"_id"`
 	Name     string             `json:"name" bson:"name"`
 	Gateways []string           `json:"gateways" bson:"gateways"`
+	Domains  []string           `json:"domains" bson:"domains"`
 	Image    string             `json:"image" bson:"image"`
 	Pods     int                `json:"pods" bson:"pods"`
 	Curid    string             `json:"curid" bson:"curid"`
@@ -36,6 +37,9 @@ type Tenant struct {
 }
 
 func tenantNextPod(tenant *Tenant) int {
+	if tenant.Pods == 0 {
+		return 0
+	}
 	nextpod := tenant.NextPod + 1 // Pods are created one-based
 	tenant.NextPod = (tenant.NextPod + 1) % tenant.Pods
 	tenant.Curid = tenant.ID.Hex()
@@ -53,8 +57,8 @@ func DBAddTenant(data *Tenant) error {
 		}
 	}
 
-	change := bson.M{"name": data.Name, "gateways": data.Gateways, "image": data.Image,
-		"pods": data.Pods, "nextpod": data.NextPod}
+	change := bson.M{"name": data.Name, "gateways": data.Gateways, "domains": data.Domains,
+		"image": data.Image, "pods": data.Pods, "nextpod": data.NextPod}
 	ID, err := primitive.ObjectIDFromHex(data.Curid)
 	if err == nil {
 		filter := bson.D{{"_id", ID}}

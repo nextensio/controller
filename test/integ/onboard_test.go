@@ -178,6 +178,7 @@ type Tenant_v1 struct {
 	ID       string   `json:"_id" bson:"_id"`
 	Name     string   `json:"name" bson:"name"`
 	Gateways []string `json:"gateways"`
+	Domains  []string `json:"domains"`
 	Image    string   `json:"image" bson:"image"`
 	Pods     int      `json:"pods" bson:"pods"`
 }
@@ -234,6 +235,7 @@ func addTenant(tenant *Tenant_v1) bool {
 func AddTenant_v1(t *testing.T) {
 	var tenant = Tenant_v1{Name: "foobar",
 		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"},
+		Domains:  []string{"kismis.org"},
 		Image:    "davigupta/minion:0.80",
 		Pods:     10,
 	}
@@ -294,8 +296,11 @@ func TestGetAllTenant_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	var tenant1 = Tenant_v1{Name: "foobar",
-		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"}}
+	var tenant1 = Tenant_v1{
+		Name:     "foobar",
+		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"},
+		Domains:  []string{"kismis.org"},
+	}
 	add = addTenant(&tenant1)
 	if add == false {
 		// The above add should NOT succeed because we have not added any gateways yet
@@ -422,8 +427,10 @@ func addGatewayAndTenant(t *testing.T) {
 		t.Error()
 		return
 	}
-	var tenant = Tenant_v1{Name: "foobar",
+	var tenant = Tenant_v1{
+		Name:     "foobar",
 		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"},
+		Domains:  []string{"kismis.org"},
 	}
 	add = addTenant(&tenant)
 	if add == false {
@@ -438,6 +445,7 @@ func TestOnboard_v1(t *testing.T) {
 
 	addGatewayAndTenant(t)
 	UserAdd_v1(t, false, "abcd", []string{})
+	CertAdd_v1(t, "CACert")
 	dbTenants := db.DBFindAllTenants()
 
 	resp, err := http.Get("http://127.0.0.1:8080/api/v1/onboard/abcd_" + dbTenants[0].ID.Hex())
@@ -459,6 +467,14 @@ func TestOnboard_v1(t *testing.T) {
 		return
 	}
 	if data.Result != "ok" {
+		t.Error()
+		return
+	}
+	if len(data.Domains) != 1 {
+		t.Error()
+		return
+	}
+	if data.Domains[0] != "kismis.org" {
 		t.Error()
 		return
 	}

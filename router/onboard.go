@@ -365,12 +365,13 @@ type onboardData struct {
 	Tenant primitive.ObjectID `json:"tenant"`
 }
 type OnboardResult struct {
-	Result    string `json:"Result"`
-	Userid    string `json:"userid"`
-	Tenant    string `json:"tenant"`
-	Gateway   string `json:"gateway"`
-	Connectid string `json:"connectid"`
-	Cacert    []rune `json:"cacert"`
+	Result    string   `json:"Result"`
+	Userid    string   `json:"userid"`
+	Tenant    string   `json:"tenant"`
+	Gateway   string   `json:"gateway"`
+	Domains   []string `json:"domains"`
+	Connectid string   `json:"connectid"`
+	Cacert    []rune   `json:"cacert"`
 }
 
 // An agent wants to be onboarded, verify its access-token and return
@@ -472,7 +473,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	cert := db.DBFindCert("CACert")
 	if cert == nil {
-		result.Result = "Unable to find CA cert mismatch"
+		result.Result = "Unable to find CA cert"
 		utils.WriteResult(w, result)
 		return
 	}
@@ -485,6 +486,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	if result.Gateway == "" {
 		result.Gateway = tenant.Gateways[0]
 	}
+	result.Domains = tenant.Domains
 	utils.WriteResult(w, result)
 
 	glog.Info("User ", data.Userid, " tenant ", data.Tenant, " signed in")
