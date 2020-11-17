@@ -320,7 +320,9 @@ func DBAddUser(data *User) error {
 		Upsert:         &upsert,
 	}
 	// TODO:  need a a better algo for pod assignment
-	data.Pod = tenantNextPod(tenant)
+	if data.Pod == 0 {
+		data.Pod = tenantNextPod(tenant)
+	}
 	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
 	// not happy with @, minion wants to replace dot with dash, keep everyone happy
 	// TODO: Same user/uuid can login from multiple devices, in which case the connectid
@@ -586,7 +588,9 @@ func DBAddBundle(data *Bundle) error {
 		Upsert:         &upsert,
 	}
 	// TODO:  need a a better algo for pod assignment
-	data.Pod = tenantNextPod(tenant)
+	if data.Pod == 0 {
+		data.Pod = tenantNextPod(tenant)
+	}
 	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
 	// not happy with @, minion wants to replace dot with dash, keep everyone happy
 	// TODO: Same user/uuid can login from multiple devices, in which case the connectid
