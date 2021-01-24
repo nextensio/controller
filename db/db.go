@@ -23,6 +23,7 @@ var userCltn *mongo.Collection
 var userAttrCltn *mongo.Collection
 var appCltn *mongo.Collection
 var appAttrCltn *mongo.Collection
+var hostAttrCltn *mongo.Collection
 var nxtDB *mongo.Database
 
 func dbConnect() bool {
@@ -64,6 +65,7 @@ func dbCollections() {
 	userAttrCltn = nxtDB.Collection("NxtUserAttr")
 	appCltn = nxtDB.Collection("NxtApps")
 	appAttrCltn = nxtDB.Collection("NxtAppAttr")
+	hostAttrCltn = nxtDB.Collection("NxtHostAttr")
 }
 
 func dbDrop() {

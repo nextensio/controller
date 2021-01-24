@@ -32,7 +32,7 @@ func addGateway(gw *Gateway_v1) bool {
 	if err != nil {
 		return false
 	}
-	var data router.AddgatewayResult
+	var data router.OpResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		fmt.Println("unmarshall failed")
@@ -81,7 +81,7 @@ func delGateway(gw *Gateway_v1) bool {
 	if err != nil {
 		return false
 	}
-	var data router.AddgatewayResult
+	var data router.OpResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		fmt.Println("unmarshall failed")
@@ -198,7 +198,7 @@ func addTenant(tenant *Tenant_v1) bool {
 	if err != nil {
 		return false
 	}
-	var data router.AddtenantResult
+	var data router.OpResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		return false
@@ -368,7 +368,7 @@ func testTenantDel(t *testing.T, expect_delete bool) {
 		t.Error()
 		return
 	}
-	var data router.DeltenantResult
+	var data router.OpResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		t.Error()
@@ -528,7 +528,7 @@ func UserAdd_v1(t *testing.T, tenantadd bool, userid string, services []string) 
 		t.Error()
 		return
 	}
-	var data router.AdduserResult
+	var data router.OpResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		t.Error()
@@ -583,7 +583,7 @@ func TestUserGet_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	if data.Username != "Gopa Kumar" {
+	if data.User.Username != "Gopa Kumar" {
 		t.Error()
 		return
 	}
@@ -667,7 +667,7 @@ func testUserAttrHdrAdd_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	var data router.AddUserAttrHdrResult
+	var data router.OpResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		t.Error()
@@ -774,7 +774,7 @@ func testUserAttrAdd_v1(t *testing.T, tenantadd bool, userid string) {
 		t.Error()
 		return
 	}
-	var data router.AdduserAttrResult
+	var data router.OpResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		t.Error()
@@ -785,8 +785,19 @@ func testUserAttrAdd_v1(t *testing.T, tenantadd bool, userid string) {
 		return
 	}
 
-	dbAttr := db.DBFindUserAttr(dbTenants[0].ID, attr.Uid)
-	if dbAttr == nil {
+	dbBson := db.DBFindUserAttr(dbTenants[0].ID, attr.Uid)
+	if dbBson == nil {
+		t.Error()
+		return
+	}
+	dbJson, jerr := json.Marshal(&dbBson)
+	if jerr != nil {
+		t.Error()
+		return
+	}
+	var dbAttr UserAttr_v1
+	err = json.Unmarshal(dbJson, &dbAttr)
+	if err != nil {
 		t.Error()
 		return
 	}
@@ -831,12 +842,22 @@ func TestUserAttrGet_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-
-	if len(data.Dept) != 2 {
+	dbJson, jerr := json.Marshal(&data.UAttr)
+	if jerr != nil {
 		t.Error()
 		return
 	}
-	if data.Dept[0] != "engineering" || data.Dept[1] != "marketing" {
+	var dbAttr UserAttr_v1
+	err = json.Unmarshal(dbJson, &dbAttr)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if len(dbAttr.Dept) != 2 {
+		t.Error()
+		return
+	}
+	if dbAttr.Dept[0] != "engineering" || dbAttr.Dept[1] != "marketing" {
 		t.Error()
 		return
 	}
@@ -862,7 +883,7 @@ func TestGetAllUserAttr_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	var data []db.UserAttr
+	var data []UserAttr_v1
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		t.Error()
@@ -903,7 +924,7 @@ func testUserDel(t *testing.T, user string) {
 		t.Error()
 		return
 	}
-	var data router.DeluserResult
+	var data router.OpResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		t.Error()
@@ -968,7 +989,7 @@ func testBundleAdd_v1(t *testing.T, tenantadd bool, bid string, services []strin
 		t.Error()
 		return
 	}
-	var data router.AddBundleResult
+	var data router.OpResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		t.Error()
@@ -1023,7 +1044,7 @@ func TestBundleGet_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	if data.Bid != "youtube" {
+	if data.Bundle.Bid != "youtube" {
 		t.Error()
 		return
 	}
@@ -1106,7 +1127,7 @@ func testBundleAttrHdrAdd_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	var data router.AddBundleAttrHdrResult
+	var data router.OpResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		t.Error()
@@ -1213,7 +1234,7 @@ func testBundleAttrAdd_v1(t *testing.T, tenantadd bool, bid string) {
 		t.Error()
 		return
 	}
-	var data router.AddbundleAttrResult
+	var data router.OpResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		t.Error()
@@ -1224,8 +1245,19 @@ func testBundleAttrAdd_v1(t *testing.T, tenantadd bool, bid string) {
 		return
 	}
 
-	dbAttr := db.DBFindBundleAttr(dbTenants[0].ID, attr.Bid)
-	if dbAttr == nil {
+	dbBson := db.DBFindBundleAttr(dbTenants[0].ID, attr.Bid)
+	if dbBson == nil {
+		t.Error()
+		return
+	}
+	dbJson, jerr := json.Marshal(&dbBson)
+	if jerr != nil {
+		t.Error()
+		return
+	}
+	var dbAttr BundleAttr_v1
+	err = json.Unmarshal(dbJson, &dbAttr)
+	if err != nil {
 		t.Error()
 		return
 	}
@@ -1270,12 +1302,22 @@ func TestBundleAttrGet_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-
-	if len(data.Dept) != 1 {
+	dbJson, jerr := json.Marshal(&data.BAttr)
+	if jerr != nil {
 		t.Error()
 		return
 	}
-	if data.Dept[0] != "guest" {
+	var dbAttr BundleAttr_v1
+	err = json.Unmarshal(dbJson, &dbAttr)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if len(dbAttr.Dept) != 1 {
+		t.Error()
+		return
+	}
+	if dbAttr.Dept[0] != "guest" {
 		t.Error()
 		return
 	}
@@ -1301,7 +1343,7 @@ func TestGetAllBundleAttr_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	var data []db.BundleAttr
+	var data []BundleAttr_v1
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		t.Error()
@@ -1342,7 +1384,7 @@ func testBundleDel(t *testing.T, bundle string) {
 		t.Error()
 		return
 	}
-	var data router.DelbundleResult
+	var data router.OpResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		t.Error()
