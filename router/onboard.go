@@ -651,7 +651,7 @@ func addUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get user attribute header
 func getUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
-	var hdr db.DataHdr
+	var hdr []db.DataHdr
 
 	v := mux.Vars(r)
 	uuid, err := db.StrToObjectid(v["tenant-uuid"])
@@ -663,7 +663,7 @@ func getUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 	if dhdr == nil {
 		utils.WriteResult(w, hdr)
 	} else {
-		utils.WriteResult(w, dhdr)
+		utils.WriteResult(w, []db.DataHdr{*dhdr})
 	}
 }
 
