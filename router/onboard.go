@@ -443,6 +443,10 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
+	// We are supposed to use the access token and peel it open and get further data
+	// like the tenant the user belongs to etc.. Its a TODO to do that work, for now
+	// I dont know how to peel open access token, we just assume userids are unique and
+	// search the entire DB (yikes) for the user and then get the tenant from the db
 	if utils.GetEnv("TEST_ENVIRONMENT", "false") == "true" {
 		tenant := db.DBFindUserAnyTenant(data.Userid)
 		if tenant == nil {

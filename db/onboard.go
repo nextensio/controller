@@ -654,8 +654,8 @@ func DBFindBundleAnyTenant(bundleid string) *primitive.ObjectID {
 	if err != nil {
 		return nil
 	}
-	tenant, _ := primitive.ObjectIDFromHex(fmt.Sprintf("%s", app["tenant"]))
-	return &tenant
+	t := app["tenant"].(primitive.ObjectID)
+	return &t
 }
 
 func DBFindBundle(tenant primitive.ObjectID, bundleid string) *Bundle {
