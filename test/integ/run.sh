@@ -15,4 +15,13 @@ go build
 
 # Now build and run the integ tests
 cd ../integ
-go build; go test 
+go build; 
+
+# The test cases cant run in parallel unfortunately because they all work with
+# the same DB - we can partition the DB per test case etc. to make this faster,
+# but thats not done today, a TODO for later, till then run in serial
+for t in `cat ./test_cases.txt`;
+do
+  go test -run $t
+done
+
