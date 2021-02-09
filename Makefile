@@ -10,13 +10,13 @@ adcontid=$(shell docker ps -a --filter ancestor=$(USER)/$(NAME)-debug:$(VERSION)
 bcontid=$(shell docker ps -a --filter ancestor=$(USER)/$(NAME)-build:$(VERSION) -q | head -n 1)
 
 .PHONY: all
-all: test
+all: build
 
-.PHONY: test
-test:
+.PHONY: build
+build:
 	rm -r -f files/version
 	echo $(VERSION) > files/version
-	docker build -f Dockerfile.test -t $(USER)/$(NAME)-test:$(VERSION) .
+	docker build -f Dockerfile.build -t $(USER)/$(NAME)-build:$(VERSION) .
 	docker create $(USER)/$(NAME)-test:$(VERSION)
 
 .PHONY: clean
