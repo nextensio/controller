@@ -3,15 +3,68 @@ package router
 import (
 	"net/http"
 	"nextensio/controller/utils"
+	"strings"
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
+	verifier "github.com/okta/okta-jwt-verifier-golang"
 	"github.com/urfave/negroni"
 )
+
+type oktaAuth struct{}
 
 var router *mux.Router
 var nroni *negroni.Negroni
 var IDP string
+
+func isAuthenticated(r *http.Request) bool {
+	authHeader := r.Header.Get("Authorization")
+
+	if authHeader == "" {
+		return false
+	}
+	tokenParts := strings.Split(authHeader, "Bearer ")
+	bearerToken := tokenParts[1]
+
+	cid := utils.GetEnv("CLIENT_ID", "none")
+	idp := utils.GetEnv("IDP_URI", "none")
+
+	tv := map[string]string{}
+	tv["aud"] = "api://default"
+	tv["cid"] = cid
+	jv := verifier.JwtVerifier{
+		Issuer:           idp,
+		ClaimsToValidate: tv,
+	}
+
+	_, err := jv.New().VerifyAccessToken(bearerToken)
+	if err != nil {
+		return false
+	}
+
+	return true
+}
+
+func (*oktaAuth) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	// TODO: This doesnt smell right, a potential security threat to have this kind
+	// of a variable lying around. Figure out what else to do to enable a test setup
+	// to access the controller without having to authenticate etc..
+	if utils.GetEnv("IGNORE_AUTH", "false") == "true" {
+		next.ServeHTTP(w, r)
+		return
+	}
+	if r.Method == "OPTIONS" {
+		next.ServeHTTP(w, r)
+		return
+	}
+
+	if !isAuthenticated(r) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("401 - You are not authorized for this request"))
+		return
+	}
+	next.ServeHTTP(w, r)
+}
 
 func addRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
 	router.HandleFunc(route, handler).Methods(methods)
@@ -42,6 +95,7 @@ func initRoutes(readonly bool) {
 func RouterInit(readonly bool) {
 	router = mux.NewRouter()
 	nroni = negroni.New()
+	nroni.Use(&oktaAuth{})
 	nroni.UseHandler(router)
 	initRoutes(readonly)
 }
