@@ -53,5 +53,11 @@ func ServeRoutes() {
 	methodsOk := handlers.AllowedMethods([]string{"GET", "HEAD", "POST", "PUT", "OPTIONS"})
 
 	IDP = utils.GetEnv("IDP_URI", "http://127.0.0.1:8081/test/api") + "/v1"
-	http.ListenAndServe(":8080", handlers.CORS(originsOk, headersOk, methodsOk)(nroni))
+	cert := utils.GetEnv("TLS_CRT", "unknown")
+	key := utils.GetEnv("TLS_KEY", "unknown")
+	if cert == "unknown" || key == "unknown" {
+		http.ListenAndServe(":8080", handlers.CORS(originsOk, headersOk, methodsOk)(nroni))
+	} else {
+		http.ListenAndServeTLS(":8080", cert, key, handlers.CORS(originsOk, headersOk, methodsOk)(nroni))
+	}
 }
