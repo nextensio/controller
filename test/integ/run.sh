@@ -7,7 +7,7 @@ pkill -9 oauth_fake
 # Build the nxtsvr and oauth freshly, and launch them
 cd nxtsvr
 go build
-NXT_READONLY=false ./nxtsvr>/dev/null 2>&1 &
+IGNORE_AUTH=true NXT_READONLY=false ./nxtsvr>/dev/null 2>&1 &
 
 cd ../test/oauth_fake
 go build
