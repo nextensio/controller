@@ -1,6 +1,7 @@
 package router
 
 import (
+	"fmt"
 	"net/http"
 	"nextensio/controller/utils"
 	"strings"
@@ -17,7 +18,7 @@ var router *mux.Router
 var nroni *negroni.Negroni
 var IDP string
 
-func isAuthenticated(r *http.Request) bool {
+func isAuthenticated(r *http.Request, cid string) bool {
 	authHeader := r.Header.Get("Authorization")
 
 	if authHeader == "" {
@@ -26,7 +27,6 @@ func isAuthenticated(r *http.Request) bool {
 	tokenParts := strings.Split(authHeader, "Bearer ")
 	bearerToken := tokenParts[1]
 
-	cid := utils.GetEnv("CLIENT_ID", "none")
 	idp := utils.GetEnv("IDP_URI", "none")
 
 	tv := map[string]string{}
@@ -39,6 +39,7 @@ func isAuthenticated(r *http.Request) bool {
 
 	_, err := jv.New().VerifyAccessToken(bearerToken)
 	if err != nil {
+		fmt.Println("Not verified", cid)
 		return false
 	}
 
@@ -58,7 +59,12 @@ func (*oktaAuth) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.Han
 		return
 	}
 
-	if !isAuthenticated(r) {
+	// The Agents/Connectors and other UX/SDK-users are kept as two seperate applications
+	// in the IDP (okta), mainly because both of them have seperate redirect-urls in their
+	// configs. So we need to validate the token against one of either client ids
+	cidAgent := utils.GetEnv("AGENT_CLIENT_ID", "none")
+	cidApi := utils.GetEnv("API_CLIENT_ID", "none")
+	if !isAuthenticated(r, cidAgent) && !isAuthenticated(r, cidApi) {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("401 - You are not authorized for this request"))
 		return

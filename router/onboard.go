@@ -444,9 +444,17 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// We are supposed to use the access token and peel it open and get further data
-	// like the tenant the user belongs to etc.. Its a TODO to do that work, for now
-	// I dont know how to peel open access token, we just assume userids are unique and
-	// search the entire DB (yikes) for the user and then get the tenant from the db
+	// like the tenant the user belongs to etc.. The tenantid is basically the ObjectID
+	// of the tenant in our database - how does that get into the accesstoken ? Well the
+	// IDP (okta) should be configured such that each user has their tenant id configured
+	// in the IDP (refer to gitlab.com/nextensio/agent/README.md to see how thats done).
+	// And then the agent is onboarded with the IDP and we can get the tenantid from inside
+	// that. As of today, for the test environment, we havent taken the trouble of creating
+	// test-environment-specific users with proper tenant ids set etc.., so we just resort
+	// to the hack of assuming there is only one tenant in the test environment / or even
+	// if there are multiple tenants the userid is unique per tenant. Its a TODO to properly
+	// configure the IDP with test users and their tenant ids etc.. and then remove this
+	// TEST_ENVIRONMENT business
 	if utils.GetEnv("TEST_ENVIRONMENT", "false") == "true" {
 		tenant := db.DBFindUserAnyTenant(data.Userid)
 		if tenant == nil {
