@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strconv"
 )
 
 func GetEnv(key string, defaultValue string) string {
@@ -12,6 +13,16 @@ func GetEnv(key string, defaultValue string) string {
 		v = defaultValue
 	}
 	return v
+}
+
+func GetEnvInt(key string, defaultValue int) int {
+	v := os.Getenv(key)
+	if v != "" {
+		if val, err := strconv.Atoi(v); err == nil {
+			return val
+		}
+	}
+	return defaultValue
 }
 
 func WriteResult(w http.ResponseWriter, result interface{}) {

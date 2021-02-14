@@ -30,7 +30,7 @@ func ClusterDBDrop() {
 
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type Namespace struct {
-	ID       primitive.ObjectID `json:"_id" bson:"_id"`
+	ID       primitive.ObjectID `json:"_id" bson:"_id"`  // Tenant id
 	Name     string             `json:"name" bson:"name"`
 	Gateways []string           `json:"gateways" bson:"gateways"`
 	Image    string             `json:"image" bson:"image"`
@@ -38,7 +38,7 @@ type Namespace struct {
 	Version  int                `json:"version" bson:"version"`
 }
 
-// This API will add a new tenant or update a tenant if it already exists
+// This API will add a new namespace
 func DBAddNamespace(data *Tenant) error {
 
 	version := 1
@@ -106,7 +106,7 @@ func DBDelNamespace(id primitive.ObjectID) error {
 }
 
 type ClusterUser struct {
-	Uid       string             `json:"uid" bson:"_id"`
+	Uid       string             `json:"uid" bson:"_id"`  // Tenant-ID:[User-ID | Bundle-ID]
 	Tenant    primitive.ObjectID `json:"tenant" bson:"tenant"`
 	Pod       int                `json:"pod" bson:"pod"`
 	Connectid string             `json:"connectid" bson:"connectid"`
@@ -281,7 +281,7 @@ func DBAddClusterBundle(data *Bundle) error {
 }
 
 type ClusterService struct {
-	Sid     string             `json:"sid" bson:"_id"`
+	Sid     string             `json:"sid" bson:"_id"`  // Tenant-ID:Service-ID
 	Tenant  primitive.ObjectID `json:"tenant" bson:"tenant"`
 	Agents  []string           `json:"agents" bson:"agents"`
 	Version int                `json:"version" bson:"version"`

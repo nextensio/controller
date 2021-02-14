@@ -20,6 +20,9 @@ func rdonlyOnboard() {
 	// tenant-id and expects to get information like the gateway in response
 	addRoute("/api/v1/onboard/{access-token}", "GET", onboardHandler)
 
+	//*******************************************************************/
+	//            In Nextensio DB
+	//*******************************************************************/
 	// This route is used to get all gateways
 	addRoute("/api/v1/getallgateways", "GET", getAllGatewaysHandler)
 
@@ -32,6 +35,9 @@ func rdonlyOnboard() {
 	// This route is used to get all tenants
 	addRoute("/api/v1/getalltenants", "GET", getAllTenantsHandler)
 
+	//*******************************************************************/
+	//            In Per-tenant DB
+	//*******************************************************************/
 	// This route is used to get all users for a tenant
 	addRoute("/api/v1/getallusers/{tenant-uuid}", "GET", getAllUsersHandler)
 
@@ -76,6 +82,9 @@ func rdonlyOnboard() {
 }
 
 func rdwrOnboard() {
+	//*******************************************************************/
+	//            In Nextensio DB
+	//*******************************************************************/
 	// This route is used to add new gateways, gateways can be multi-tenant
 	addRoute("/api/v1/addgateway", "POST", addgatewayHandler)
 
@@ -94,10 +103,14 @@ func rdwrOnboard() {
 	// This route is used to delete tenants
 	addRoute("/api/v1/deltenant/{tenant-uuid}", "GET", deltenantHandler)
 
+	//*******************************************************************/
+	//            In Per-tenant DB
+	//*******************************************************************/
 	// This route is used to add new users with basic user info
 	addRoute("/api/v1/adduser", "POST", addUserHandler)
 
-	// This route is used to delete users
+	// This route is used to delete users. Both user info and user attribute
+	// docs will be deleted for specified user
 	addRoute("/api/v1/deluser/{tenant-uuid}/{userid}", "GET", delUserHandler)
 
 	// This route is used to add new user attributes header
@@ -125,6 +138,7 @@ func rdwrOnboard() {
 	addRoute("/api/v1/addbundle", "POST", addBundleHandler)
 
 	// This route is used to delete a specific app-bundle
+	// Both app-bundle info and app-bundle attribute docs will be deleted
 	addRoute("/api/v1/delbundle/{tenant-uuid}/{bid}", "GET", delBundleHandler)
 
 	// This route is used to delete user extended attributes
@@ -138,7 +152,7 @@ type AddtenantResult struct {
 // Add a new tenant, with information like the SSO engine used by the
 // customers/agents in the tenant
 func addtenantHandler(w http.ResponseWriter, r *http.Request) {
-	var result AddtenantResult
+	var result OpResult
 	var data db.Tenant
 
 	body, err := ioutil.ReadAll(r.Body)
@@ -180,6 +194,10 @@ type DeltenantResult struct {
 }
 
 // Delete a tenant
+// When a tenant is deleted, all users, app-bundles, host attributes,
+// and policies (basically all tenant specific collections) also need
+// to be deleted. Should we do that automatically here or require that
+// they be separately deleted first before deleting the tenant ?
 func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 
@@ -201,6 +219,11 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
+	if db.DBFindAllHostAttrs(uuid) != nil {
+		result.Result = "Tenant still has host attributes"
+ 		utils.WriteResult(w, result)
+ 		return
+ 	}
 	if db.DBFindAllPolicies(uuid) != nil {
 		result.Result = "Tenant still has policies"
 		utils.WriteResult(w, result)
@@ -234,7 +257,7 @@ type AddgatewayResult struct {
 
 // Add a Nextensio gateway
 func addgatewayHandler(w http.ResponseWriter, r *http.Request) {
-	var result AddgatewayResult
+	var result OpResult
 	var data db.Gateway
 
 	body, err := ioutil.ReadAll(r.Body)
@@ -267,7 +290,7 @@ type DelgatewayResult struct {
 
 // Delete a Nextensio gateway
 func delgatewayHandler(w http.ResponseWriter, r *http.Request) {
-	var result DelgatewayResult
+	var result OpResult
 
 	v := mux.Vars(r)
 	name := v["name"]
@@ -305,7 +328,7 @@ type AddcertResult struct {
 
 // Add a Nextensio gateway
 func addcertHandler(w http.ResponseWriter, r *http.Request) {
-	var result AddcertResult
+	var result OpResult
 	var data db.Certificate
 
 	body, err := ioutil.ReadAll(r.Body)
@@ -1062,6 +1085,28 @@ func addHostAttrHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+// Delete host attributes doc
+func delHostAttrHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+
+	v := mux.Vars(r)
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		result.Result = "Delete host attributes - Bad tenant id"
+		utils.WriteResult(w, result)
+		return
+	}
+	host := v["host"]
+
+	err = db.DBDelHostAttr(uuid, host)
+	if err != nil {
+		result.Result = err.Error()
+	} else {
+		result.Result = "ok"
+	}
 	utils.WriteResult(w, result)
 }
 
