@@ -13,9 +13,6 @@ import (
 )
 
 const maxTenants = 1000
-const nxtOurDB = "NxtDB"
-
-var nxtMongoVer int
 
 // We open a connection to the DB and keep it around for ever
 var dbClient *mongo.Client
@@ -25,7 +22,7 @@ var certCltn *mongo.Collection
 var gatewayCltn *mongo.Collection
 
 var nxtDB *mongo.Database
-var tenantDBs = make(map[string]*mongo.Database, maxTenants) 
+var tenantDBs = make(map[string]*mongo.Database, maxTenants)
 
 var tenantPolicyCltn = make(map[string]*mongo.Collection, maxTenants)
 var tenantUserCltn = make(map[string]*mongo.Collection, maxTenants)
@@ -64,40 +61,18 @@ func dbConnect() bool {
 }
 
 func dbGetTenantDBName(tenant string) string {
-	if nxtMongoVer < 1 {
-		return nxtOurDB
-	}
 	return ("Nxt-" + tenant + "-DB")
 }
 
 func dbCollections() {
-	nxtDB = dbClient.Database(nxtOurDB)
+	nxtDB = dbClient.Database("NxtDB")
 	tenantCltn = nxtDB.Collection("NxtTenants")
 	certCltn = nxtDB.Collection("NxtCerts")
 	gatewayCltn = nxtDB.Collection("NxtGateways")
-
-	// The collections below need to be in per-tenant DBs
-	// The DBs can be known only when tenants are created/known
-	// If nxtMongoVer < 1, we don't support per-tenant DBs, so
-	// initialize the tenant collections now, else return.
-	if nxtMongoVer >= 1 {
-		return  // per-tenant collections supported
-	}
-	tenantDBs[nxtOurDB] = nxtDB
-	tenantPolicyCltn[nxtOurDB] = tenantDBs[nxtOurDB].Collection("NxtPolicies")
-	tenantRouteCltn[nxtOurDB] = tenantDBs[nxtOurDB].Collection("NxtRoutes")
-	tenantUserCltn[nxtOurDB] = tenantDBs[nxtOurDB].Collection("NxtUsers")
-	tenantUserAttrCltn[nxtOurDB] = tenantDBs[nxtOurDB].Collection("NxtUserAttr")
-	tenantAppCltn[nxtOurDB] = tenantDBs[nxtOurDB].Collection("NxtApps")
-	tenantAppAttrCltn[nxtOurDB] = tenantDBs[nxtOurDB].Collection("NxtAppAttr")
-	tenantHostAttrCltn[nxtOurDB] = tenantDBs[nxtOurDB].Collection("NxtHostAttr")
 }
 
 func dbGetCollection(tnt primitive.ObjectID, cltn string) *mongo.Collection {
 	tenant := tnt.Hex()
-	if nxtMongoVer < 1 {
-		tenant = nxtOurDB  // per-tenant DB not supported
-	}
 	_, ok := tenantDBs[tenant]
 	if ok == false {
 		tenantDBs[tenant] = dbClient.Database(dbGetTenantDBName(tenant))
@@ -151,9 +126,6 @@ func dbGetCollection(tnt primitive.ObjectID, cltn string) *mongo.Collection {
 
 func dbAddTenantDB(tnt primitive.ObjectID) {
 	tenant := tnt.Hex()
-	if nxtMongoVer < 1 {
-		tenant = nxtOurDB  // per-tenant DB not supported
-	}
 	_, ok := tenantDBs[tenant]
 	if ok {
 		return
@@ -173,9 +145,6 @@ func dbAddTenantCollections(tenant string, tntdb *mongo.Database) {
 }
 
 func dbDelTenantDB(tnt primitive.ObjectID) {
-	if nxtMongoVer < 1 {
-		return  // per-tenant DB not supported
-	}
 	tenant := tnt.Hex()
 	delete(tenantPolicyCltn, tenant)
 	delete(tenantUserCltn, tenant)
@@ -186,16 +155,14 @@ func dbDelTenantDB(tnt primitive.ObjectID) {
 	delete(tenantHostAttrCltn, tenant)
 	tenantDBs[tenant].Drop(context.TODO())
 	delete(tenantDBs, tenant)
-	
+
 }
 
 func dbDrop() {
-	if nxtMongoVer >= 1 {  // per-tenant DBs supported
-		dbTenants := DBFindAllTenants()
-		for i := 0; i < len(dbTenants); i++ {
-			tdb := dbClient.Database(dbGetTenantDBName(dbTenants[i].ID.Hex()))
-			tdb.Drop(context.TODO())
-		}
+	dbTenants := DBFindAllTenants()
+	for i := 0; i < len(dbTenants); i++ {
+		tdb := dbClient.Database(dbGetTenantDBName(dbTenants[i].ID.Hex()))
+		tdb.Drop(context.TODO())
 	}
 	nxtDB.Drop(context.TODO())
 	ClusterDBDrop()
@@ -216,7 +183,6 @@ func DBReinit() {
 }
 
 func DBInit() {
-	nxtMongoVer = utils.GetEnvInt("NXT_MONGO_IMPL_VER", 0)
 	for dbConnect() != true {
 		time.Sleep(1 * time.Second)
 	}

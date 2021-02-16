@@ -106,7 +106,7 @@ func DBAddTenantCollectionHdrs(tenant primitive.ObjectID) {
 	_ = DBAddBundleAttrHdr(&hdr)
 	_ = DBAddHostAttrHdr(&hdr)
 }
-	
+
 func DBDelTenantCollectionHdrs(tenant primitive.ObjectID) {
 
 	_ = DBDelUserInfoHdr(tenant)
@@ -115,7 +115,7 @@ func DBDelTenantCollectionHdrs(tenant primitive.ObjectID) {
 	_ = DBDelBundleAttrHdr(tenant)
 	_ = DBDelHostAttrHdr(tenant)
 }
-	
+
 func DBFindTenant(id primitive.ObjectID) *Tenant {
 	var tenant Tenant
 	err := tenantCltn.FindOne(
@@ -337,10 +337,7 @@ type DataHdr struct {
 }
 
 func DBGetHdrKey(val string) string {
-	if nxtMongoVer >= 1 {
-		return HDRKEY  // common name for all header docs
-	}
-	return val  // legacy name
+	return HDRKEY // common name for all header docs
 }
 
 func DBAddCollectionHdr(data *DataHdr, htype string, hkey string) error {
@@ -407,7 +404,7 @@ func DBAddUserInfoHdr(data *DataHdr) error {
 }
 
 func DBFindUserInfoHdr(tenant primitive.ObjectID) *DataHdr {
-	
+
 	return DBFindCollectionHdr(tenant, "NxtUsers", "UserInfo")
 }
 
@@ -423,7 +420,7 @@ func DBAddUserAttrHdr(data *DataHdr) error {
 }
 
 func DBFindUserAttrHdr(tenant primitive.ObjectID) *DataHdr {
-	
+
 	return DBFindCollectionHdr(tenant, "NxtUserAttr", "UserAttr")
 }
 
@@ -480,7 +477,7 @@ func DBAddUser(data *User) error {
 	// each user on that pod
 	data.Connectid = strings.ReplaceAll(data.Uid, "@", "-")
 	data.Connectid = strings.ReplaceAll(data.Connectid, ".", "-")
-	
+
 	userCltn := dbGetCollection(data.Tenant, "NxtUsers")
 	if userCltn == nil {
 		return fmt.Errorf("Unknown Collection")
@@ -588,7 +585,7 @@ func DBFindAllUsers(tenant primitive.ObjectID) []bson.M {
 
 func DBDelUser(tenant primitive.ObjectID, userid string) error {
 	// TODO: Do not allow delete if user attribute doc exists
-	
+
 	userCltn := dbGetCollection(tenant, "NxtUsers")
 	if userCltn == nil {
 		return fmt.Errorf("Unknown Collection")
@@ -757,7 +754,6 @@ func DBDelBundleInfoHdr(tenant primitive.ObjectID) error {
 
 	return DBDelCollectionHdr(tenant, "NxtAppInfo", "AppInfo")
 }
-
 
 // This API will add/update a bundle Attribute Header
 func DBAddBundleAttrHdr(data *DataHdr) error {
@@ -1097,7 +1093,7 @@ func DBDelHostAttrHdr(tenant primitive.ObjectID) error {
 
 	return DBDelCollectionHdr(tenant, "NxtHostAttr", "HostAttr")
 }
-	
+
 func DBFindHostAttr(tenant primitive.ObjectID, host string) *bson.M {
 	var Hattr bson.M
 	hostAttrCltn := dbGetCollection(tenant, "NxtHostAttr")
@@ -1209,13 +1205,13 @@ func DBDelHostAttr(tenant primitive.ObjectID, hostid string) error {
 	if hostAttrCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
- 	_, err := hostAttrCltn.DeleteOne(
- 		context.TODO(),
+	_, err := hostAttrCltn.DeleteOne(
+		context.TODO(),
 		bson.M{"_id": hostid, "tenant": tenant.Hex()},
- 	)
- 
- 	return err
- }
+	)
+
+	return err
+}
 
 //----------------------------User extended attributes------------------------------
 
