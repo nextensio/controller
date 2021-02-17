@@ -55,8 +55,8 @@ func PolicyAdd_v1(t *testing.T, addtenant bool, pid string) {
 		return
 	}
 
-	dbTenant := db.DBFindPolicy(dbTenants[0].ID, policy.PolicyId)
-	if dbTenant == nil {
+	dbPolicy := db.DBFindPolicy(dbTenants[0].ID, policy.PolicyId)
+	if dbPolicy == nil {
 		t.Error()
 		return
 	}

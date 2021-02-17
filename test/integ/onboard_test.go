@@ -889,8 +889,8 @@ func TestGetAllUserAttr_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	// Two plus one for the attribute header
-	if len(data) != 3 {
+	// Two excluding the attribute header
+	if len(data) != 2 {
 		t.Error()
 		return
 	}
@@ -1349,8 +1349,8 @@ func TestGetAllBundleAttr_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	// Two plus one for the attribute header
-	if len(data) != 3 {
+	// Two without the attribute header
+	if len(data) != 2 {
 		t.Error()
 		return
 	}
@@ -1598,7 +1598,7 @@ func CertAdd_v1(t *testing.T, name string) {
 		t.Error()
 		return
 	}
-	var data router.AddcertResult
+	var data router.OpResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		t.Error()

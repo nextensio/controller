@@ -41,6 +41,10 @@ func DBAddPolicy(data *Policy) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
+	policyCltn := dbGetCollection(data.Tenant, "NxtPolicies")
+	if policyCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
 	err := policyCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": data.PolicyId, "tenant": data.Tenant},
@@ -59,6 +63,10 @@ func DBAddPolicy(data *Policy) error {
 
 func DBFindPolicy(tenant primitive.ObjectID, policyId string) *Policy {
 	var policy Policy
+	policyCltn := dbGetCollection(tenant, "NxtPolicies")
+	if policyCltn == nil {
+		return nil
+	}
 	err := policyCltn.FindOne(
 		context.TODO(),
 		bson.M{"_id": policyId, "tenant": tenant},
@@ -72,6 +80,10 @@ func DBFindPolicy(tenant primitive.ObjectID, policyId string) *Policy {
 func DBFindAllPolicies(tenant primitive.ObjectID) []Policy {
 	var policies []Policy
 
+	policyCltn := dbGetCollection(tenant, "NxtPolicies")
+	if policyCltn == nil {
+		return nil
+	}
 	cursor, err := policyCltn.Find(context.TODO(), bson.M{"tenant": tenant})
 	if err != nil {
 		return nil
@@ -85,6 +97,10 @@ func DBFindAllPolicies(tenant primitive.ObjectID) []Policy {
 }
 
 func DBDelPolicy(tenant primitive.ObjectID, policyId string) error {
+	policyCltn := dbGetCollection(tenant, "NxtPolicies")
+	if policyCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
 	_, err := policyCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": policyId, "tenant": tenant},

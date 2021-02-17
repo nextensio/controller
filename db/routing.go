@@ -39,6 +39,10 @@ func DBAddRoute(data *Route) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
+	routeCltn := dbGetCollection(data.Tenant, "NxtRoutes")
+	if routeCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
 	err := routeCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": data.Route, "tenant": data.Tenant},
@@ -56,6 +60,10 @@ func DBAddRoute(data *Route) error {
 
 func DBFindRoute(tenant primitive.ObjectID, routeid string) *Route {
 	var route Route
+	routeCltn := dbGetCollection(tenant, "NxtRoutes")
+	if routeCltn == nil {
+		return nil
+	}
 	err := routeCltn.FindOne(
 		context.TODO(),
 		bson.M{"_id": routeid, "tenant": tenant},
@@ -69,6 +77,10 @@ func DBFindRoute(tenant primitive.ObjectID, routeid string) *Route {
 func DBFindAllRoutes(tenant primitive.ObjectID) []Route {
 	var routes []Route
 
+	routeCltn := dbGetCollection(tenant, "NxtRoutes")
+	if routeCltn == nil {
+		return nil
+	}
 	cursor, err := routeCltn.Find(context.TODO(), bson.M{"tenant": tenant})
 	if err != nil {
 		return nil
@@ -82,6 +94,10 @@ func DBFindAllRoutes(tenant primitive.ObjectID) []Route {
 }
 
 func DBDelRoute(tenant primitive.ObjectID, routeid string) error {
+	routeCltn := dbGetCollection(tenant, "NxtRoutes")
+	if routeCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
 	_, err := routeCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": routeid, "tenant": tenant},
