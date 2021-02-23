@@ -13,12 +13,14 @@ import (
 
 // DB used by the Nxt Cluster to configure kubernetes rules etc.
 var clusterDB *mongo.Database
+var clusterGwCltn *mongo.Collection
 var namespaceCltn *mongo.Collection
 var usersCltn *mongo.Collection
 var serviceCltn *mongo.Collection
 
 func ClusterDBInit(dbClient *mongo.Client) {
 	clusterDB = dbClient.Database("ClusterDB")
+	clusterGwCltn = clusterDB.Collection("NxtGateways")
 	namespaceCltn = clusterDB.Collection("NxtNamespaces")
 	usersCltn = clusterDB.Collection("NxtUsers")
 	serviceCltn = clusterDB.Collection("NxtServices")
@@ -28,14 +30,68 @@ func ClusterDBDrop() {
 	clusterDB.Drop(context.TODO())
 }
 
+type ClusterGateway struct {
+	Name    string `json:"name" bson:"name"`
+	Version int    `json:"version" bson:"version"`
+}
+
+// This API will add a new namespace
+func DBAddClusterGateway(data *Gateway) error {
+	version := 1
+	gw := DBFindClusterGateway(data.Name)
+	if gw != nil {
+		version = gw.Version + 1
+	}
+	// The upsert option asks the DB to add if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	err := clusterGwCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"name": data.Name},
+		bson.D{
+			{"$set", bson.M{"name": data.Name, "version": version}},
+		},
+		&opt,
+	)
+	if err != nil {
+		return err.Err()
+	}
+
+	return nil
+}
+
+func DBFindClusterGateway(name string) *ClusterGateway {
+	var gateway ClusterGateway
+	err := clusterGwCltn.FindOne(
+		context.TODO(),
+		bson.M{"name": name},
+	).Decode(&gateway)
+	if err != nil {
+		return nil
+	}
+	return &gateway
+}
+
+func DBDelClusterGateway(name string) error {
+	_, err := clusterGwCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"name": name},
+	)
+
+	return err
+}
+
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type Namespace struct {
-	ID       primitive.ObjectID `json:"_id" bson:"_id"`  // Tenant id
-	Name     string             `json:"name" bson:"name"`
-	Gateways []string           `json:"gateways" bson:"gateways"`
-	Image    string             `json:"image" bson:"image"`
-	Pods     int                `json:"pods" bson:"pods"`
-	Version  int                `json:"version" bson:"version"`
+	ID      primitive.ObjectID `json:"_id" bson:"_id"` // Tenant id
+	Name    string             `json:"name" bson:"name"`
+	Image   string             `json:"image" bson:"image"`
+	Pods    int                `json:"pods" bson:"pods"`
+	Version int                `json:"version" bson:"version"`
 }
 
 // This API will add a new namespace
@@ -57,7 +113,7 @@ func DBAddNamespace(data *Tenant) error {
 		context.TODO(),
 		bson.M{"_id": data.ID},
 		bson.D{
-			{"$set", bson.M{"name": data.Name, "gateways": data.Gateways, "image": data.Image,
+			{"$set", bson.M{"name": data.Name, "image": data.Image,
 				"pods": data.Pods, "version": version}},
 		},
 		&opt,
@@ -106,7 +162,7 @@ func DBDelNamespace(id primitive.ObjectID) error {
 }
 
 type ClusterUser struct {
-	Uid       string             `json:"uid" bson:"_id"`  // Tenant-ID:[User-ID | Bundle-ID]
+	Uid       string             `json:"uid" bson:"_id"` // Tenant-ID:[User-ID | Bundle-ID]
 	Tenant    primitive.ObjectID `json:"tenant" bson:"tenant"`
 	Pod       int                `json:"pod" bson:"pod"`
 	Connectid string             `json:"connectid" bson:"connectid"`
@@ -281,7 +337,7 @@ func DBAddClusterBundle(data *Bundle) error {
 }
 
 type ClusterService struct {
-	Sid     string             `json:"sid" bson:"_id"`  // Tenant-ID:Service-ID
+	Sid     string             `json:"sid" bson:"_id"` // Tenant-ID:Service-ID
 	Tenant  primitive.ObjectID `json:"tenant" bson:"tenant"`
 	Agents  []string           `json:"agents" bson:"agents"`
 	Version int                `json:"version" bson:"version"`

@@ -1,14 +1,11 @@
-FROM golang:1.15-alpine3.12
+FROM golang:1.15.7-alpine3.12
 RUN apk update && apk add git
 
 MAINTAINER Gopa Kumar <gopa@nextensio.net>
 COPY files /go
 WORKDIR /go/src/nextensio/controller
-COPY db ./db/
-COPY nxtsvr ./nxtsvr/
-COPY router ./router/
-COPY utils ./utils/
-
+COPY . .
+RUN go env -w GO111MODULE="on"
 RUN go get -d -v ./... \
     && go install -v ./... \
     && \rm -r -f /go/src/nextensio/* \

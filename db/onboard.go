@@ -196,7 +196,7 @@ func DBAddCert(data *Certificate) error {
 		&opt,
 	)
 
-	if err != nil {
+	if err.Err() != nil {
 		return err.Err()
 	}
 	return nil
@@ -268,9 +268,16 @@ func DBAddGateway(data *Gateway) error {
 		&opt,
 	)
 
-	if err != nil {
+	if err.Err() != nil {
 		return err.Err()
 	}
+
+	e := DBAddClusterGateway(data)
+	if e != nil {
+		_ = DBDelGateway(data.Name)
+		return e
+	}
+
 	return nil
 }
 
@@ -297,6 +304,12 @@ func DBDelGateway(name string) error {
 	if err != nil {
 		return err
 	}
+
+	e := DBDelClusterGateway(name)
+	if e != nil {
+		return e
+	}
+
 	return nil
 }
 
