@@ -62,9 +62,10 @@ func (*oktaAuth) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.Han
 	// The Agents/Connectors and other UX/SDK-users are kept as two seperate applications
 	// in the IDP (okta), mainly because both of them have seperate redirect-urls in their
 	// configs. So we need to validate the token against one of either client ids
-	cidAgent := utils.GetEnv("AGENT_CLIENT_ID", "none")
+	cidSpaAgent := utils.GetEnv("AGENT_SPA_CLIENT_ID", "none")
+	cidMobileAgent := utils.GetEnv("AGENT_MOB_CLIENT_ID", "none")
 	cidApi := utils.GetEnv("API_CLIENT_ID", "none")
-	if !isAuthenticated(r, cidAgent) && !isAuthenticated(r, cidApi) {
+	if !isAuthenticated(r, cidSpaAgent) && !isAuthenticated(r, cidMobileAgent) && !isAuthenticated(r, cidApi) {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("401 - You are not authorized for this request"))
 		return
