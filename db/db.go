@@ -27,6 +27,7 @@ var tenantDBs = make(map[string]*mongo.Database, maxTenants)
 var tenantPolicyCltn = make(map[string]*mongo.Collection, maxTenants)
 var tenantUserCltn = make(map[string]*mongo.Collection, maxTenants)
 var tenantUserAttrCltn = make(map[string]*mongo.Collection, maxTenants)
+var tenantAttrSetCltn = make(map[string]*mongo.Collection, maxTenants)
 var tenantAppCltn = make(map[string]*mongo.Collection, maxTenants)
 var tenantAppAttrCltn = make(map[string]*mongo.Collection, maxTenants)
 var tenantHostAttrCltn = make(map[string]*mongo.Collection, maxTenants)
@@ -90,6 +91,12 @@ func dbGetCollection(tnt primitive.ObjectID, cltn string) *mongo.Collection {
 			tenantUserCltn[tenant] = tenantDBs[tenant].Collection("NxtUsers")
 		}
 		return tenantUserCltn[tenant]
+	case "NxtAttrSet":
+		_, cok := tenantAttrSetCltn[tenant]
+		if cok == false {
+			tenantAttrSetCltn[tenant] = tenantDBs[tenant].Collection("NxtAttrSet")
+		}
+		return tenantAttrSetCltn[tenant]
 	case "NxtUserAttr":
 		_, cok := tenantUserAttrCltn[tenant]
 		if cok == false {
@@ -138,6 +145,7 @@ func dbAddTenantCollections(tenant string, tntdb *mongo.Database) {
 	tenantPolicyCltn[tenant] = tntdb.Collection("NxtPolicies")
 	tenantUserCltn[tenant] = tntdb.Collection("NxtUsers")
 	tenantUserAttrCltn[tenant] = tntdb.Collection("NxtUserAttr")
+	tenantAttrSetCltn[tenant] = tntdb.Collection("NxtAttrSet")
 	tenantAppCltn[tenant] = tntdb.Collection("NxtApps")
 	tenantAppAttrCltn[tenant] = tntdb.Collection("NxtAppAttr")
 	tenantRouteCltn[tenant] = tntdb.Collection("NxtRoutes")
@@ -149,6 +157,7 @@ func dbDelTenantDB(tnt primitive.ObjectID) {
 	delete(tenantPolicyCltn, tenant)
 	delete(tenantUserCltn, tenant)
 	delete(tenantUserAttrCltn, tenant)
+	delete(tenantAttrSetCltn, tenant)
 	delete(tenantAppCltn, tenant)
 	delete(tenantAppAttrCltn, tenant)
 	delete(tenantRouteCltn, tenant)

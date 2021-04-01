@@ -41,6 +41,9 @@ func rdonlyOnboard() {
 	// This route is used to get all users for a tenant
 	addRoute("/api/v1/getallusers/{tenant-uuid}", "GET", getAllUsersHandler)
 
+	// This route is used to get all possible attributes for users/bundles
+	addRoute("/api/v1/getallattrset/{tenant-uuid}", "GET", getAllAttrSet)
+
 	// This route is used to get bundle attributes header for a tenant
 	addRoute("/api/v1/getbundleattrhdr/{tenant-uuid}", "GET", getBundleAttrHdrHandler)
 
@@ -112,6 +115,12 @@ func rdwrOnboard() {
 	// This route is used to delete users. Both user info and user attribute
 	// docs will be deleted for specified user
 	addRoute("/api/v1/deluser/{tenant-uuid}/{userid}", "GET", delUserHandler)
+
+	// This route is used to add all possible attributes for users/bundles
+	addRoute("/api/v1/addattrset/{tenant-uuid}", "POST", addAttrSet)
+
+	// This route is used to delete a set of attributes for users/bundles
+	addRoute("/api/v1/delattrset/{tenant-uuid}", "POST", delAttrSet)
 
 	// This route is used to add new user attributes header
 	addRoute("/api/v1/adduserattrhdr", "POST", addUserAttrHdrHandler)
@@ -221,9 +230,9 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if db.DBFindAllHostAttrs(uuid) != nil {
 		result.Result = "Tenant still has host attributes"
- 		utils.WriteResult(w, result)
- 		return
- 	}
+		utils.WriteResult(w, result)
+		return
+	}
 	if db.DBFindAllPolicies(uuid) != nil {
 		result.Result = "Tenant still has policies"
 		utils.WriteResult(w, result)
@@ -655,6 +664,78 @@ func delUserHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
+// Add a tenants attribute set
+func addAttrSet(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+	var data []db.AttrSet
+
+	v := mux.Vars(r)
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		utils.WriteResult(w, make([]bson.M, 0))
+		return
+	}
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Add tenant attribute set - HTTP Req Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		result.Result = "Add tenant attribute set - Error parsing json"
+		utils.WriteResult(w, result)
+		return
+	}
+	err = db.DBAddAttrSet(uuid, data)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+// Del a tenants attribute set provided in the api call
+func delAttrSet(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+	var data []db.AttrSet
+
+	v := mux.Vars(r)
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		utils.WriteResult(w, make([]bson.M, 0))
+		return
+	}
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Add tenant attribute set - HTTP Req Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		result.Result = "Add tenant attribute set - Error parsing json"
+		utils.WriteResult(w, result)
+		return
+	}
+	err = db.DBDelAttrSet(uuid, data)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
 // Add a user's attribute headers
 func addUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
@@ -892,6 +973,24 @@ func addBundleAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 
 	result.Result = "ok"
 	utils.WriteResult(w, result)
+}
+
+// Get  attribute set
+func getAllAttrSet(w http.ResponseWriter, r *http.Request) {
+	v := mux.Vars(r)
+	uuid, err := db.StrToObjectid(v["tenant-uuid"])
+	if err != nil {
+		utils.WriteResult(w, make([]db.DataHdr, 0))
+		return
+	}
+	set := db.DBFindAllAttrSet(uuid)
+	if set == nil {
+		result := make([]db.AttrSet, 0)
+		utils.WriteResult(w, result)
+	} else {
+		result := set
+		utils.WriteResult(w, result)
+	}
 }
 
 // Get bundle attribute header

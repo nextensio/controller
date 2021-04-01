@@ -340,6 +340,72 @@ func DBFindAllGateways() []Gateway {
 	return gateways
 }
 
+//------------------------Attribute set functions-----------------------------
+type AttrSet struct {
+	Name      string `bson:"name" json:"name"`
+	AppliesTo string `bson:"appliesTo" json:"appliesTo"`
+}
+
+func DBAddAttrSet(tenant primitive.ObjectID, set []AttrSet) error {
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	Cltn := dbGetCollection(tenant, "NxtAttrSet")
+	if Cltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	for _, s := range set {
+		err := Cltn.FindOneAndUpdate(
+			context.TODO(),
+			bson.M{"name": s.Name, "appliesTo": s.AppliesTo},
+			bson.D{
+				{"$set", bson.M{"name": s.Name, "appliesTo": s.AppliesTo}},
+			},
+			&opt,
+		)
+		if err.Err() != nil {
+			return err.Err()
+		}
+	}
+	return nil
+}
+
+func DBDelAttrSet(tenant primitive.ObjectID, set []AttrSet) error {
+	Cltn := dbGetCollection(tenant, "NxtAttrSet")
+	if Cltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	for _, s := range set {
+		_, err := Cltn.DeleteOne(
+			context.TODO(),
+			bson.M{"name": s.Name, "appliesTo": s.AppliesTo},
+		)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func DBFindAllAttrSet(tenant primitive.ObjectID) []AttrSet {
+	var set []AttrSet
+
+	attrSetCltn := dbGetCollection(tenant, "NxtAttrSet")
+	cursor, err := attrSetCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &set)
+	if err != nil {
+		return nil
+	}
+
+	return set
+}
+
 //------------------------Collection header functions-------------------------
 
 type DataHdr struct {
