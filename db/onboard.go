@@ -344,6 +344,7 @@ func DBFindAllGateways() []Gateway {
 type AttrSet struct {
 	Name      string `bson:"name" json:"name"`
 	AppliesTo string `bson:"appliesTo" json:"appliesTo"`
+	Type      string `bson:"type" json:"type"`
 }
 
 func DBAddAttrSet(tenant primitive.ObjectID, set []AttrSet) error {
@@ -362,7 +363,7 @@ func DBAddAttrSet(tenant primitive.ObjectID, set []AttrSet) error {
 			context.TODO(),
 			bson.M{"name": s.Name, "appliesTo": s.AppliesTo},
 			bson.D{
-				{"$set", bson.M{"name": s.Name, "appliesTo": s.AppliesTo}},
+				{"$set", bson.M{"name": s.Name, "appliesTo": s.AppliesTo, "type": s.Type}},
 			},
 			&opt,
 		)
