@@ -189,10 +189,10 @@ func diffSlices(a []string, b []string) []string {
 	return new
 }
 
-func DBAddClusterUser(data *User) error {
-	uid := data.Tenant.Hex() + ":" + data.Uid
+func DBAddClusterUser(tenant primitive.ObjectID, data *User) error {
+	uid := tenant.Hex() + ":" + data.Uid
 	version := 1
-	user := DBFindClusterUser(data.Tenant, data.Uid)
+	user := DBFindClusterUser(tenant, data.Uid)
 	var addServices []string
 	var delServices []string
 	if user != nil {
@@ -213,7 +213,7 @@ func DBAddClusterUser(data *User) error {
 		context.TODO(),
 		bson.M{"_id": uid},
 		bson.D{
-			{"$set", bson.M{"tenant": data.Tenant, "version": version, "pod": data.Pod,
+			{"$set", bson.M{"tenant": tenant, "version": version, "pod": data.Pod,
 				"connectid": data.Connectid, "services": data.Services}},
 		},
 		&opt,
@@ -223,13 +223,13 @@ func DBAddClusterUser(data *User) error {
 	}
 
 	for _, s := range addServices {
-		err := dbAddClusterSvc(data.Tenant, s, data.Uid)
+		err := dbAddClusterSvc(tenant, s, data.Uid)
 		if err != nil {
 			return err
 		}
 	}
 	for _, s := range delServices {
-		err := dbDelClusterSvc(data.Tenant, s, data.Uid)
+		err := dbDelClusterSvc(tenant, s, data.Uid)
 		if err != nil {
 			return err
 		}
@@ -287,10 +287,10 @@ func DBDelClusterUser(tenant primitive.ObjectID, userid string) error {
 	return err
 }
 
-func DBAddClusterBundle(data *Bundle) error {
-	uid := data.Tenant.Hex() + ":" + data.Bid
+func DBAddClusterBundle(tenant primitive.ObjectID, data *Bundle) error {
+	uid := tenant.Hex() + ":" + data.Bid
 	version := 1
-	user := DBFindClusterUser(data.Tenant, data.Bid)
+	user := DBFindClusterUser(tenant, data.Bid)
 	var addServices []string
 	var delServices []string
 	if user != nil {
@@ -311,7 +311,7 @@ func DBAddClusterBundle(data *Bundle) error {
 		context.TODO(),
 		bson.M{"_id": uid},
 		bson.D{
-			{"$set", bson.M{"tenant": data.Tenant, "version": version, "pod": data.Pod,
+			{"$set", bson.M{"tenant": tenant, "version": version, "pod": data.Pod,
 				"connectid": data.Connectid, "services": data.Services}},
 		},
 		&opt,
@@ -321,13 +321,13 @@ func DBAddClusterBundle(data *Bundle) error {
 	}
 
 	for _, s := range addServices {
-		err := dbAddClusterSvc(data.Tenant, s, data.Bid)
+		err := dbAddClusterSvc(tenant, s, data.Bid)
 		if err != nil {
 			return err
 		}
 	}
 	for _, s := range delServices {
-		err := dbDelClusterSvc(data.Tenant, s, data.Bid)
+		err := dbDelClusterSvc(tenant, s, data.Bid)
 		if err != nil {
 			return err
 		}

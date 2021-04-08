@@ -1,28 +1,40 @@
 package router
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"nextensio/controller/db"
 	"nextensio/controller/utils"
+	"regexp"
 	"strings"
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	verifier "github.com/okta/okta-jwt-verifier-golang"
 	"github.com/urfave/negroni"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type oktaAuth struct{}
 
 var router *mux.Router
+var global *mux.Router
+var globalGet *mux.Router
+var globalAdd *mux.Router
+var globalDel *mux.Router
+var tenant *mux.Router
+var tenantGet *mux.Router
+var tenantAdd *mux.Router
+var tenantDel *mux.Router
 var nroni *negroni.Negroni
 var IDP string
 
-func isAuthenticated(r *http.Request, cid string) bool {
+func isAuthenticated(r *http.Request, cid string) *context.Context {
 	authHeader := r.Header.Get("Authorization")
 
 	if authHeader == "" {
-		return false
+		return nil
 	}
 	tokenParts := strings.Split(authHeader, "Bearer ")
 	bearerToken := tokenParts[1]
@@ -37,44 +49,81 @@ func isAuthenticated(r *http.Request, cid string) bool {
 		ClaimsToValidate: tv,
 	}
 
-	_, err := jv.New().VerifyAccessToken(bearerToken)
+	token, err := jv.New().VerifyAccessToken(bearerToken)
 	if err != nil {
-		fmt.Println("Not verified", cid)
-		return false
+		fmt.Println("Not verified", cid, err)
+		return nil
 	}
 
-	return true
+	// TODO: The access token presented in bearer is supposed to be an opaque entity
+	// as per OIDC standards, but Okta allows us to fit things in there and decode it
+	// etc... Ideally we are supposed to use the ID Token here. So at some point when
+	// we move to say Azure as IDP, we might run into trouble here at which point we
+	// will have to somehow send the ID token also to get these values
+	uuid, err := db.StrToObjectid(token.Claims["tenant"].(string))
+	if err != nil {
+		fmt.Println("Bad tenant", token.Claims["tenant"].(string))
+		return nil
+	}
+	ctx := context.WithValue(r.Context(), "user-tenant", uuid)
+	ctx = context.WithValue(ctx, "userid", token.Claims["sub"])
+	ctx = context.WithValue(ctx, "usertype", token.Claims["usertype"])
+	return &ctx
 }
 
 func (*oktaAuth) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	// TODO: This doesnt smell right, a potential security threat to have this kind
-	// of a variable lying around. Figure out what else to do to enable a test setup
-	// to access the controller without having to authenticate etc..
-	if utils.GetEnv("IGNORE_AUTH", "false") == "true" {
-		next.ServeHTTP(w, r)
-		return
-	}
-	if r.Method == "OPTIONS" {
-		next.ServeHTTP(w, r)
-		return
-	}
-
-	// The Agents/Connectors and other UX/SDK-users are kept as two seperate applications
-	// in the IDP (okta), mainly because both of them have seperate redirect-urls in their
+	// The Agents/Connectors and other UX/SDK-users are kept as seperate applications
+	// in the IDP (okta), mainly because all of them have seperate redirect-urls in their
 	// configs. So we need to validate the token against one of either client ids
-	cidSpaAgent := utils.GetEnv("AGENT_SPA_CLIENT_ID", "none")
 	cidMobileAgent := utils.GetEnv("AGENT_MOB_CLIENT_ID", "none")
-	cidApi := utils.GetEnv("API_CLIENT_ID", "none")
-	if !isAuthenticated(r, cidSpaAgent) && !isAuthenticated(r, cidMobileAgent) && !isAuthenticated(r, cidApi) {
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("401 - You are not authorized for this request"))
-		return
+	ctx := isAuthenticated(r, cidMobileAgent)
+	if ctx == nil {
+		cidApi := utils.GetEnv("API_CLIENT_ID", "none")
+		ctx = isAuthenticated(r, cidApi)
+		if ctx == nil {
+			cidSpaAgent := utils.GetEnv("AGENT_SPA_CLIENT_ID", "none")
+			ctx = isAuthenticated(r, cidSpaAgent)
+		}
 	}
-	next.ServeHTTP(w, r)
+	if ctx == nil {
+		// TODO: This is TERRIBLE, a potential security threat to have this kind
+		// of a variable lying around. Move all internal testbeds to use proper
+		// https + authentication and remove this crap
+		if utils.GetEnv("IGNORE_AUTH", "false") == "true" {
+			ctx := context.WithValue(r.Context(), "usertype", "superadmin")
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		} else {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("401 - You are not authorized for this request"))
+			return
+		}
+	}
+	next.ServeHTTP(w, r.WithContext(*ctx))
 }
 
-func addRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
-	router.HandleFunc(route, handler).Methods(methods)
+func getGlobalRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
+	globalGet.HandleFunc(route, handler).Methods(methods)
+}
+
+func addGlobalRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
+	globalAdd.HandleFunc(route, handler).Methods(methods)
+}
+
+func delGlobalRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
+	globalDel.HandleFunc(route, handler).Methods(methods)
+}
+
+func getTenantRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
+	tenantGet.HandleFunc(route, handler).Methods(methods)
+}
+
+func addTenantRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
+	tenantAdd.HandleFunc(route, handler).Methods(methods)
+}
+
+func delTenantRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
+	tenantDel.HandleFunc(route, handler).Methods(methods)
 }
 
 // Routes which have handlers that DO NOT modify the database goes here
@@ -99,11 +148,65 @@ func initRoutes(readonly bool) {
 	initRdWrRoutes()
 }
 
+func GlobalMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	next.ServeHTTP(w, r)
+}
+
+func TenantMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	url := r.URL.String()
+	reg, _ := regexp.Compile("/api/v1/tenant/([a-f0-9]*)/.*")
+	match := reg.FindStringSubmatch(url)
+	if len(match) != 2 {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("Missing tenant id"))
+		return
+	}
+	uuid, err := db.StrToObjectid(match[1])
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("Bad tenant id"))
+		return
+	}
+	usertype := r.Context().Value("usertype").(string)
+	if usertype != "superadmin" {
+		userTenant := r.Context().Value("user-tenant").(primitive.ObjectID)
+		if userTenant != uuid {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("User unauthorized to access this tenant"))
+			return
+		}
+	}
+	ctx := context.WithValue(r.Context(), "tenant", uuid)
+	next.ServeHTTP(w, r.WithContext(ctx))
+}
+
 func RouterInit(readonly bool) {
-	router = mux.NewRouter()
+	router = mux.NewRouter().StrictSlash(false)
+
+	global = router.PathPrefix("/api/v1/global/").Subrouter()
+	globalGet = global.PathPrefix("/get/").Subrouter()
+	globalAdd = global.PathPrefix("/add/").Subrouter()
+	globalDel = global.PathPrefix("/del/").Subrouter()
+
+	tenant = router.PathPrefix("/api/v1/tenant/{tenant-uuid}/").Subrouter()
+	tenantGet = tenant.PathPrefix("/get/").Subrouter()
+	tenantAdd = tenant.PathPrefix("/add/").Subrouter()
+	tenantDel = tenant.PathPrefix("/del/").Subrouter()
+
+	superMux := http.NewServeMux()
+	superMux.Handle("/api/v1/global/", negroni.New(
+		negroni.HandlerFunc(GlobalMiddleware),
+		negroni.Wrap(router),
+	))
+	superMux.Handle("/api/v1/tenant/", negroni.New(
+		negroni.HandlerFunc(TenantMiddleware),
+		negroni.Wrap(router),
+	))
+
 	nroni = negroni.New()
 	nroni.Use(&oktaAuth{})
-	nroni.UseHandler(router)
+	nroni.UseHandler(superMux)
+
 	initRoutes(readonly)
 }
 

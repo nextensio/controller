@@ -12,23 +12,22 @@ import (
 
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type Route struct {
-	Route  string             `json:"route" bson:"_id"`
-	Tenant primitive.ObjectID `json:"tenant" bson:"tenant"`
-	Tag    string             `json:"tag" bson:"tag"`
+	Route string `json:"route" bson:"_id"`
+	Tag   string `json:"tag" bson:"tag"`
 }
 
 // This API will add a new route or update a route if it already exists
-func DBAddRoute(data *Route) error {
+func DBAddRoute(tenant primitive.ObjectID, data *Route) error {
 
-	if DBFindTenant(data.Tenant) == nil {
-		return fmt.Errorf("Cant find tenant %s", data.Tenant)
+	if DBFindTenant(tenant) == nil {
+		return fmt.Errorf("Cant find tenant %s", tenant)
 	}
 
 	userRoute := strings.Split(data.Route, ":")
 	if len(userRoute) != 2 {
 		return fmt.Errorf("Route should be in format userid:route")
 	}
-	if DBFindUser(data.Tenant, userRoute[0]) == nil {
+	if DBFindUser(tenant, userRoute[0]) == nil {
 		return fmt.Errorf("Cannot find user %s", userRoute[0])
 	}
 
@@ -39,15 +38,15 @@ func DBAddRoute(data *Route) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	routeCltn := dbGetCollection(data.Tenant, "NxtRoutes")
+	routeCltn := dbGetCollection(tenant, "NxtRoutes")
 	if routeCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
 	err := routeCltn.FindOneAndUpdate(
 		context.TODO(),
-		bson.M{"_id": data.Route, "tenant": data.Tenant},
+		bson.M{"_id": data.Route},
 		bson.D{
-			{"$set", bson.M{"_id": data.Route, "tenant": data.Tenant, "tag": data.Tag}},
+			{"$set", bson.M{"_id": data.Route, "tag": data.Tag}},
 		},
 		&opt,
 	)
@@ -66,7 +65,7 @@ func DBFindRoute(tenant primitive.ObjectID, routeid string) *Route {
 	}
 	err := routeCltn.FindOne(
 		context.TODO(),
-		bson.M{"_id": routeid, "tenant": tenant},
+		bson.M{"_id": routeid},
 	).Decode(&route)
 	if err != nil {
 		return nil
@@ -81,7 +80,7 @@ func DBFindAllRoutes(tenant primitive.ObjectID) []Route {
 	if routeCltn == nil {
 		return nil
 	}
-	cursor, err := routeCltn.Find(context.TODO(), bson.M{"tenant": tenant})
+	cursor, err := routeCltn.Find(context.TODO(), bson.M{})
 	if err != nil {
 		return nil
 	}
@@ -100,7 +99,7 @@ func DBDelRoute(tenant primitive.ObjectID, routeid string) error {
 	}
 	_, err := routeCltn.DeleteOne(
 		context.TODO(),
-		bson.M{"_id": routeid, "tenant": tenant},
+		bson.M{"_id": routeid},
 	)
 
 	return err

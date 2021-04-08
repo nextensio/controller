@@ -9,22 +9,23 @@ import (
 	"nextensio/controller/utils"
 
 	"github.com/gorilla/mux"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func rdonlyPolicy() {
 	// This route is used to retrieve a policy in a tenant
-	addRoute("/api/v1/getpolicy/{tenant-uuid}/{policy-id}", "GET", getpolicyHandler)
+	getTenantRoute("/policy/{policy-id}", "GET", getpolicyHandler)
 
 	// This route is used to get all policies
-	addRoute("/api/v1/getallpolicies/{tenant-uuid}", "GET", getAllPoliciesHandler)
+	getTenantRoute("/allpolicies", "GET", getAllPoliciesHandler)
 }
 
 func rdwrPolicy() {
 	// This route is used by the controller admin to addd a new OPA policy to the tenant
-	addRoute("/api/v1/addpolicy", "POST", addpolicyHandler)
+	addTenantRoute("/policy", "POST", addpolicyHandler)
 
 	// This route is used by the controller admin to delete an OPA policy
-	addRoute("/api/v1/delpolicy/{tenant-uuid}/{policy-id}", "GET", delpolicyHandler)
+	delTenantRoute("/policy/{policy-id}", "GET", delpolicyHandler)
 }
 
 type AddpolicyResult struct {
@@ -50,7 +51,8 @@ func addpolicyHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBAddPolicy(&data)
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	err = db.DBAddPolicy(uuid, &data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -72,13 +74,7 @@ func getpolicyHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	pid := v["policy-id"]
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		result.Result = "Bad tenant id"
-		utils.WriteResult(w, result)
-		return
-	}
-
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	policy := db.DBFindPolicy(uuid, pid)
 	if policy == nil {
 		result.Result = "Cannot find policy"
@@ -90,13 +86,7 @@ func getpolicyHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get all policies
 func getAllPoliciesHandler(w http.ResponseWriter, r *http.Request) {
-	v := mux.Vars(r)
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		utils.WriteResult(w, make([]db.Policy, 0))
-		return
-	}
-
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	policies := db.DBFindAllPolicies(uuid)
 	if policies == nil {
 		policies = make([]db.Policy, 0)
@@ -115,14 +105,8 @@ func delpolicyHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	pid := v["policy-id"]
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		result.Result = "Bad tenant id"
-		utils.WriteResult(w, result)
-		return
-	}
-
-	err = db.DBDelPolicy(uuid, pid)
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	err := db.DBDelPolicy(uuid, pid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {

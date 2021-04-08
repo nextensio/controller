@@ -11,20 +11,19 @@ import (
 
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type Policy struct {
-	PolicyId string             `json:"pid" bson:"_id"`
-	Majver   int                `json:"majver" bson:"majver"`
-	Minver   int                `json:"minver" bson:"minver"`
-	Tenant   primitive.ObjectID `json:"tenant" bson:"tenant"`
-	Rego     []rune             `json:"rego" bson:"rego"`
+	PolicyId string `json:"pid" bson:"_id"`
+	Majver   int    `json:"majver" bson:"majver"`
+	Minver   int    `json:"minver" bson:"minver"`
+	Rego     []rune `json:"rego" bson:"rego"`
 }
 
 // This API will add a new policy or update a policy if it already exists
-func DBAddPolicy(data *Policy) error {
+func DBAddPolicy(uuid primitive.ObjectID, data *Policy) error {
 
-	if DBFindTenant(data.Tenant) == nil {
-		return fmt.Errorf("Cant find tenant %s", data.Tenant)
+	if DBFindTenant(uuid) == nil {
+		return fmt.Errorf("Cant find tenant %s", uuid.Hex())
 	}
-	policy := DBFindPolicy(data.Tenant, data.PolicyId)
+	policy := DBFindPolicy(uuid, data.PolicyId)
 	if policy != nil {
 		minver := policy.Minver
 		data.Minver = minver + 1
@@ -41,15 +40,15 @@ func DBAddPolicy(data *Policy) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	policyCltn := dbGetCollection(data.Tenant, "NxtPolicies")
+	policyCltn := dbGetCollection(uuid, "NxtPolicies")
 	if policyCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
 	err := policyCltn.FindOneAndUpdate(
 		context.TODO(),
-		bson.M{"_id": data.PolicyId, "tenant": data.Tenant},
+		bson.M{"_id": data.PolicyId},
 		bson.D{
-			{"$set", bson.M{"_id": data.PolicyId, "tenant": data.Tenant, "rego": data.Rego,
+			{"$set", bson.M{"_id": data.PolicyId, "rego": data.Rego,
 				"majver": data.Majver, "minver": data.Minver}},
 		},
 		&opt,
@@ -69,7 +68,7 @@ func DBFindPolicy(tenant primitive.ObjectID, policyId string) *Policy {
 	}
 	err := policyCltn.FindOne(
 		context.TODO(),
-		bson.M{"_id": policyId, "tenant": tenant},
+		bson.M{"_id": policyId},
 	).Decode(&policy)
 	if err != nil {
 		return nil
@@ -84,7 +83,7 @@ func DBFindAllPolicies(tenant primitive.ObjectID) []Policy {
 	if policyCltn == nil {
 		return nil
 	}
-	cursor, err := policyCltn.Find(context.TODO(), bson.M{"tenant": tenant})
+	cursor, err := policyCltn.Find(context.TODO(), bson.M{})
 	if err != nil {
 		return nil
 	}
@@ -103,7 +102,7 @@ func DBDelPolicy(tenant primitive.ObjectID, policyId string) error {
 	}
 	_, err := policyCltn.DeleteOne(
 		context.TODO(),
-		bson.M{"_id": policyId, "tenant": tenant},
+		bson.M{"_id": policyId},
 	)
 
 	return err

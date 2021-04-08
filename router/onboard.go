@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"nextensio/controller/db"
 	"nextensio/controller/utils"
-	"time"
 
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
@@ -18,70 +17,70 @@ import (
 func rdonlyOnboard() {
 	// This route is used by the agent while onboarding, agent presents access-token, device-id and
 	// tenant-id and expects to get information like the gateway in response
-	addRoute("/api/v1/onboard/{access-token}", "GET", onboardHandler)
+	getGlobalRoute("/onboard", "GET", onboardHandler)
 
 	//*******************************************************************/
 	//            In Nextensio DB
 	//*******************************************************************/
 	// This route is used to get all gateways
-	addRoute("/api/v1/getallgateways", "GET", getAllGatewaysHandler)
+	getGlobalRoute("/allgateways", "GET", getAllGatewaysHandler)
 
 	// This route is used to retrieve a certificate
-	addRoute("/api/v1/getcert/{certid}", "GET", getcertHandler)
+	getGlobalRoute("/cert/{certid}", "GET", getcertHandler)
 
 	// This route is used to get all certificates
-	addRoute("/api/v1/getallcerts", "GET", getAllCertsHandler)
+	getGlobalRoute("/allcerts", "GET", getAllCertsHandler)
 
 	// This route is used to get all tenants
-	addRoute("/api/v1/getalltenants", "GET", getAllTenantsHandler)
+	getGlobalRoute("/alltenants", "GET", getAllTenantsHandler)
 
 	//*******************************************************************/
 	//            In Per-tenant DB
 	//*******************************************************************/
 	// This route is used to get all users for a tenant
-	addRoute("/api/v1/getallusers/{tenant-uuid}", "GET", getAllUsersHandler)
+	getTenantRoute("/allusers", "GET", getAllUsersHandler)
 
 	// This route is used to get all possible attributes for users/bundles
-	addRoute("/api/v1/getallattrset/{tenant-uuid}", "GET", getAllAttrSet)
+	getTenantRoute("/allattrset", "GET", getAllAttrSet)
 
 	// This route is used to get bundle attributes header for a tenant
-	addRoute("/api/v1/getbundleattrhdr/{tenant-uuid}", "GET", getBundleAttrHdrHandler)
+	getTenantRoute("/bundleattrhdr", "GET", getBundleAttrHdrHandler)
 
 	// This route is used to get user attributes header for a tenant
-	addRoute("/api/v1/getuserattrhdr/{tenant-uuid}", "GET", getUserAttrHdrHandler)
+	getTenantRoute("/userattrhdr", "GET", getUserAttrHdrHandler)
 
 	// This route is used to get user extended attributes for a tenant
-	addRoute("/api/v1/getuserextattr/{tenant-uuid}", "GET", getUserExtAttrHandler)
+	getTenantRoute("/userextattr", "GET", getUserExtAttrHandler)
 
 	// This route is used to get all user attributes for a tenant
-	addRoute("/api/v1/getalluserattr/{tenant-uuid}", "GET", getAllUserAttrHandler)
+	getTenantRoute("/alluserattr", "GET", getAllUserAttrHandler)
 
 	// This route is used to get all bundles for a tenant
-	addRoute("/api/v1/getallbundles/{tenant-uuid}", "GET", getAllBundlesHandler)
+	getTenantRoute("/allbundles", "GET", getAllBundlesHandler)
 
 	// This route is used to get all bundle attributes for a tenant
-	addRoute("/api/v1/getallbundleattr/{tenant-uuid}", "GET", getAllBundleAttrHandler)
+	getTenantRoute("/allbundleattr", "GET", getAllBundleAttrHandler)
 
 	// This route is used to get host attributes header for a tenant
-	addRoute("/api/v1/gethostattrhdr/{tenant-uuid}", "GET", getHostAttrHdrHandler)
+	getTenantRoute("/hostattrhdr", "GET", getHostAttrHdrHandler)
 
 	// This route is used to get all host attributes for a tenant
-	addRoute("/api/v1/getallhostattr/{tenant-uuid}", "GET", getAllHostAttrHandler)
-
-	// This route is used to get basic info for a specific user
-	addRoute("/api/v1/getuser/{tenant-uuid}/{userid}", "GET", getUserHandler)
-
-	// This route is used to get attributes for a specific user
-	addRoute("/api/v1/getuserattr/{tenant-uuid}/{userid}", "GET", getUserAttrHandler)
-
-	// This route is used to get basic info for a specific app-bundle
-	addRoute("/api/v1/getbundle/{tenant-uuid}/{bid}", "GET", getBundleHandler)
-
-	// This route is used to get application attributes for a specific app-bundle
-	addRoute("/api/v1/getbundleattr/{tenant-uuid}/{bid}", "GET", getBundleAttrHandler)
+	getTenantRoute("/allhostattr", "GET", getAllHostAttrHandler)
 
 	// This route is used to get attributes for a specific host
-	addRoute("/api/v1/gethostattr/{tenant-uuid}/{host}", "GET", getHostAttrHandler)
+	getTenantRoute("/hostattr/{host}", "GET", getHostAttrHandler)
+
+	// This route is used to get basic info for a specific user
+	getTenantRoute("/user/{userid}", "GET", getUserHandler)
+
+	// This route is used to get attributes for a specific user
+	getTenantRoute("/userattr/{userid}", "GET", getUserAttrHandler)
+
+	// This route is used to get basic info for a specific app-bundle
+	getTenantRoute("/bundle/{bid}", "GET", getBundleHandler)
+
+	// This route is used to get application attributes for a specific app-bundle
+	getTenantRoute("/bundleattr/{bid}", "GET", getBundleAttrHandler)
 }
 
 func rdwrOnboard() {
@@ -89,69 +88,72 @@ func rdwrOnboard() {
 	//            In Nextensio DB
 	//*******************************************************************/
 	// This route is used to add new gateways, gateways can be multi-tenant
-	addRoute("/api/v1/addgateway", "POST", addgatewayHandler)
+	addGlobalRoute("/gateway", "POST", addgatewayHandler)
 
 	// This route deletes a gateway that is not in use by any tenant
-	addRoute("/api/v1/delgateway/{name}", "GET", delgatewayHandler)
+	delGlobalRoute("/gateway/{name}", "GET", delgatewayHandler)
 
 	// This route is used to add new certificates
-	addRoute("/api/v1/addcert", "POST", addcertHandler)
+	addGlobalRoute("/cert", "POST", addcertHandler)
 
 	// This route deletes a gateway that is not in use by any tenant
-	addRoute("/api/v1/delcert/{certid}", "GET", delcertHandler)
+	delGlobalRoute("/cert/{certid}", "GET", delcertHandler)
 
 	// This route is used by the controller admin to addd a new tenant
-	addRoute("/api/v1/addtenant", "POST", addtenantHandler)
+	addGlobalRoute("/tenant", "POST", addtenantHandler)
 
 	// This route is used to delete tenants
-	addRoute("/api/v1/deltenant/{tenant-uuid}", "GET", deltenantHandler)
+	delGlobalRoute("/tenant/{tenant-uuid}", "GET", deltenantHandler)
 
 	//*******************************************************************/
 	//            In Per-tenant DB
 	//*******************************************************************/
 	// This route is used to add new users with basic user info
-	addRoute("/api/v1/adduser", "POST", addUserHandler)
+	addTenantRoute("/user", "POST", addUserHandler)
 
 	// This route is used to delete users. Both user info and user attribute
 	// docs will be deleted for specified user
-	addRoute("/api/v1/deluser/{tenant-uuid}/{userid}", "GET", delUserHandler)
+	delTenantRoute("/user/{userid}", "GET", delUserHandler)
 
 	// This route is used to add all possible attributes for users/bundles
-	addRoute("/api/v1/addattrset/{tenant-uuid}", "POST", addAttrSet)
+	addTenantRoute("/attrset", "POST", addAttrSet)
 
 	// This route is used to delete a set of attributes for users/bundles
-	addRoute("/api/v1/delattrset/{tenant-uuid}", "POST", delAttrSet)
+	delTenantRoute("/attrset", "POST", delAttrSet)
 
 	// This route is used to add new user attributes header
-	addRoute("/api/v1/adduserattrhdr", "POST", addUserAttrHdrHandler)
+	addTenantRoute("/userattrhdr", "POST", addUserAttrHdrHandler)
 
 	// This route is used to add new user extended attributes
-	addRoute("/api/v1/adduserextattr", "POST", addUserExtAttrHandler)
+	addTenantRoute("/userextattr", "POST", addUserExtAttrHandler)
 
 	// This route is used to add bundle attributes header
-	addRoute("/api/v1/addbundleattrhdr", "POST", addBundleAttrHdrHandler)
+	addTenantRoute("/bundleattrhdr", "POST", addBundleAttrHdrHandler)
 
 	// This route is used to add host attributes header
-	addRoute("/api/v1/addhostattrhdr", "POST", addHostAttrHdrHandler)
+	addTenantRoute("/hostattrhdr", "POST", addHostAttrHdrHandler)
 
 	// This route is used to add attributes for a user
-	addRoute("/api/v1/adduserattr", "POST", addUserAttrHandler)
+	addTenantRoute("/userattr", "POST", addUserAttrHandler)
 
 	// This route is used to add attributes for an app-bundle
-	addRoute("/api/v1/addbundleattr", "POST", addBundleAttrHandler)
+	addTenantRoute("/bundleattr", "POST", addBundleAttrHandler)
 
 	// This route is used to add host attributes for a tenant
-	addRoute("/api/v1/addhostattr", "POST", addHostAttrHandler)
+	addTenantRoute("/hostattr", "POST", addHostAttrHandler)
 
 	// This route is used to add a new app-bundle with basic info
-	addRoute("/api/v1/addbundle", "POST", addBundleHandler)
+	addTenantRoute("/bundle", "POST", addBundleHandler)
 
 	// This route is used to delete a specific app-bundle
 	// Both app-bundle info and app-bundle attribute docs will be deleted
-	addRoute("/api/v1/delbundle/{tenant-uuid}/{bid}", "GET", delBundleHandler)
+	delTenantRoute("/bundle/{bid}", "GET", delBundleHandler)
 
 	// This route is used to delete user extended attributes
-	addRoute("/api/v1/deluserextattr/{tenant-uuid}", "GET", delUserExtAttrHandler)
+	delTenantRoute("/userextattr", "GET", delUserExtAttrHandler)
+
+	// This route is used to get attributes for a specific host
+	delTenantRoute("/hostattr/{host}", "GET", delHostAttrHandler)
 }
 
 type AddtenantResult struct {
@@ -213,8 +215,7 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 	v := mux.Vars(r)
 	uuid, err := db.StrToObjectid(v["tenant-uuid"])
 	if err != nil {
-		result.Result = "Bad tenant id"
-		utils.WriteResult(w, result)
+		utils.WriteResult(w, make([]bson.M, 0))
 		return
 	}
 
@@ -431,62 +432,18 @@ type OnboardResult struct {
 	Cacert    []rune   `json:"cacert"`
 }
 
-// An agent wants to be onboarded, verify its access-token and return
-// information that the agent wants, like the NXT gateway to use etc.
-// TODO: We are assuming that all the Outh2 servers will have a "userinfo"
-// end point and that all of them will return the user id in the "sub" field
-// etc. This will for sure not be the case across different Oauth servers and
-// will end up needing rework as we support different ones (okta, google, azure etc.)
 func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	var result OnboardResult
 	var data onboardData
 
-	v := mux.Vars(r)
-	access := v["access-token"]
+	data.Userid = r.Context().Value("userid").(string)
+	data.Tenant = r.Context().Value("user-tenant").(primitive.ObjectID)
 
-	req, err := http.NewRequest("GET", IDP+"/userinfo", nil)
-	if err != nil {
-		result.Result = "Userinfo req failed"
-		utils.WriteResult(w, result)
-		return
-	}
-	req.Header.Add("Authorization", "Bearer "+access)
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		result.Result = "Userinfo get failed"
-		utils.WriteResult(w, result)
-		return
-	}
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		result.Result = "Userinfo read fail"
-		utils.WriteResult(w, result)
-		return
-	}
-
-	// Right now we are just checking that the acess-token gave us some valid
-	// user-info, we are not really "using" the user-info yet
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		result.Result = "Error parsing json"
-		utils.WriteResult(w, result)
-		return
-	}
-	// We are supposed to use the access token and peel it open and get further data
-	// like the tenant the user belongs to etc.. The tenantid is basically the ObjectID
-	// of the tenant in our database - how does that get into the accesstoken ? Well the
-	// IDP (okta) should be configured such that each user has their tenant id configured
-	// in the IDP (refer to gitlab.com/nextensio/agent/README.md to see how thats done).
-	// And then the agent is onboarded with the IDP and we can get the tenantid from inside
-	// that. As of today, for the test environment, we havent taken the trouble of creating
-	// test-environment-specific users with proper tenant ids set etc.., so we just resort
-	// to the hack of assuming there is only one tenant in the test environment / or even
-	// if there are multiple tenants the userid is unique per tenant. Its a TODO to properly
-	// configure the IDP with test users and their tenant ids etc.. and then remove this
-	// TEST_ENVIRONMENT business
+	// As of today, the test environment we have is not dependent on the IDP putting an
+	// an accurate tenant-id (User.organization) in a user's profile. This is because
+	// the test setup has one set of test users and like ten people can use those same
+	// users in their setups, so obviously its like one user in ten tenants. So we just
+	// assume the user name is unique and pick the first tenant with that username.
 	if utils.GetEnv("TEST_ENVIRONMENT", "false") == "true" {
 		tenant := db.DBFindUserAnyTenant(data.Userid)
 		if tenant == nil {
@@ -583,7 +540,8 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBAddUser(&data)
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	err = db.DBAddUser(uuid, &data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -605,13 +563,7 @@ func getUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	userid := v["userid"]
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		result.Result = "Get user info - Bad tenant id"
-		utils.WriteResult(w, result)
-		return
-	}
-
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	user := db.DBFindUser(uuid, userid)
 	if user == nil {
 		result.Result = "Cannot find user"
@@ -623,12 +575,7 @@ func getUserHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get all users
 func getAllUsersHandler(w http.ResponseWriter, r *http.Request) {
-	v := mux.Vars(r)
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		utils.WriteResult(w, make([]bson.M, 0))
-		return
-	}
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	users := db.DBFindAllUsers(uuid)
 	if users == nil {
 		users = make([]bson.M, 0)
@@ -643,14 +590,9 @@ func delUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	userid := v["userid"]
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		result.Result = "Delete User info - Bad tenant id"
-		utils.WriteResult(w, result)
-		return
-	}
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 
-	err = db.DBDelUserAttr(uuid, userid)
+	err := db.DBDelUserAttr(uuid, userid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {
@@ -669,13 +611,7 @@ func addAttrSet(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 	var data []db.AttrSet
 
-	v := mux.Vars(r)
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		utils.WriteResult(w, make([]bson.M, 0))
-		return
-	}
-
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		result.Result = "Add tenant attribute set - HTTP Req Read fail"
@@ -705,13 +641,7 @@ func delAttrSet(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 	var data []db.AttrSet
 
-	v := mux.Vars(r)
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		utils.WriteResult(w, make([]bson.M, 0))
-		return
-	}
-
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		result.Result = "Add tenant attribute set - HTTP Req Read fail"
@@ -754,7 +684,8 @@ func addUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBAddUserAttrHdr(&data)
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	err = db.DBAddUserAttrHdr(uuid, &data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -769,12 +700,7 @@ func addUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 func getUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 	var hdr []db.DataHdr
 
-	v := mux.Vars(r)
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		utils.WriteResult(w, hdr)
-		return
-	}
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	dhdr := db.DBFindUserAttrHdr(uuid)
 	if dhdr == nil {
 		utils.WriteResult(w, hdr)
@@ -794,7 +720,8 @@ func addUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = db.DBAddUserAttr(body)
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	err = db.DBAddUserAttr(uuid, body)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -816,12 +743,7 @@ func getUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	userid := v["userid"]
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		result.Result = "Get user attributes - Bad tenant id"
-		utils.WriteResult(w, result)
-		return
-	}
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	attr := db.DBFindUserAttr(uuid, userid)
 	if attr == nil {
 		result.Result = "Cannot find user attributes"
@@ -833,12 +755,7 @@ func getUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get all user attribute docs
 func getAllUserAttrHandler(w http.ResponseWriter, r *http.Request) {
-	v := mux.Vars(r)
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		utils.WriteResult(w, make([]bson.M, 0))
-		return
-	}
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	attrs := db.DBFindAllUserAttrs(uuid)
 	if attrs == nil {
 		attrs = make([]bson.M, 0)
@@ -865,7 +782,8 @@ func addBundleHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBAddBundle(&data)
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	err = db.DBAddBundle(uuid, &data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -887,13 +805,7 @@ func getBundleHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	bid := v["bid"]
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		result.Result = "Get App-bundle info - Bad tenant id"
-		utils.WriteResult(w, result)
-		return
-	}
-
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	bundle := db.DBFindBundle(uuid, bid)
 	if bundle == nil {
 		result.Result = "Cannot find bundle"
@@ -905,12 +817,7 @@ func getBundleHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get all bundle info docs
 func getAllBundlesHandler(w http.ResponseWriter, r *http.Request) {
-	v := mux.Vars(r)
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		utils.WriteResult(w, make([]bson.M, 0))
-		return
-	}
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	bundles := db.DBFindAllBundles(uuid)
 	if bundles == nil {
 		bundles = make([]bson.M, 0)
@@ -925,14 +832,8 @@ func delBundleHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	bid := v["bid"]
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		result.Result = "Delete App-bundle info - Bad tenant id"
-		utils.WriteResult(w, result)
-		return
-	}
-
-	err = db.DBDelBundleAttr(uuid, bid)
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	err := db.DBDelBundleAttr(uuid, bid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {
@@ -964,7 +865,8 @@ func addBundleAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBAddBundleAttrHdr(&data)
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	err = db.DBAddBundleAttrHdr(uuid, &data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -977,12 +879,7 @@ func addBundleAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get  attribute set
 func getAllAttrSet(w http.ResponseWriter, r *http.Request) {
-	v := mux.Vars(r)
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		utils.WriteResult(w, make([]db.DataHdr, 0))
-		return
-	}
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	set := db.DBFindAllAttrSet(uuid)
 	if set == nil {
 		result := make([]db.AttrSet, 0)
@@ -995,12 +892,7 @@ func getAllAttrSet(w http.ResponseWriter, r *http.Request) {
 
 // Get bundle attribute header
 func getBundleAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
-	v := mux.Vars(r)
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		utils.WriteResult(w, make([]db.DataHdr, 0))
-		return
-	}
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	hdr := db.DBFindBundleAttrHdr(uuid)
 	if hdr == nil {
 		result := make([]db.DataHdr, 0)
@@ -1022,7 +914,8 @@ func addBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = db.DBAddBundleAttr(body)
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	err = db.DBAddBundleAttr(uuid, body)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1044,13 +937,7 @@ func getBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	bid := v["bid"]
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		result.Result = "Get App-bundle attributes - Bad tenant id"
-		utils.WriteResult(w, result)
-		return
-	}
-
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	attr := db.DBFindBundleAttr(uuid, bid)
 	if attr == nil {
 		result.Result = "Cannot find bundle attributes"
@@ -1062,12 +949,7 @@ func getBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get all bundle attributes
 func getAllBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
-	v := mux.Vars(r)
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		utils.WriteResult(w, make([]bson.M, 0))
-		return
-	}
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	attrs := db.DBFindAllBundleAttrs(uuid)
 	if attrs == nil {
 		attrs = make([]bson.M, 0)
@@ -1078,12 +960,7 @@ func getAllBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get host attributes header for a tenant
 func getHostAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
-	v := mux.Vars(r)
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		utils.WriteResult(w, make([]db.DataHdr, 0))
-		return
-	}
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	hdr := db.DBFindHostAttrHdr(uuid)
 	if hdr == nil {
 		result := make([]db.DataHdr, 0)
@@ -1096,12 +973,7 @@ func getHostAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get all host attributes for a tenant
 func getAllHostAttrHandler(w http.ResponseWriter, r *http.Request) {
-	v := mux.Vars(r)
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		utils.WriteResult(w, make([]bson.M, 0))
-		return
-	}
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	attrs := db.DBFindAllHostAttrs(uuid)
 	if attrs == nil {
 		attrs = make([]bson.M, 0)
@@ -1121,13 +993,7 @@ func getHostAttrHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	host := v["host"]
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		result.Result = "Get Host attributes - Bad tenant id"
-		utils.WriteResult(w, result)
-		return
-	}
-
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	hostattr := db.DBFindHostAttr(uuid, host)
 	if hostattr == nil {
 		result.Result = "Cannot find host attributes"
@@ -1155,7 +1021,8 @@ func addHostAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBAddHostAttrHdr(&data)
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	err = db.DBAddHostAttrHdr(uuid, &data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1176,7 +1043,8 @@ func addHostAttrHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBAddHostAttr(body)
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	err = db.DBAddHostAttr(uuid, body)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1192,15 +1060,9 @@ func delHostAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 
 	v := mux.Vars(r)
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		result.Result = "Delete host attributes - Bad tenant id"
-		utils.WriteResult(w, result)
-		return
-	}
 	host := v["host"]
-
-	err = db.DBDelHostAttr(uuid, host)
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	err := db.DBDelHostAttr(uuid, host)
 	if err != nil {
 		result.Result = err.Error()
 	} else {
@@ -1218,13 +1080,7 @@ type GetUserExtAttrResult struct {
 func getUserExtAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result GetUserExtAttrResult
 
-	v := mux.Vars(r)
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		result.Result = "Get user extended attributes - Bad tenant id"
-		utils.WriteResult(w, result)
-		return
-	}
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	attr := db.DBFindUserExtAttr(uuid)
 	if attr == nil {
 		result.Result = "Cannot find user extended attributes"
@@ -1246,7 +1102,8 @@ func addUserExtAttrHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = db.DBAddUserExtAttr(body)
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	err = db.DBAddUserExtAttr(uuid, body)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1261,15 +1118,8 @@ func addUserExtAttrHandler(w http.ResponseWriter, r *http.Request) {
 func delUserExtAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 
-	v := mux.Vars(r)
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		result.Result = "Delete user extended attribute - Bad tenant id"
-		utils.WriteResult(w, result)
-		return
-	}
-
-	err = db.DBDelUserExtAttr(uuid)
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	err := db.DBDelUserExtAttr(uuid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {

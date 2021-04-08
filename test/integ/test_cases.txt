@@ -4,7 +4,7 @@ TestGetAllGateway_v1
 TestAddTenant_v1
 TestGetAllTenant_v1
 TestTenantDel
-TestOnboard_v1
+#TestOnboard_v1
 TestUserAdd_v1
 TestUserGet_v1
 TestGetAllUsers_v1
@@ -37,3 +37,13 @@ TestRouteAdd_v1
 TestRouteGet_v1
 TestGetAllRoutes_v1
 TestRouteDel_v1
+TestUserExtAttrAdd_v1
+TestUserExtAttrGet_v1
+TestUserExtAttrDel_v1
+TestHostAttrAdd_v1
+TestHostAttrGet_v1
+TestHostAttrDel_v1
+TestHostAttrGetAll_v1
+TestAttrSetAdd_v1
+TestAttrSetGet_v1
+TestAttrSetDel_v1

@@ -98,13 +98,13 @@ func DBAddTenant(data *Tenant) error {
 }
 
 func DBAddTenantCollectionHdrs(tenant primitive.ObjectID) {
-	hdr := DataHdr{Majver: 1, Minver: 0, Tenant: tenant}
+	hdr := DataHdr{Majver: 1, Minver: 0}
 
-	_ = DBAddUserInfoHdr(&hdr)
-	_ = DBAddUserAttrHdr(&hdr)
-	_ = DBAddBundleInfoHdr(&hdr)
-	_ = DBAddBundleAttrHdr(&hdr)
-	_ = DBAddHostAttrHdr(&hdr)
+	_ = DBAddUserInfoHdr(tenant, &hdr)
+	_ = DBAddUserAttrHdr(tenant, &hdr)
+	_ = DBAddBundleInfoHdr(tenant, &hdr)
+	_ = DBAddBundleAttrHdr(tenant, &hdr)
+	_ = DBAddHostAttrHdr(tenant, &hdr)
 }
 
 func DBDelTenantCollectionHdrs(tenant primitive.ObjectID) {
@@ -410,17 +410,16 @@ func DBFindAllAttrSet(tenant primitive.ObjectID) []AttrSet {
 //------------------------Collection header functions-------------------------
 
 type DataHdr struct {
-	ID     string             `bson:"_id" json:"ID"`
-	Majver int                `bson:"majver" json:"majver"`
-	Minver int                `bson:"minver" json:"minver"`
-	Tenant primitive.ObjectID `bson:"tenant" json:"tenant"`
+	ID     string `bson:"_id" json:"ID"`
+	Majver int    `bson:"majver" json:"majver"`
+	Minver int    `bson:"minver" json:"minver"`
 }
 
 func DBGetHdrKey(val string) string {
 	return HDRKEY // common name for all header docs
 }
 
-func DBAddCollectionHdr(data *DataHdr, htype string, hkey string) error {
+func DBAddCollectionHdr(uuid primitive.ObjectID, data *DataHdr, htype string, hkey string) error {
 	// The upsert option asks the DB to add  if one is not found
 	upsert := true
 	after := options.After
@@ -428,14 +427,14 @@ func DBAddCollectionHdr(data *DataHdr, htype string, hkey string) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	Cltn := dbGetCollection(data.Tenant, htype)
+	Cltn := dbGetCollection(uuid, htype)
 	if Cltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
 	hdockey := DBGetHdrKey(hkey)
 	err := Cltn.FindOneAndUpdate(
 		context.TODO(),
-		bson.M{"_id": hdockey, "tenant": data.Tenant},
+		bson.M{"_id": hdockey},
 		bson.D{
 			{"$set", bson.M{"minver": data.Minver, "majver": data.Majver}},
 		},
@@ -453,7 +452,7 @@ func DBFindCollectionHdr(tenant primitive.ObjectID, htype string, hkey string) *
 	hdockey := DBGetHdrKey(hkey)
 	err := Cltn.FindOne(
 		context.TODO(),
-		bson.M{"_id": hdockey, "tenant": tenant},
+		bson.M{"_id": hdockey},
 	).Decode(&hdr)
 	if err != nil {
 		return nil
@@ -470,7 +469,7 @@ func DBDelCollectionHdr(tenant primitive.ObjectID, htype string, hkey string) er
 	hdockey := DBGetHdrKey(hkey)
 	_, err := Cltn.DeleteOne(
 		context.TODO(),
-		bson.M{"_id": hdockey, "tenant": tenant},
+		bson.M{"_id": hdockey},
 	)
 	return err
 }
@@ -478,9 +477,9 @@ func DBDelCollectionHdr(tenant primitive.ObjectID, htype string, hkey string) er
 //--------------------------User Info and Attributes---------=-------------------
 
 // This API will add/update a user info Header
-func DBAddUserInfoHdr(data *DataHdr) error {
+func DBAddUserInfoHdr(uuid primitive.ObjectID, data *DataHdr) error {
 
-	return DBAddCollectionHdr(data, "NxtUsers", "UserInfo")
+	return DBAddCollectionHdr(uuid, data, "NxtUsers", "UserInfo")
 }
 
 func DBFindUserInfoHdr(tenant primitive.ObjectID) *DataHdr {
@@ -494,9 +493,9 @@ func DBDelUserInfoHdr(tenant primitive.ObjectID) error {
 }
 
 // This API will add/update a user Attribute Header
-func DBAddUserAttrHdr(data *DataHdr) error {
+func DBAddUserAttrHdr(uuid primitive.ObjectID, data *DataHdr) error {
 
-	return DBAddCollectionHdr(data, "NxtUserAttr", "UserAttr")
+	return DBAddCollectionHdr(uuid, data, "NxtUserAttr", "UserAttr")
 }
 
 func DBFindUserAttrHdr(tenant primitive.ObjectID) *DataHdr {
@@ -510,20 +509,19 @@ func DBDelUserAttrHdr(tenant primitive.ObjectID) error {
 }
 
 type User struct {
-	Uid       string             `json:"uid" bson:"_id"`
-	Tenant    primitive.ObjectID `json:"tenant" bson:"tenant"`
-	Username  string             `json:"name" bson:"name"`
-	Email     string             `json:"email" bson:"email"`
-	Gateway   string             `json:"gateway" bson:"gateway"`
-	Pod       int                `json:"pod" bson:"pod"`
-	Connectid string             `json:"connectid" bson:"connectid"`
-	Services  []string           `json:"services" bson:"services"`
+	Uid       string   `json:"uid" bson:"_id"`
+	Username  string   `json:"name" bson:"name"`
+	Email     string   `json:"email" bson:"email"`
+	Gateway   string   `json:"gateway" bson:"gateway"`
+	Pod       int      `json:"pod" bson:"pod"`
+	Connectid string   `json:"connectid" bson:"connectid"`
+	Services  []string `json:"services" bson:"services"`
 }
 
 // This API will add/update a new user
-func DBAddUser(data *User) error {
+func DBAddUser(uuid primitive.ObjectID, data *User) error {
 
-	tenant := DBFindTenant(data.Tenant)
+	tenant := DBFindTenant(uuid)
 	if tenant == nil {
 		return fmt.Errorf("Unknown tenant")
 	}
@@ -558,13 +556,13 @@ func DBAddUser(data *User) error {
 	data.Connectid = strings.ReplaceAll(data.Uid, "@", "-")
 	data.Connectid = strings.ReplaceAll(data.Connectid, ".", "-")
 
-	userCltn := dbGetCollection(data.Tenant, "NxtUsers")
+	userCltn := dbGetCollection(uuid, "NxtUsers")
 	if userCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
 	result := userCltn.FindOneAndUpdate(
 		context.TODO(),
-		bson.M{"_id": data.Uid, "tenant": data.Tenant},
+		bson.M{"_id": data.Uid},
 		bson.D{
 			{"$set", bson.M{"name": data.Username, "email": data.Email,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
@@ -577,7 +575,7 @@ func DBAddUser(data *User) error {
 		return result.Err()
 	}
 
-	err := DBAddClusterUser(data)
+	err := DBAddClusterUser(uuid, data)
 	if err != nil {
 		return err
 	}
@@ -599,7 +597,7 @@ func DBFindUserAnyTenant(userid string) *primitive.ObjectID {
 		if userCltn != nil {
 			err := userCltn.FindOne(
 				context.TODO(),
-				bson.M{"_id": userid, "tenant": tenants[i].ID},
+				bson.M{"_id": userid},
 			).Decode(&user)
 			if err == nil {
 				return &tenants[i].ID
@@ -617,7 +615,7 @@ func DBFindUser(tenant primitive.ObjectID, userid string) *User {
 	}
 	err := userCltn.FindOne(
 		context.TODO(),
-		bson.M{"_id": userid, "tenant": tenant},
+		bson.M{"_id": userid},
 	).Decode(&user)
 	if err != nil {
 		return nil
@@ -632,7 +630,7 @@ func DBFindAllUsers(tenant primitive.ObjectID) []bson.M {
 	if userCltn == nil {
 		return nil
 	}
-	cursor, err := userCltn.Find(context.TODO(), bson.M{"tenant": tenant})
+	cursor, err := userCltn.Find(context.TODO(), bson.M{})
 	if err != nil {
 		return nil
 	}
@@ -672,7 +670,7 @@ func DBDelUser(tenant primitive.ObjectID, userid string) error {
 	}
 	_, err := userCltn.DeleteOne(
 		context.TODO(),
-		bson.M{"_id": userid, "tenant": tenant},
+		bson.M{"_id": userid},
 	)
 	if err != nil {
 		return err
@@ -697,25 +695,23 @@ func DBDelUser(tenant primitive.ObjectID, userid string) error {
 //}
 
 // This API will add a new user attributes doc or update existing one
-func DBAddUserAttr(data []byte) error {
+func DBAddUserAttr(uuid primitive.ObjectID, data []byte) error {
 	var Uattr bson.M
 
 	err := json.Unmarshal(data, &Uattr)
 	if err != nil {
 		return err
 	}
-	tenantstr := fmt.Sprintf("%s", Uattr["tenant"])
-	tenant, _ := StrToObjectid(tenantstr)
 	user := fmt.Sprintf("%s", Uattr["uid"])
 	delete(Uattr, "uid")
 
-	if DBFindUser(tenant, user) == nil {
+	if DBFindUser(uuid, user) == nil {
 		return fmt.Errorf("Cannot find user")
 	}
 
-	hdr := DBFindUserAttrHdr(tenant)
+	hdr := DBFindUserAttrHdr(uuid)
 	if hdr == nil {
-		dhdr := DataHdr{Majver: 1, Minver: 0, Tenant: tenant}
+		dhdr := DataHdr{Majver: 1, Minver: 0}
 		hdr = &dhdr
 	} else {
 		minver := hdr.Minver
@@ -728,13 +724,13 @@ func DBAddUserAttr(data []byte) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	userAttrCltn := dbGetCollection(tenant, "NxtUserAttr")
+	userAttrCltn := dbGetCollection(uuid, "NxtUserAttr")
 	if userAttrCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
 	result := userAttrCltn.FindOneAndUpdate(
 		context.TODO(),
-		bson.M{"_id": user, "tenant": tenantstr},
+		bson.M{"_id": user},
 		bson.D{
 			{"$set", Uattr},
 		},
@@ -744,7 +740,7 @@ func DBAddUserAttr(data []byte) error {
 		return result.Err()
 	}
 
-	DBAddUserAttrHdr(hdr)
+	DBAddUserAttrHdr(uuid, hdr)
 	return nil
 }
 
@@ -756,7 +752,7 @@ func DBFindUserAttr(tenant primitive.ObjectID, userid string) *bson.M {
 	}
 	err := userAttrCltn.FindOne(
 		context.TODO(),
-		bson.M{"_id": userid, "tenant": tenant.Hex()},
+		bson.M{"_id": userid},
 	).Decode(&user)
 	if err != nil {
 		return nil
@@ -773,7 +769,7 @@ func DBFindAllUserAttrs(tenant primitive.ObjectID) []bson.M {
 	if userAttrCltn == nil {
 		return nil
 	}
-	cursor, err := userAttrCltn.Find(context.TODO(), bson.M{"tenant": tenant.Hex()})
+	cursor, err := userAttrCltn.Find(context.TODO(), bson.M{})
 	if err != nil {
 		return nil
 	}
@@ -811,7 +807,7 @@ func DBDelUserAttr(tenant primitive.ObjectID, userid string) error {
 	}
 	_, err := userAttrCltn.DeleteOne(
 		context.TODO(),
-		bson.M{"_id": userid, "tenant": tenant.Hex()},
+		bson.M{"_id": userid},
 	)
 
 	return err
@@ -820,9 +816,9 @@ func DBDelUserAttr(tenant primitive.ObjectID, userid string) error {
 //----------------------App bundle Info and Attributes-----------------------
 
 // This API will add/update a bundle info Header
-func DBAddBundleInfoHdr(data *DataHdr) error {
+func DBAddBundleInfoHdr(uuid primitive.ObjectID, data *DataHdr) error {
 
-	return DBAddCollectionHdr(data, "NxtAppInfo", "AppInfo")
+	return DBAddCollectionHdr(uuid, data, "NxtAppInfo", "AppInfo")
 }
 
 func DBFindBundleInfoHdr(tenant primitive.ObjectID) *DataHdr {
@@ -836,9 +832,9 @@ func DBDelBundleInfoHdr(tenant primitive.ObjectID) error {
 }
 
 // This API will add/update a bundle Attribute Header
-func DBAddBundleAttrHdr(data *DataHdr) error {
+func DBAddBundleAttrHdr(uuid primitive.ObjectID, data *DataHdr) error {
 
-	return DBAddCollectionHdr(data, "NxtAppAttr", "AppAttr")
+	return DBAddCollectionHdr(uuid, data, "NxtAppAttr", "AppAttr")
 }
 
 func DBFindBundleAttrHdr(tenant primitive.ObjectID) *DataHdr {
@@ -852,19 +848,18 @@ func DBDelBundleAttrHdr(tenant primitive.ObjectID) error {
 }
 
 type Bundle struct {
-	Bid        string             `json:"bid" bson:"_id"`
-	Tenant     primitive.ObjectID `json:"tenant" bson:"tenant"`
-	Bundlename string             `json:"name" bson:"name"`
-	Gateway    string             `json:"gateway" bson:"gateway"`
-	Pod        int                `json:"pod" bson:"pod"`
-	Connectid  string             `json:"connectid" bson:"connectid"`
-	Services   []string           `json:"services" bson:"services"`
+	Bid        string   `json:"bid" bson:"_id"`
+	Bundlename string   `json:"name" bson:"name"`
+	Gateway    string   `json:"gateway" bson:"gateway"`
+	Pod        int      `json:"pod" bson:"pod"`
+	Connectid  string   `json:"connectid" bson:"connectid"`
+	Services   []string `json:"services" bson:"services"`
 }
 
 // This API will add/update a new bundle
-func DBAddBundle(data *Bundle) error {
+func DBAddBundle(uuid primitive.ObjectID, data *Bundle) error {
 
-	tenant := DBFindTenant(data.Tenant)
+	tenant := DBFindTenant(uuid)
 	if tenant == nil {
 		return fmt.Errorf("Unknown tenant")
 	}
@@ -898,13 +893,13 @@ func DBAddBundle(data *Bundle) error {
 	// each user on that pod
 	data.Connectid = strings.ReplaceAll(data.Bid, "@", "-")
 	data.Connectid = strings.ReplaceAll(data.Connectid, ".", "-")
-	appCltn := dbGetCollection(data.Tenant, "NxtApps")
+	appCltn := dbGetCollection(uuid, "NxtApps")
 	if appCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
 	result := appCltn.FindOneAndUpdate(
 		context.TODO(),
-		bson.M{"_id": data.Bid, "tenant": data.Tenant},
+		bson.M{"_id": data.Bid},
 		bson.D{
 			{"$set", bson.M{"name": data.Bundlename,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
@@ -916,7 +911,7 @@ func DBAddBundle(data *Bundle) error {
 		return result.Err()
 	}
 
-	err := DBAddClusterBundle(data)
+	err := DBAddClusterBundle(uuid, data)
 	if err != nil {
 		return err
 	}
@@ -938,7 +933,7 @@ func DBFindBundleAnyTenant(bundleid string) *primitive.ObjectID {
 		if appCltn != nil {
 			err := appCltn.FindOne(
 				context.TODO(),
-				bson.M{"_id": bundleid, "tenant": tenants[i].ID},
+				bson.M{"_id": bundleid},
 			).Decode(&app)
 			if err == nil {
 				return &tenants[i].ID
@@ -956,7 +951,7 @@ func DBFindBundle(tenant primitive.ObjectID, bundleid string) *Bundle {
 	}
 	err := appCltn.FindOne(
 		context.TODO(),
-		bson.M{"_id": bundleid, "tenant": tenant},
+		bson.M{"_id": bundleid},
 	).Decode(&app)
 	if err != nil {
 		return nil
@@ -971,7 +966,7 @@ func DBFindAllBundles(tenant primitive.ObjectID) []bson.M {
 	if appCltn == nil {
 		return nil
 	}
-	cursor, err := appCltn.Find(context.TODO(), bson.M{"tenant": tenant})
+	cursor, err := appCltn.Find(context.TODO(), bson.M{})
 	if err != nil {
 		return nil
 	}
@@ -1009,7 +1004,7 @@ func DBDelBundle(tenant primitive.ObjectID, bundleid string) error {
 	}
 	_, err := appCltn.DeleteOne(
 		context.TODO(),
-		bson.M{"_id": bundleid, "tenant": tenant},
+		bson.M{"_id": bundleid},
 	)
 	if err != nil {
 		return err
@@ -1035,25 +1030,23 @@ func DBDelBundle(tenant primitive.ObjectID, bundleid string) error {
 //}
 
 // This API will add/update a bundle attribute
-func DBAddBundleAttr(data []byte) error {
+func DBAddBundleAttr(uuid primitive.ObjectID, data []byte) error {
 	var Battr bson.M
 
 	err := json.Unmarshal(data, &Battr)
 	if err != nil {
 		return err
 	}
-	tenantstr := fmt.Sprintf("%s", Battr["tenant"])
-	tenant, _ := StrToObjectid(tenantstr)
 	bid := fmt.Sprintf("%s", Battr["bid"])
 	delete(Battr, "bid")
 
-	if DBFindBundle(tenant, bid) == nil {
+	if DBFindBundle(uuid, bid) == nil {
 		return fmt.Errorf("Cannot find bundle")
 	}
 
-	hdr := DBFindBundleAttrHdr(tenant)
+	hdr := DBFindBundleAttrHdr(uuid)
 	if hdr == nil {
-		dhdr := DataHdr{Majver: 1, Minver: 0, Tenant: tenant}
+		dhdr := DataHdr{Majver: 1, Minver: 0}
 		hdr = &dhdr
 	} else {
 		minver := hdr.Minver
@@ -1067,13 +1060,13 @@ func DBAddBundleAttr(data []byte) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	appAttrCltn := dbGetCollection(tenant, "NxtAppAttr")
+	appAttrCltn := dbGetCollection(uuid, "NxtAppAttr")
 	if appAttrCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
 	result := appAttrCltn.FindOneAndUpdate(
 		context.TODO(),
-		bson.M{"_id": bid, "tenant": tenantstr},
+		bson.M{"_id": bid},
 		bson.D{{"$set", Battr}},
 		&opt,
 	)
@@ -1081,7 +1074,7 @@ func DBAddBundleAttr(data []byte) error {
 		return result.Err()
 	}
 
-	DBAddBundleAttrHdr(hdr)
+	DBAddBundleAttrHdr(uuid, hdr)
 
 	return nil
 }
@@ -1094,7 +1087,7 @@ func DBFindBundleAttr(tenant primitive.ObjectID, bundleid string) *bson.M {
 	}
 	err := appAttrCltn.FindOne(
 		context.TODO(),
-		bson.M{"_id": bundleid, "tenant": tenant.Hex()},
+		bson.M{"_id": bundleid},
 	).Decode(&Battr)
 	if err != nil {
 		return nil
@@ -1111,7 +1104,7 @@ func DBFindAllBundleAttrs(tenant primitive.ObjectID) []bson.M {
 	if appAttrCltn == nil {
 		return nil
 	}
-	cursor, err := appAttrCltn.Find(context.TODO(), bson.M{"tenant": tenant.Hex()})
+	cursor, err := appAttrCltn.Find(context.TODO(), bson.M{})
 	if err != nil {
 		return nil
 	}
@@ -1149,7 +1142,7 @@ func DBDelBundleAttr(tenant primitive.ObjectID, bundleid string) error {
 	}
 	_, err := appAttrCltn.DeleteOne(
 		context.TODO(),
-		bson.M{"_id": bundleid, "tenant": tenant.Hex()},
+		bson.M{"_id": bundleid},
 	)
 
 	return err
@@ -1158,9 +1151,9 @@ func DBDelBundleAttr(tenant primitive.ObjectID, bundleid string) error {
 //-------------------------------Host Attributes -------------------------
 
 // This API will add/update a Host Attributes Header
-func DBAddHostAttrHdr(data *DataHdr) error {
+func DBAddHostAttrHdr(uuid primitive.ObjectID, data *DataHdr) error {
 
-	return DBAddCollectionHdr(data, "NxtHostAttr", "HostAttr")
+	return DBAddCollectionHdr(uuid, data, "NxtHostAttr", "HostAttr")
 
 }
 
@@ -1182,7 +1175,7 @@ func DBFindHostAttr(tenant primitive.ObjectID, host string) *bson.M {
 	}
 	err := hostAttrCltn.FindOne(
 		context.TODO(),
-		bson.M{"_id": host, "tenant": tenant.Hex()},
+		bson.M{"_id": host},
 	).Decode(&Hattr)
 	if err != nil {
 		return nil
@@ -1200,7 +1193,7 @@ func DBFindAllHostAttrs(tenant primitive.ObjectID) []bson.M {
 	if hostAttrCltn == nil {
 		return nil
 	}
-	cursor, err := hostAttrCltn.Find(context.TODO(), bson.M{"tenant": tenant.Hex()})
+	cursor, err := hostAttrCltn.Find(context.TODO(), bson.M{})
 	if err != nil {
 		return nil
 	}
@@ -1232,21 +1225,20 @@ func DBFindAllHostAttrs(tenant primitive.ObjectID) []bson.M {
 }
 
 // This API will add/update a host attributes doc
-func DBAddHostAttr(data []byte) error {
+func DBAddHostAttr(uuid primitive.ObjectID, data []byte) error {
 	var Hattr bson.M
 
 	err := json.Unmarshal(data, &Hattr)
 	if err != nil {
 		return err
 	}
-	tenantstr := fmt.Sprintf("%s", Hattr["tenant"])
-	tenant, _ := StrToObjectid(tenantstr)
+
 	host := fmt.Sprintf("%s", Hattr["host"])
 	delete(Hattr, "host")
 
-	hdr := DBFindHostAttrHdr(tenant)
+	hdr := DBFindHostAttrHdr(uuid)
 	if hdr == nil {
-		dhdr := DataHdr{Majver: 1, Minver: 0, Tenant: tenant}
+		dhdr := DataHdr{Majver: 1, Minver: 0}
 		hdr = &dhdr
 	} else {
 		minver := hdr.Minver
@@ -1260,13 +1252,13 @@ func DBAddHostAttr(data []byte) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	hostAttrCltn := dbGetCollection(tenant, "NxtHostAttr")
+	hostAttrCltn := dbGetCollection(uuid, "NxtHostAttr")
 	if hostAttrCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
 	result := hostAttrCltn.FindOneAndUpdate(
 		context.TODO(),
-		bson.M{"_id": host, "tenant": tenantstr},
+		bson.M{"_id": host},
 		bson.D{{"$set", Hattr}},
 		&opt,
 	)
@@ -1275,7 +1267,7 @@ func DBAddHostAttr(data []byte) error {
 
 	}
 
-	DBAddHostAttrHdr(hdr)
+	DBAddHostAttrHdr(uuid, hdr)
 
 	return nil
 }
@@ -1287,7 +1279,7 @@ func DBDelHostAttr(tenant primitive.ObjectID, hostid string) error {
 	}
 	_, err := hostAttrCltn.DeleteOne(
 		context.TODO(),
-		bson.M{"_id": hostid, "tenant": tenant.Hex()},
+		bson.M{"_id": hostid},
 	)
 
 	return err
@@ -1317,7 +1309,7 @@ func DBFindUserExtAttr(tenant primitive.ObjectID) *bson.M {
 	}
 	err := userAttrCltn.FindOne(
 		context.TODO(),
-		bson.M{"_id": "UserExtAttr", "tenant": tenant.Hex()},
+		bson.M{"_id": "UserExtAttr"},
 	).Decode(&attr)
 	if err != nil {
 		return nil
@@ -1326,15 +1318,13 @@ func DBFindUserExtAttr(tenant primitive.ObjectID) *bson.M {
 }
 
 // This API will add/update a user extended Attribute doc
-func DBAddUserExtAttr(data []byte) error {
+func DBAddUserExtAttr(tenant primitive.ObjectID, data []byte) error {
 	var UEAttr bson.M
 
 	err := json.Unmarshal(data, &UEAttr)
 	if err != nil {
 		return err
 	}
-	tenantstr := fmt.Sprintf("%s", UEAttr["tenant"])
-	tenant, _ := StrToObjectid(tenantstr)
 
 	// The upsert option asks the DB to add  if one is not found
 	upsert := true
@@ -1349,7 +1339,7 @@ func DBAddUserExtAttr(data []byte) error {
 	}
 	rerr := userAttrCltn.FindOneAndUpdate(
 		context.TODO(),
-		bson.M{"_id": "UserExtAttr", "tenant": tenantstr},
+		bson.M{"_id": "UserExtAttr"},
 		bson.D{
 			{"$set", UEAttr},
 		},
@@ -1371,7 +1361,7 @@ func DBDelUserExtAttr(tenant primitive.ObjectID) error {
 	}
 	_, err := userAttrCltn.DeleteOne(
 		context.TODO(),
-		bson.M{"_id": "UserExtAttr", "tenant": tenant.Hex()},
+		bson.M{"_id": "UserExtAttr"},
 	)
 
 	return err

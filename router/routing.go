@@ -9,22 +9,23 @@ import (
 	"nextensio/controller/utils"
 
 	"github.com/gorilla/mux"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func rdonlyRoute() {
 	// This route is used to retrieve a route in a tenant
-	addRoute("/api/v1/getroute/{tenant-uuid}/{route}", "GET", getrouteHandler)
+	getTenantRoute("/route/{route}", "GET", getrouteHandler)
 
 	// This route is used to get all routes
-	addRoute("/api/v1/getallroutes/{tenant-uuid}", "GET", getAllRoutesHandler)
+	getTenantRoute("/allroutes", "GET", getAllRoutesHandler)
 }
 
 func rdwrRoute() {
 	// This route is used by the controller admin to addd a new route to the tenant
-	addRoute("/api/v1/addroute", "POST", addrouteHandler)
+	addTenantRoute("/route", "POST", addrouteHandler)
 
 	// This route is used by the controller admin to delete a route
-	addRoute("/api/v1/delroute/{tenant-uuid}/{route}", "GET", delrouteHandler)
+	delTenantRoute("/route/{route}", "GET", delrouteHandler)
 }
 
 type AddrouteResult struct {
@@ -51,7 +52,8 @@ func addrouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = db.DBAddRoute(&data)
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	err = db.DBAddRoute(uuid, &data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -73,13 +75,7 @@ func getrouteHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	routeid := v["route"]
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		result.Result = "Bad tenant id"
-		utils.WriteResult(w, result)
-		return
-	}
-
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	route := db.DBFindRoute(uuid, routeid)
 	if route == nil {
 		result.Result = "Cannot find route"
@@ -91,13 +87,7 @@ func getrouteHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get all routes
 func getAllRoutesHandler(w http.ResponseWriter, r *http.Request) {
-	v := mux.Vars(r)
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		utils.WriteResult(w, make([]db.Route, 0))
-		return
-	}
-
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 	routes := db.DBFindAllRoutes(uuid)
 	if routes == nil {
 		routes = make([]db.Route, 0)
@@ -116,14 +106,8 @@ func delrouteHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	route := v["route"]
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		result.Result = "Bad tenant id"
-		utils.WriteResult(w, result)
-		return
-	}
-
-	err = db.DBDelRoute(uuid, route)
+	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	err := db.DBDelRoute(uuid, route)
 	if err != nil {
 		result.Result = err.Error()
 	} else {
