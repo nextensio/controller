@@ -149,6 +149,12 @@ func initRoutes(readonly bool) {
 }
 
 func GlobalMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	usertype := r.Context().Value("usertype").(string)
+	if usertype != "superadmin" {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("User unauthorized to global resources"))
+		return
+	}
 	next.ServeHTTP(w, r)
 }
 
