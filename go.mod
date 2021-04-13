@@ -13,6 +13,7 @@ require (
 	github.com/joho/godotenv v1.3.0
 	github.com/nabeken/negroni-auth v0.0.0-20170421074600-c65ff4ad85ca
 	github.com/okta/okta-jwt-verifier-golang v1.0.0
+	github.com/okta/okta-sdk-golang v1.1.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/satori/go.uuid v1.2.0
 	github.com/urfave/negroni v1.0.0

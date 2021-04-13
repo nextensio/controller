@@ -29,6 +29,8 @@ var tenantAdd *mux.Router
 var tenantDel *mux.Router
 var nroni *negroni.Negroni
 var IDP string
+var API string
+var TOKEN string
 
 func isAuthenticated(r *http.Request, cid string) *context.Context {
 	authHeader := r.Header.Get("Authorization")
@@ -222,7 +224,9 @@ func ServeRoutes() {
 	originsOk := handlers.AllowedOrigins([]string{"*"})
 	methodsOk := handlers.AllowedMethods([]string{"GET", "HEAD", "POST", "PUT", "OPTIONS"})
 
-	IDP = utils.GetEnv("IDP_URI", "http://127.0.0.1:8081/test/api") + "/v1"
+	IDP = utils.GetEnv("IDP_URI", "none") + "/v1"
+	API = utils.GetEnv("IDP_API", "none")
+	TOKEN = utils.GetEnv("API_TOKEN", "none")
 	cert := utils.GetEnv("TLS_CRT", "unknown")
 	key := utils.GetEnv("TLS_KEY", "unknown")
 	if cert == "unknown" || key == "unknown" {
