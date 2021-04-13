@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"nextensio/controller/db"
+	"nextensio/controller/okta"
 	"nextensio/controller/utils"
 
 	"github.com/golang/glog"
@@ -541,6 +542,14 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+
+	_, err = okta.AddUser(API, TOKEN, data.Uid, "LetMeIn123", uuid.Hex(), "regular")
+	if err != nil {
+		result.Result = "Adding user to IDP fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
 	err = db.DBAddUser(uuid, &data)
 	if err != nil {
 		result.Result = err.Error()
@@ -592,7 +601,14 @@ func delUserHandler(w http.ResponseWriter, r *http.Request) {
 	userid := v["userid"]
 	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 
-	err := db.DBDelUserAttr(uuid, userid)
+	err := okta.DelUser(API, TOKEN, userid)
+	if err != nil {
+		result.Result = "Deleting user from IDP fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = db.DBDelUserAttr(uuid, userid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {
@@ -783,6 +799,13 @@ func addBundleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	_, err = okta.AddUser(API, TOKEN, data.Bid, "LetMeIn123", uuid.Hex(), "regular")
+	if err != nil {
+		result.Result = "Adding bundle to IDP fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
 	err = db.DBAddBundle(uuid, &data)
 	if err != nil {
 		result.Result = err.Error()
@@ -833,7 +856,14 @@ func delBundleHandler(w http.ResponseWriter, r *http.Request) {
 	v := mux.Vars(r)
 	bid := v["bid"]
 	uuid := r.Context().Value("tenant").(primitive.ObjectID)
-	err := db.DBDelBundleAttr(uuid, bid)
+	err := okta.DelUser(API, TOKEN, bid)
+	if err != nil {
+		result.Result = "Deleting bundle from IDP fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = db.DBDelBundleAttr(uuid, bid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {

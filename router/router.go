@@ -56,7 +56,6 @@ func isAuthenticated(r *http.Request, cid string) *context.Context {
 		fmt.Println("Not verified", cid, err)
 		return nil
 	}
-
 	// TODO: The access token presented in bearer is supposed to be an opaque entity
 	// as per OIDC standards, but Okta allows us to fit things in there and decode it
 	// etc... Ideally we are supposed to use the ID Token here. So at some point when
@@ -162,11 +161,11 @@ func GlobalMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 
 func TenantMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	url := r.URL.String()
-	reg, _ := regexp.Compile("/api/v1/tenant/([a-f0-9]*)/.*")
+	reg, _ := regexp.Compile("/api/v1/tenant/([a-f0-9]+)/(add|get|del)/([a-zA-Z0-9]+).*")
 	match := reg.FindStringSubmatch(url)
-	if len(match) != 2 {
+	if len(match) != 4 {
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("Missing tenant id"))
+		w.Write([]byte("Bad request url"))
 		return
 	}
 	uuid, err := db.StrToObjectid(match[1])
@@ -184,6 +183,25 @@ func TenantMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 			return
 		}
 	}
+
+	// support user, only read-only access allowed
+	if usertype == "support" {
+		if match[2] != "get" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("User unauthorized to modify this tenant"))
+			return
+		}
+	}
+
+	// regular user, only thing allowed is password reset
+	if usertype == "regular" {
+		if match[2] != "add" || match[3] != "password" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("User unauthorized to modify this tenant"))
+			return
+		}
+	}
+
 	ctx := context.WithValue(r.Context(), "tenant", uuid)
 	next.ServeHTTP(w, r.WithContext(ctx))
 }
