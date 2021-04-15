@@ -196,7 +196,12 @@ func DBAddClusterUser(tenant primitive.ObjectID, data *User) error {
 	var addServices []string
 	var delServices []string
 	if user != nil {
-		addServices = diffSlices(data.Services, user.Services)
+		// If pod chnaged, all the services also are considered modified
+		if data.Pod != user.Pod {
+			addServices = data.Services
+		} else {
+			addServices = diffSlices(data.Services, user.Services)
+		}
 		delServices = diffSlices(user.Services, data.Services)
 		version = user.Version + 1
 	} else {
@@ -223,7 +228,7 @@ func DBAddClusterUser(tenant primitive.ObjectID, data *User) error {
 	}
 
 	for _, s := range addServices {
-		err := dbAddClusterSvc(tenant, s, data.Uid)
+		err := dbAddClusterSvc(tenant, s, data.Uid, data.Pod)
 		if err != nil {
 			return err
 		}
@@ -294,7 +299,12 @@ func DBAddClusterBundle(tenant primitive.ObjectID, data *Bundle) error {
 	var addServices []string
 	var delServices []string
 	if user != nil {
-		addServices = diffSlices(data.Services, user.Services)
+		// If pod chnaged, all the services also are considered modified
+		if data.Pod != user.Pod {
+			addServices = data.Services
+		} else {
+			addServices = diffSlices(data.Services, user.Services)
+		}
 		delServices = diffSlices(user.Services, data.Services)
 		version = user.Version + 1
 	} else {
@@ -321,7 +331,7 @@ func DBAddClusterBundle(tenant primitive.ObjectID, data *Bundle) error {
 	}
 
 	for _, s := range addServices {
-		err := dbAddClusterSvc(tenant, s, data.Bid)
+		err := dbAddClusterSvc(tenant, s, data.Bid, data.Pod)
 		if err != nil {
 			return err
 		}
@@ -340,30 +350,41 @@ type ClusterService struct {
 	Sid     string             `json:"sid" bson:"_id"` // Tenant-ID:Service-ID
 	Tenant  primitive.ObjectID `json:"tenant" bson:"tenant"`
 	Agents  []string           `json:"agents" bson:"agents"`
+	Pods    []int              `json:"pods" bson:"pods"`
 	Version int                `json:"version" bson:"version"`
 }
 
-func dbAddClusterSvc(tenant primitive.ObjectID, service string, agent string) error {
+func dbAddClusterSvc(tenant primitive.ObjectID, service string, agent string, pod int) error {
 	sid := tenant.Hex() + ":" + service
 	version := 1
 	svc := DBFindClusterSvc(tenant, service)
 	var agents []string
+	var pods []int
 	if svc != nil {
 		version = svc.Version + 1
 		agents = svc.Agents
+		pods = svc.Pods
 	}
+	nochange := false
 	found := false
-	for _, v := range agents {
+	for i, v := range agents {
 		if v == agent {
 			found = true
-			break
+			if pods[i] == pod {
+				nochange = true
+				break
+			} else {
+				pods[i] = pod
+			}
 		}
 	}
-	if found {
+	if nochange {
 		// no change
 		return nil
-	} else {
+	}
+	if !found {
 		agents = append(agents, agent)
+		pods = append(pods, pod)
 	}
 
 	// The upsert option asks the DB to add if one is not found
@@ -377,7 +398,7 @@ func dbAddClusterSvc(tenant primitive.ObjectID, service string, agent string) er
 		context.TODO(),
 		bson.M{"_id": sid},
 		bson.D{
-			{"$set", bson.M{"tenant": tenant, "agents": agents, "version": version}},
+			{"$set", bson.M{"tenant": tenant, "agents": agents, "pods": pods, "version": version}},
 		},
 		&opt,
 	)
