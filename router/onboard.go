@@ -543,11 +543,13 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	uuid := r.Context().Value("tenant").(primitive.ObjectID)
 
-	_, err = okta.AddUser(API, TOKEN, data.Uid, "LetMeIn123", uuid.Hex(), "regular")
-	if err != nil {
-		result.Result = "Adding user to IDP fail"
-		utils.WriteResult(w, result)
-		return
+	if utils.GetEnv("TEST_ENVIRONMENT", "false") == "false" {
+		_, err = okta.AddUser(API, TOKEN, data.Uid, uuid.Hex(), "regular")
+		if err != nil {
+			result.Result = "Adding user to IDP fail"
+			utils.WriteResult(w, result)
+			return
+		}
 	}
 
 	err = db.DBAddUser(uuid, &data)
@@ -799,11 +801,14 @@ func addBundleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(primitive.ObjectID)
-	_, err = okta.AddUser(API, TOKEN, data.Bid, "LetMeIn123", uuid.Hex(), "regular")
-	if err != nil {
-		result.Result = "Adding bundle to IDP fail"
-		utils.WriteResult(w, result)
-		return
+
+	if utils.GetEnv("TEST_ENVIRONMENT", "false") == "false" {
+		_, err = okta.AddUser(API, TOKEN, data.Bid, uuid.Hex(), "regular")
+		if err != nil {
+			result.Result = "Adding bundle to IDP fail"
+			utils.WriteResult(w, result)
+			return
+		}
 	}
 
 	err = db.DBAddBundle(uuid, &data)

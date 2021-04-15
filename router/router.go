@@ -86,6 +86,7 @@ func (*oktaAuth) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.Han
 			ctx = isAuthenticated(r, cidSpaAgent)
 		}
 	}
+
 	if ctx == nil {
 		// TODO: This is TERRIBLE, a potential security threat to have this kind
 		// of a variable lying around. Move all internal testbeds to use proper
@@ -149,9 +150,24 @@ func initRoutes(readonly bool) {
 	initRdWrRoutes()
 }
 
+// TODO: This checking for whether non-superadmin/admin is trying to access add/del
+// etc.. is quite clunky below, need to make that code flow more modular/simpler
+// The logic is that if the request is onboarding, then we allow that regardless of
+// the user privilege. Other requests are denied unless the user is superadmin, the
+// "global" nextensio resources can be add/mod/del only by nextensio superadmin
 func GlobalMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	url := r.URL.String()
+	reg, _ := regexp.Compile("/api/v1/global/(add|get|del)/([a-zA-Z0-9]+).*")
+	match := reg.FindStringSubmatch(url)
+	if len(match) != 3 {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("Bad request url"))
+		return
+	}
+	allowed := (match[1] == "get" && match[2] == "onboard")
+
 	usertype := r.Context().Value("usertype").(string)
-	if usertype != "superadmin" {
+	if usertype != "superadmin" && !allowed {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("User unauthorized to global resources"))
 		return
@@ -159,6 +175,14 @@ func GlobalMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 	next.ServeHTTP(w, r)
 }
 
+// TODO: This checking for whether non-superadmin/admin is trying to access add/del
+// etc.. is quite clunky below, need to make that code flow more modular/simpler.
+// The logic here is as follows
+// 1. A superadmin can access ALL tenants, ie /tenant/<any-id> is valid for super admin
+// 2. An admin can access only one tenant, ie /tenant/<any-id> where <any-id> is the
+//    tenant-id mentioned in the admins access token
+// 3. A support can access only one tenant AND only have read-only (get) access
+// 4. A regular user cant access anything
 func TenantMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	url := r.URL.String()
 	reg, _ := regexp.Compile("/api/v1/tenant/([a-f0-9]+)/(add|get|del)/([a-zA-Z0-9]+).*")

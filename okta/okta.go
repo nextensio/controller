@@ -26,16 +26,10 @@ func GetUser(API string, TOKEN string, userid string) (string, error) {
 	return users[0].Id, nil
 }
 
-func AddUser(API string, TOKEN string, userid string, password string, tenant string, userType string) (string, error) {
+func AddUser(API string, TOKEN string, userid string, tenant string, userType string) (string, error) {
 	client, err := okta.NewClient(context.TODO(), okta.WithOrgUrl(API), okta.WithToken(TOKEN))
 	if err != nil {
 		return "", err
-	}
-	p := &okta.PasswordCredential{
-		Value: password,
-	}
-	uc := &okta.UserCredentials{
-		Password: p,
 	}
 	profile := okta.UserProfile{}
 	profile["firstName"] = "Nextensio"
@@ -45,8 +39,7 @@ func AddUser(API string, TOKEN string, userid string, password string, tenant st
 	profile["organization"] = tenant
 	profile["userType"] = userType
 	u := &okta.User{
-		Credentials: uc,
-		Profile:     &profile,
+		Profile: &profile,
 	}
 
 	user, _, err := client.User.CreateUser(*u, nil)
