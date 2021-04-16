@@ -13,6 +13,11 @@ import (
 
 const HDRKEY = "Header"
 
+type Signup struct {
+	Tenant string `json:"tenant" bson:"tenant"`
+	Email  string `json:"email" bson:"email"`
+}
+
 //TODO: The usages of "FindAllXYZ" has to be audited and modified to a more appropriate form,
 //it will be a killer as we scale to thousands of users / tenants etc.. And we will need the
 //UI also to be modified to not use FindAllXYZ and instead find within a given range etc.

@@ -106,6 +106,8 @@ func rdwrOnboard() {
 	// This route is used to delete tenants
 	delGlobalRoute("/tenant/{tenant-uuid}", "GET", deltenantHandler)
 
+	noauthRoute("/signup", "POST", signupHandler)
+
 	//*******************************************************************/
 	//            In Per-tenant DB
 	//*******************************************************************/
@@ -157,8 +159,25 @@ func rdwrOnboard() {
 	delTenantRoute("/hostattr/{host}", "GET", delHostAttrHandler)
 }
 
-type AddtenantResult struct {
-	Result string `json:"Result"`
+func signupHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+	var data db.Signup
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		result.Result = "Error parsing json"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	fmt.Println("Signup", data)
 }
 
 // Add a new tenant, with information like the SSO engine used by the

@@ -16,10 +16,9 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-type oktaAuth struct{}
-
 var router *mux.Router
 var global *mux.Router
+var noauth *mux.Router
 var globalGet *mux.Router
 var globalAdd *mux.Router
 var globalDel *mux.Router
@@ -31,6 +30,56 @@ var nroni *negroni.Negroni
 var IDP string
 var API string
 var TOKEN string
+
+func getGlobalRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
+	globalGet.HandleFunc(route, handler).Methods(methods)
+}
+
+func addGlobalRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
+	globalAdd.HandleFunc(route, handler).Methods(methods)
+}
+
+func delGlobalRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
+	globalDel.HandleFunc(route, handler).Methods(methods)
+}
+
+func getTenantRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
+	tenantGet.HandleFunc(route, handler).Methods(methods)
+}
+
+func addTenantRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
+	tenantAdd.HandleFunc(route, handler).Methods(methods)
+}
+
+func delTenantRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
+	tenantDel.HandleFunc(route, handler).Methods(methods)
+}
+
+func noauthRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
+	noauth.HandleFunc(route, handler).Methods(methods)
+}
+
+// Routes which have handlers that DO NOT modify the database goes here
+func initRdOnlyRoutes() {
+	rdonlyOnboard()
+	rdonlyPolicy()
+	rdonlyRoute()
+}
+
+// Routes which have handlers that might modify the database goes here
+func initRdWrRoutes() {
+	rdwrOnboard()
+	rdwrPolicy()
+	rdwrRoute()
+}
+
+func initRoutes(readonly bool) {
+	initRdOnlyRoutes()
+	if readonly {
+		return
+	}
+	initRdWrRoutes()
+}
 
 func isAuthenticated(r *http.Request, cid string) *context.Context {
 	authHeader := r.Header.Get("Authorization")
@@ -72,7 +121,7 @@ func isAuthenticated(r *http.Request, cid string) *context.Context {
 	return &ctx
 }
 
-func (*oktaAuth) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+func authenticate(w http.ResponseWriter, r *http.Request) *context.Context {
 	// The Agents/Connectors and other UX/SDK-users are kept as seperate applications
 	// in the IDP (okta), mainly because all of them have seperate redirect-urls in their
 	// configs. So we need to validate the token against one of either client ids
@@ -93,61 +142,12 @@ func (*oktaAuth) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.Han
 		// https + authentication and remove this crap
 		if utils.GetEnv("IGNORE_AUTH", "false") == "true" {
 			ctx := context.WithValue(r.Context(), "usertype", "superadmin")
-			next.ServeHTTP(w, r.WithContext(ctx))
-			return
+			return &ctx
 		} else {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte("401 - You are not authorized for this request"))
-			return
+			return nil
 		}
 	}
-	next.ServeHTTP(w, r.WithContext(*ctx))
-}
-
-func getGlobalRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
-	globalGet.HandleFunc(route, handler).Methods(methods)
-}
-
-func addGlobalRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
-	globalAdd.HandleFunc(route, handler).Methods(methods)
-}
-
-func delGlobalRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
-	globalDel.HandleFunc(route, handler).Methods(methods)
-}
-
-func getTenantRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
-	tenantGet.HandleFunc(route, handler).Methods(methods)
-}
-
-func addTenantRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
-	tenantAdd.HandleFunc(route, handler).Methods(methods)
-}
-
-func delTenantRoute(route string, methods string, handler func(http.ResponseWriter, *http.Request)) {
-	tenantDel.HandleFunc(route, handler).Methods(methods)
-}
-
-// Routes which have handlers that DO NOT modify the database goes here
-func initRdOnlyRoutes() {
-	rdonlyOnboard()
-	rdonlyPolicy()
-	rdonlyRoute()
-}
-
-// Routes which have handlers that might modify the database goes here
-func initRdWrRoutes() {
-	rdwrOnboard()
-	rdwrPolicy()
-	rdwrRoute()
-}
-
-func initRoutes(readonly bool) {
-	initRdOnlyRoutes()
-	if readonly {
-		return
-	}
-	initRdWrRoutes()
+	return ctx
 }
 
 // TODO: This checking for whether non-superadmin/admin is trying to access add/del
@@ -156,6 +156,12 @@ func initRoutes(readonly bool) {
 // the user privilege. Other requests are denied unless the user is superadmin, the
 // "global" nextensio resources can be add/mod/del only by nextensio superadmin
 func GlobalMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	ctx := authenticate(w, r)
+	if ctx == nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("401 - You are not authorized for this request"))
+		return
+	}
 	url := r.URL.String()
 	reg, _ := regexp.Compile("/api/v1/global/(add|get|del)/([a-zA-Z0-9]+).*")
 	match := reg.FindStringSubmatch(url)
@@ -166,13 +172,13 @@ func GlobalMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 	}
 	allowed := (match[1] == "get" && match[2] == "onboard")
 
-	usertype := r.Context().Value("usertype").(string)
+	usertype := (*ctx).Value("usertype").(string)
 	if usertype != "superadmin" && !allowed {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("User unauthorized to global resources"))
 		return
 	}
-	next.ServeHTTP(w, r)
+	next.ServeHTTP(w, r.WithContext(*ctx))
 }
 
 // TODO: This checking for whether non-superadmin/admin is trying to access add/del
@@ -183,7 +189,19 @@ func GlobalMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 //    tenant-id mentioned in the admins access token
 // 3. A support can access only one tenant AND only have read-only (get) access
 // 4. A regular user cant access anything
+//
+// NOTE: user-tenant and tenant might be a bit confusing. user-tenant is the tenant
+// that the user is part of. And tenant is the tenant that the user wants to modify/act on
+// In the case of superadmin, both can be different because superadmins can act on any
+// tenant. But for all other users, both should match
 func TenantMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	ctx := authenticate(w, r)
+	if ctx == nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("401 - You are not authorized for this request"))
+		return
+	}
+
 	url := r.URL.String()
 	reg, _ := regexp.Compile("/api/v1/tenant/([a-f0-9]+)/(add|get|del)/([a-zA-Z0-9]+).*")
 	match := reg.FindStringSubmatch(url)
@@ -198,9 +216,9 @@ func TenantMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 		w.Write([]byte("Bad tenant id"))
 		return
 	}
-	usertype := r.Context().Value("usertype").(string)
+	usertype := (*ctx).Value("usertype").(string)
 	if usertype != "superadmin" {
-		userTenant := r.Context().Value("user-tenant").(primitive.ObjectID)
+		userTenant := (*ctx).Value("user-tenant").(primitive.ObjectID)
 		if userTenant != uuid {
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte("User unauthorized to access this tenant"))
@@ -217,17 +235,19 @@ func TenantMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 		}
 	}
 
-	// regular user, only thing allowed is password reset
+	// regular user, not allowed anything
 	if usertype == "regular" {
-		if match[2] != "add" || match[3] != "password" {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte("User unauthorized to modify this tenant"))
-			return
-		}
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("User not authorized acess to this tenant"))
+		return
 	}
 
-	ctx := context.WithValue(r.Context(), "tenant", uuid)
-	next.ServeHTTP(w, r.WithContext(ctx))
+	ctx1 := context.WithValue(*ctx, "tenant", uuid)
+	next.ServeHTTP(w, r.WithContext(ctx1))
+}
+
+func NoauthMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	next.ServeHTTP(w, r)
 }
 
 func RouterInit(readonly bool) {
@@ -243,6 +263,8 @@ func RouterInit(readonly bool) {
 	tenantAdd = tenant.PathPrefix("/add/").Subrouter()
 	tenantDel = tenant.PathPrefix("/del/").Subrouter()
 
+	noauth = router.PathPrefix("/api/v1/noauth/").Subrouter()
+
 	superMux := http.NewServeMux()
 	superMux.Handle("/api/v1/global/", negroni.New(
 		negroni.HandlerFunc(GlobalMiddleware),
@@ -252,9 +274,12 @@ func RouterInit(readonly bool) {
 		negroni.HandlerFunc(TenantMiddleware),
 		negroni.Wrap(router),
 	))
+	superMux.Handle("/api/v1/noauth/", negroni.New(
+		negroni.HandlerFunc(NoauthMiddleware),
+		negroni.Wrap(router),
+	))
 
 	nroni = negroni.New()
-	nroni.Use(&oktaAuth{})
 	nroni.UseHandler(superMux)
 
 	initRoutes(readonly)
