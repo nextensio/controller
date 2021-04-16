@@ -9,7 +9,6 @@ import (
 	"nextensio/controller/utils"
 
 	"github.com/gorilla/mux"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func rdonlyRoute() {
@@ -52,7 +51,7 @@ func addrouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	err = db.DBAddRoute(uuid, &data)
 	if err != nil {
 		result.Result = err.Error()
@@ -75,7 +74,7 @@ func getrouteHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	routeid := v["route"]
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	route := db.DBFindRoute(uuid, routeid)
 	if route == nil {
 		result.Result = "Cannot find route"
@@ -87,7 +86,7 @@ func getrouteHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get all routes
 func getAllRoutesHandler(w http.ResponseWriter, r *http.Request) {
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	routes := db.DBFindAllRoutes(uuid)
 	if routes == nil {
 		routes = make([]db.Route, 0)
@@ -106,7 +105,7 @@ func delrouteHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	route := v["route"]
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	err := db.DBDelRoute(uuid, route)
 	if err != nil {
 		result.Result = err.Error()

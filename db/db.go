@@ -72,8 +72,8 @@ func dbCollections() {
 	gatewayCltn = nxtDB.Collection("NxtGateways")
 }
 
-func dbGetCollection(tnt primitive.ObjectID, cltn string) *mongo.Collection {
-	tenant := tnt.Hex()
+func dbGetCollection(tnt string, cltn string) *mongo.Collection {
+	tenant := tnt
 	_, ok := tenantDBs[tenant]
 	if ok == false {
 		tenantDBs[tenant] = dbClient.Database(dbGetTenantDBName(tenant))
@@ -131,8 +131,8 @@ func dbGetCollection(tnt primitive.ObjectID, cltn string) *mongo.Collection {
 	return nil
 }
 
-func dbAddTenantDB(tnt primitive.ObjectID) {
-	tenant := tnt.Hex()
+func dbAddTenantDB(tnt string) {
+	tenant := tnt
 	_, ok := tenantDBs[tenant]
 	if ok {
 		return
@@ -152,8 +152,8 @@ func dbAddTenantCollections(tenant string, tntdb *mongo.Database) {
 	tenantHostAttrCltn[tenant] = tntdb.Collection("NxtHostAttr")
 }
 
-func dbDelTenantDB(tnt primitive.ObjectID) {
-	tenant := tnt.Hex()
+func dbDelTenantDB(tnt string) {
+	tenant := tnt
 	delete(tenantPolicyCltn, tenant)
 	delete(tenantUserCltn, tenant)
 	delete(tenantUserAttrCltn, tenant)
@@ -170,7 +170,7 @@ func dbDelTenantDB(tnt primitive.ObjectID) {
 func dbDrop() {
 	dbTenants := DBFindAllTenants()
 	for i := 0; i < len(dbTenants); i++ {
-		tdb := dbClient.Database(dbGetTenantDBName(dbTenants[i].ID.Hex()))
+		tdb := dbClient.Database(dbGetTenantDBName(dbTenants[i].ID))
 		tdb.Drop(context.TODO())
 	}
 	nxtDB.Drop(context.TODO())

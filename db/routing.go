@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
@@ -17,7 +16,7 @@ type Route struct {
 }
 
 // This API will add a new route or update a route if it already exists
-func DBAddRoute(tenant primitive.ObjectID, data *Route) error {
+func DBAddRoute(tenant string, data *Route) error {
 
 	if DBFindTenant(tenant) == nil {
 		return fmt.Errorf("Cant find tenant %s", tenant)
@@ -57,7 +56,7 @@ func DBAddRoute(tenant primitive.ObjectID, data *Route) error {
 	return nil
 }
 
-func DBFindRoute(tenant primitive.ObjectID, routeid string) *Route {
+func DBFindRoute(tenant string, routeid string) *Route {
 	var route Route
 	routeCltn := dbGetCollection(tenant, "NxtRoutes")
 	if routeCltn == nil {
@@ -73,7 +72,7 @@ func DBFindRoute(tenant primitive.ObjectID, routeid string) *Route {
 	return &route
 }
 
-func DBFindAllRoutes(tenant primitive.ObjectID) []Route {
+func DBFindAllRoutes(tenant string) []Route {
 	var routes []Route
 
 	routeCltn := dbGetCollection(tenant, "NxtRoutes")
@@ -92,7 +91,7 @@ func DBFindAllRoutes(tenant primitive.ObjectID) []Route {
 	return routes
 }
 
-func DBDelRoute(tenant primitive.ObjectID, routeid string) error {
+func DBDelRoute(tenant string, routeid string) error {
 	routeCltn := dbGetCollection(tenant, "NxtRoutes")
 	if routeCltn == nil {
 		return fmt.Errorf("Unknown Collection")

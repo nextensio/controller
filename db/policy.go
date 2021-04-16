@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
@@ -18,10 +17,10 @@ type Policy struct {
 }
 
 // This API will add a new policy or update a policy if it already exists
-func DBAddPolicy(uuid primitive.ObjectID, data *Policy) error {
+func DBAddPolicy(uuid string, data *Policy) error {
 
 	if DBFindTenant(uuid) == nil {
-		return fmt.Errorf("Cant find tenant %s", uuid.Hex())
+		return fmt.Errorf("Cant find tenant %s", uuid)
 	}
 	policy := DBFindPolicy(uuid, data.PolicyId)
 	if policy != nil {
@@ -60,7 +59,7 @@ func DBAddPolicy(uuid primitive.ObjectID, data *Policy) error {
 	return nil
 }
 
-func DBFindPolicy(tenant primitive.ObjectID, policyId string) *Policy {
+func DBFindPolicy(tenant string, policyId string) *Policy {
 	var policy Policy
 	policyCltn := dbGetCollection(tenant, "NxtPolicies")
 	if policyCltn == nil {
@@ -76,7 +75,7 @@ func DBFindPolicy(tenant primitive.ObjectID, policyId string) *Policy {
 	return &policy
 }
 
-func DBFindAllPolicies(tenant primitive.ObjectID) []Policy {
+func DBFindAllPolicies(tenant string) []Policy {
 	var policies []Policy
 
 	policyCltn := dbGetCollection(tenant, "NxtPolicies")
@@ -95,7 +94,7 @@ func DBFindAllPolicies(tenant primitive.ObjectID) []Policy {
 	return policies
 }
 
-func DBDelPolicy(tenant primitive.ObjectID, policyId string) error {
+func DBDelPolicy(tenant string, policyId string) error {
 	policyCltn := dbGetCollection(tenant, "NxtPolicies")
 	if policyCltn == nil {
 		return fmt.Errorf("Unknown Collection")

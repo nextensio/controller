@@ -9,7 +9,6 @@ import (
 	"nextensio/controller/utils"
 
 	"github.com/gorilla/mux"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func rdonlyPolicy() {
@@ -51,7 +50,7 @@ func addpolicyHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	err = db.DBAddPolicy(uuid, &data)
 	if err != nil {
 		result.Result = err.Error()
@@ -74,7 +73,7 @@ func getpolicyHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	pid := v["policy-id"]
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	policy := db.DBFindPolicy(uuid, pid)
 	if policy == nil {
 		result.Result = "Cannot find policy"
@@ -86,7 +85,7 @@ func getpolicyHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get all policies
 func getAllPoliciesHandler(w http.ResponseWriter, r *http.Request) {
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	policies := db.DBFindAllPolicies(uuid)
 	if policies == nil {
 		policies = make([]db.Policy, 0)
@@ -105,7 +104,7 @@ func delpolicyHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	pid := v["policy-id"]
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	err := db.DBDelPolicy(uuid, pid)
 	if err != nil {
 		result.Result = err.Error()

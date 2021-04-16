@@ -12,7 +12,6 @@ import (
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func rdonlyOnboard() {
@@ -233,11 +232,7 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 
 	v := mux.Vars(r)
-	uuid, err := db.StrToObjectid(v["tenant-uuid"])
-	if err != nil {
-		utils.WriteResult(w, make([]bson.M, 0))
-		return
-	}
+	uuid := v["tenant-uuid"]
 
 	if db.DBFindAllUsers(uuid) != nil {
 		result.Result = "Tenant still has users"
@@ -259,7 +254,7 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBDelUserAttrHdr(uuid)
+	err := db.DBDelUserAttrHdr(uuid)
 	if err != nil {
 		result.Result = "Failed to delete user attribute header"
 		utils.WriteResult(w, result)
@@ -439,8 +434,8 @@ func getAllCertsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 type onboardData struct {
-	Userid string             `json:"email"`
-	Tenant primitive.ObjectID `json:"tenant"`
+	Userid string `json:"email"`
+	Tenant string `json:"tenant"`
 }
 type OnboardResult struct {
 	Result    string   `json:"Result"`
@@ -457,7 +452,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	var data onboardData
 
 	data.Userid = r.Context().Value("userid").(string)
-	data.Tenant = r.Context().Value("user-tenant").(primitive.ObjectID)
+	data.Tenant = r.Context().Value("user-tenant").(string)
 
 	// As of today, the test environment we have is not dependent on the IDP putting an
 	// an accurate tenant-id (User.organization) in a user's profile. This is because
@@ -525,7 +520,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	result.Result = "ok"
 	result.Userid = data.Userid
-	result.Tenant = data.Tenant.Hex()
+	result.Tenant = data.Tenant
 	result.Cacert = cert.Cert
 	// TODO: This needs modification where we return the appropriate gateway from
 	// the list to the agent, the appropriate geo-located gateway using maxmind maybe ?
@@ -560,10 +555,10 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 
 	if utils.GetEnv("TEST_ENVIRONMENT", "false") == "false" {
-		_, err = okta.AddUser(API, TOKEN, data.Uid, uuid.Hex(), "regular")
+		_, err = okta.AddUser(API, TOKEN, data.Uid, uuid, "regular")
 		if err != nil {
 			result.Result = "Adding user to IDP fail"
 			utils.WriteResult(w, result)
@@ -593,7 +588,7 @@ func getUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	userid := v["userid"]
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	user := db.DBFindUser(uuid, userid)
 	if user == nil {
 		result.Result = "Cannot find user"
@@ -605,7 +600,7 @@ func getUserHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get all users
 func getAllUsersHandler(w http.ResponseWriter, r *http.Request) {
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	users := db.DBFindAllUsers(uuid)
 	if users == nil {
 		users = make([]bson.M, 0)
@@ -620,9 +615,9 @@ func delUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	userid := v["userid"]
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 
-	err := okta.DelUser(API, TOKEN, userid)
+	err := okta.DelUser(API, TOKEN, userid, uuid)
 	if err != nil {
 		result.Result = "Deleting user from IDP fail"
 		utils.WriteResult(w, result)
@@ -648,7 +643,7 @@ func addAttrSet(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 	var data []db.AttrSet
 
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		result.Result = "Add tenant attribute set - HTTP Req Read fail"
@@ -678,7 +673,7 @@ func delAttrSet(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 	var data []db.AttrSet
 
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		result.Result = "Add tenant attribute set - HTTP Req Read fail"
@@ -721,7 +716,7 @@ func addUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	err = db.DBAddUserAttrHdr(uuid, &data)
 	if err != nil {
 		result.Result = err.Error()
@@ -737,7 +732,7 @@ func addUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 func getUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 	var hdr []db.DataHdr
 
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	dhdr := db.DBFindUserAttrHdr(uuid)
 	if dhdr == nil {
 		utils.WriteResult(w, hdr)
@@ -757,7 +752,7 @@ func addUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	err = db.DBAddUserAttr(uuid, body)
 	if err != nil {
 		result.Result = err.Error()
@@ -780,7 +775,7 @@ func getUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	userid := v["userid"]
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	attr := db.DBFindUserAttr(uuid, userid)
 	if attr == nil {
 		result.Result = "Cannot find user attributes"
@@ -792,7 +787,7 @@ func getUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get all user attribute docs
 func getAllUserAttrHandler(w http.ResponseWriter, r *http.Request) {
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	attrs := db.DBFindAllUserAttrs(uuid)
 	if attrs == nil {
 		attrs = make([]bson.M, 0)
@@ -819,10 +814,10 @@ func addBundleHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 
 	if utils.GetEnv("TEST_ENVIRONMENT", "false") == "false" {
-		_, err = okta.AddUser(API, TOKEN, data.Bid, uuid.Hex(), "regular")
+		_, err = okta.AddUser(API, TOKEN, data.Bid, uuid, "regular")
 		if err != nil {
 			result.Result = "Adding bundle to IDP fail"
 			utils.WriteResult(w, result)
@@ -852,7 +847,7 @@ func getBundleHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	bid := v["bid"]
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	bundle := db.DBFindBundle(uuid, bid)
 	if bundle == nil {
 		result.Result = "Cannot find bundle"
@@ -864,7 +859,7 @@ func getBundleHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get all bundle info docs
 func getAllBundlesHandler(w http.ResponseWriter, r *http.Request) {
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	bundles := db.DBFindAllBundles(uuid)
 	if bundles == nil {
 		bundles = make([]bson.M, 0)
@@ -879,8 +874,8 @@ func delBundleHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	bid := v["bid"]
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
-	err := okta.DelUser(API, TOKEN, bid)
+	uuid := r.Context().Value("tenant").(string)
+	err := okta.DelUser(API, TOKEN, bid, uuid)
 	if err != nil {
 		result.Result = "Deleting bundle from IDP fail"
 		utils.WriteResult(w, result)
@@ -919,7 +914,7 @@ func addBundleAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	err = db.DBAddBundleAttrHdr(uuid, &data)
 	if err != nil {
 		result.Result = err.Error()
@@ -933,7 +928,7 @@ func addBundleAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get  attribute set
 func getAllAttrSet(w http.ResponseWriter, r *http.Request) {
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	set := db.DBFindAllAttrSet(uuid)
 	if set == nil {
 		result := make([]db.AttrSet, 0)
@@ -946,7 +941,7 @@ func getAllAttrSet(w http.ResponseWriter, r *http.Request) {
 
 // Get bundle attribute header
 func getBundleAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	hdr := db.DBFindBundleAttrHdr(uuid)
 	if hdr == nil {
 		result := make([]db.DataHdr, 0)
@@ -968,7 +963,7 @@ func addBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	err = db.DBAddBundleAttr(uuid, body)
 	if err != nil {
 		result.Result = err.Error()
@@ -991,7 +986,7 @@ func getBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	bid := v["bid"]
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	attr := db.DBFindBundleAttr(uuid, bid)
 	if attr == nil {
 		result.Result = "Cannot find bundle attributes"
@@ -1003,7 +998,7 @@ func getBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get all bundle attributes
 func getAllBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	attrs := db.DBFindAllBundleAttrs(uuid)
 	if attrs == nil {
 		attrs = make([]bson.M, 0)
@@ -1014,7 +1009,7 @@ func getAllBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get host attributes header for a tenant
 func getHostAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	hdr := db.DBFindHostAttrHdr(uuid)
 	if hdr == nil {
 		result := make([]db.DataHdr, 0)
@@ -1027,7 +1022,7 @@ func getHostAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get all host attributes for a tenant
 func getAllHostAttrHandler(w http.ResponseWriter, r *http.Request) {
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	attrs := db.DBFindAllHostAttrs(uuid)
 	if attrs == nil {
 		attrs = make([]bson.M, 0)
@@ -1047,7 +1042,7 @@ func getHostAttrHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	host := v["host"]
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	hostattr := db.DBFindHostAttr(uuid, host)
 	if hostattr == nil {
 		result.Result = "Cannot find host attributes"
@@ -1075,7 +1070,7 @@ func addHostAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	err = db.DBAddHostAttrHdr(uuid, &data)
 	if err != nil {
 		result.Result = err.Error()
@@ -1097,7 +1092,7 @@ func addHostAttrHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	err = db.DBAddHostAttr(uuid, body)
 	if err != nil {
 		result.Result = err.Error()
@@ -1115,7 +1110,7 @@ func delHostAttrHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	host := v["host"]
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	err := db.DBDelHostAttr(uuid, host)
 	if err != nil {
 		result.Result = err.Error()
@@ -1134,7 +1129,7 @@ type GetUserExtAttrResult struct {
 func getUserExtAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result GetUserExtAttrResult
 
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	attr := db.DBFindUserExtAttr(uuid)
 	if attr == nil {
 		result.Result = "Cannot find user extended attributes"
@@ -1156,7 +1151,7 @@ func addUserExtAttrHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	err = db.DBAddUserExtAttr(uuid, body)
 	if err != nil {
 		result.Result = err.Error()
@@ -1172,7 +1167,7 @@ func addUserExtAttrHandler(w http.ResponseWriter, r *http.Request) {
 func delUserExtAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 
-	uuid := r.Context().Value("tenant").(primitive.ObjectID)
+	uuid := r.Context().Value("tenant").(string)
 	err := db.DBDelUserExtAttr(uuid)
 	if err != nil {
 		result.Result = err.Error()

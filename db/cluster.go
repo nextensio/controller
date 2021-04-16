@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -87,11 +86,11 @@ func DBDelClusterGateway(name string) error {
 
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type Namespace struct {
-	ID      primitive.ObjectID `json:"_id" bson:"_id"` // Tenant id
-	Name    string             `json:"name" bson:"name"`
-	Image   string             `json:"image" bson:"image"`
-	Pods    int                `json:"pods" bson:"pods"`
-	Version int                `json:"version" bson:"version"`
+	ID      string `json:"_id" bson:"_id"` // Tenant id
+	Name    string `json:"name" bson:"name"`
+	Image   string `json:"image" bson:"image"`
+	Pods    int    `json:"pods" bson:"pods"`
+	Version int    `json:"version" bson:"version"`
 }
 
 // This API will add a new namespace
@@ -125,7 +124,7 @@ func DBAddNamespace(data *Tenant) error {
 	return nil
 }
 
-func DBFindNamespace(id primitive.ObjectID) *Namespace {
+func DBFindNamespace(id string) *Namespace {
 	var namespace Namespace
 	err := namespaceCltn.FindOne(
 		context.TODO(),
@@ -152,7 +151,7 @@ func DBFindAllNamespaces() []Namespace {
 	return namespaces
 }
 
-func DBDelNamespace(id primitive.ObjectID) error {
+func DBDelNamespace(id string) error {
 	_, err := namespaceCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": id},
@@ -162,12 +161,12 @@ func DBDelNamespace(id primitive.ObjectID) error {
 }
 
 type ClusterUser struct {
-	Uid       string             `json:"uid" bson:"_id"` // Tenant-ID:[User-ID | Bundle-ID]
-	Tenant    primitive.ObjectID `json:"tenant" bson:"tenant"`
-	Pod       int                `json:"pod" bson:"pod"`
-	Connectid string             `json:"connectid" bson:"connectid"`
-	Services  []string           `json:"services" bson:"services"`
-	Version   int                `json:"version" bson:"version"`
+	Uid       string   `json:"uid" bson:"_id"` // Tenant-ID:[User-ID | Bundle-ID]
+	Tenant    string   `json:"tenant" bson:"tenant"`
+	Pod       int      `json:"pod" bson:"pod"`
+	Connectid string   `json:"connectid" bson:"connectid"`
+	Services  []string `json:"services" bson:"services"`
+	Version   int      `json:"version" bson:"version"`
 }
 
 func diffSlices(a []string, b []string) []string {
@@ -189,8 +188,8 @@ func diffSlices(a []string, b []string) []string {
 	return new
 }
 
-func DBAddClusterUser(tenant primitive.ObjectID, data *User) error {
-	uid := tenant.Hex() + ":" + data.Uid
+func DBAddClusterUser(tenant string, data *User) error {
+	uid := tenant + ":" + data.Uid
 	version := 1
 	user := DBFindClusterUser(tenant, data.Uid)
 	var addServices []string
@@ -243,8 +242,8 @@ func DBAddClusterUser(tenant primitive.ObjectID, data *User) error {
 	return nil
 }
 
-func DBFindClusterUser(tenant primitive.ObjectID, userid string) *ClusterUser {
-	uid := tenant.Hex() + ":" + userid
+func DBFindClusterUser(tenant string, userid string) *ClusterUser {
+	uid := tenant + ":" + userid
 	var user ClusterUser
 	err := usersCltn.FindOne(
 		context.TODO(),
@@ -271,7 +270,7 @@ func DBFindAllClusterUsers() []ClusterUser {
 	return users
 }
 
-func DBDelClusterUser(tenant primitive.ObjectID, userid string) error {
+func DBDelClusterUser(tenant string, userid string) error {
 	user := DBFindClusterUser(tenant, userid)
 	if user == nil {
 		error := fmt.Sprintf("User %s not found", userid)
@@ -283,7 +282,7 @@ func DBDelClusterUser(tenant primitive.ObjectID, userid string) error {
 			return err
 		}
 	}
-	uid := tenant.Hex() + ":" + userid
+	uid := tenant + ":" + userid
 	_, err := usersCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": uid},
@@ -292,8 +291,8 @@ func DBDelClusterUser(tenant primitive.ObjectID, userid string) error {
 	return err
 }
 
-func DBAddClusterBundle(tenant primitive.ObjectID, data *Bundle) error {
-	uid := tenant.Hex() + ":" + data.Bid
+func DBAddClusterBundle(tenant string, data *Bundle) error {
+	uid := tenant + ":" + data.Bid
 	version := 1
 	user := DBFindClusterUser(tenant, data.Bid)
 	var addServices []string
@@ -347,15 +346,15 @@ func DBAddClusterBundle(tenant primitive.ObjectID, data *Bundle) error {
 }
 
 type ClusterService struct {
-	Sid     string             `json:"sid" bson:"_id"` // Tenant-ID:Service-ID
-	Tenant  primitive.ObjectID `json:"tenant" bson:"tenant"`
-	Agents  []string           `json:"agents" bson:"agents"`
-	Pods    []int              `json:"pods" bson:"pods"`
-	Version int                `json:"version" bson:"version"`
+	Sid     string   `json:"sid" bson:"_id"` // Tenant-ID:Service-ID
+	Tenant  string   `json:"tenant" bson:"tenant"`
+	Agents  []string `json:"agents" bson:"agents"`
+	Pods    []int    `json:"pods" bson:"pods"`
+	Version int      `json:"version" bson:"version"`
 }
 
-func dbAddClusterSvc(tenant primitive.ObjectID, service string, agent string, pod int) error {
-	sid := tenant.Hex() + ":" + service
+func dbAddClusterSvc(tenant string, service string, agent string, pod int) error {
+	sid := tenant + ":" + service
 	version := 1
 	svc := DBFindClusterSvc(tenant, service)
 	var agents []string
@@ -409,8 +408,8 @@ func dbAddClusterSvc(tenant primitive.ObjectID, service string, agent string, po
 	return nil
 }
 
-func DBFindClusterSvc(tenant primitive.ObjectID, service string) *ClusterService {
-	sid := tenant.Hex() + ":" + service
+func DBFindClusterSvc(tenant string, service string) *ClusterService {
+	sid := tenant + ":" + service
 	var svc ClusterService
 	err := serviceCltn.FindOne(
 		context.TODO(),
@@ -437,8 +436,8 @@ func DBFindAllClusterSvcs() []ClusterService {
 	return svcs
 }
 
-func dbDelClusterSvc(tenant primitive.ObjectID, service string, agent string) error {
-	sid := tenant.Hex() + ":" + service
+func dbDelClusterSvc(tenant string, service string, agent string) error {
+	sid := tenant + ":" + service
 	svc := DBFindClusterSvc(tenant, service)
 	if svc == nil {
 		return errors.New("No service")

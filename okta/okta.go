@@ -9,8 +9,12 @@ import (
 	"github.com/okta/okta-sdk-golang/okta/query"
 )
 
-func GetUser(API string, TOKEN string, userid string) (string, error) {
-	search := fmt.Sprintf("profile.login eq \"%s\"", userid)
+func makeUserId(userid string, tenant string) string {
+	return tenant + "/" + userid
+}
+
+func GetUser(API string, TOKEN string, userid string, tenant string) (string, error) {
+	search := fmt.Sprintf("profile.login eq \"%s\"", makeUserId(userid, tenant))
 	client, err := okta.NewClient(context.TODO(), okta.WithOrgUrl(API), okta.WithToken(TOKEN))
 	if err != nil {
 		return "", err
@@ -35,7 +39,7 @@ func AddUser(API string, TOKEN string, userid string, tenant string, userType st
 	profile["firstName"] = "Nextensio"
 	profile["lastName"] = "Customer"
 	profile["email"] = userid
-	profile["login"] = userid
+	profile["login"] = makeUserId(userid, tenant)
 	profile["organization"] = tenant
 	profile["userType"] = userType
 	u := &okta.User{
@@ -49,12 +53,12 @@ func AddUser(API string, TOKEN string, userid string, tenant string, userType st
 	return user.Id, nil
 }
 
-func DelUser(API string, TOKEN string, userid string) error {
+func DelUser(API string, TOKEN string, userid string, tenant string) error {
 	client, err := okta.NewClient(context.TODO(), okta.WithOrgUrl(API), okta.WithToken(TOKEN))
 	if err != nil {
 		return err
 	}
-	oktaId, e := GetUser(API, TOKEN, userid)
+	oktaId, e := GetUser(API, TOKEN, userid, tenant)
 	if e != nil {
 		return e
 	}
@@ -103,7 +107,7 @@ func UpdateTenant(API string, TOKEN string, userid string, tenant string) error 
 	if err != nil {
 		return err
 	}
-	oktaId, err := GetUser(API, TOKEN, userid)
+	oktaId, err := GetUser(API, TOKEN, userid, tenant)
 	if err != nil {
 		return err
 	}

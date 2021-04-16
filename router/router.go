@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"nextensio/controller/db"
 	"nextensio/controller/utils"
 	"regexp"
 	"strings"
@@ -13,7 +12,6 @@ import (
 	"github.com/gorilla/mux"
 	verifier "github.com/okta/okta-jwt-verifier-golang"
 	"github.com/urfave/negroni"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 var router *mux.Router
@@ -110,11 +108,7 @@ func isAuthenticated(r *http.Request, cid string) *context.Context {
 	// etc... Ideally we are supposed to use the ID Token here. So at some point when
 	// we move to say Azure as IDP, we might run into trouble here at which point we
 	// will have to somehow send the ID token also to get these values
-	uuid, err := db.StrToObjectid(token.Claims["tenant"].(string))
-	if err != nil {
-		fmt.Println("Bad tenant", token.Claims["tenant"].(string))
-		return nil
-	}
+	uuid := token.Claims["tenant"].(string)
 	ctx := context.WithValue(r.Context(), "user-tenant", uuid)
 	ctx = context.WithValue(ctx, "userid", token.Claims["sub"])
 	ctx = context.WithValue(ctx, "usertype", token.Claims["usertype"])
@@ -203,22 +197,17 @@ func TenantMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 	}
 
 	url := r.URL.String()
-	reg, _ := regexp.Compile("/api/v1/tenant/([a-f0-9]+)/(add|get|del)/([a-zA-Z0-9]+).*")
+	reg, _ := regexp.Compile("/api/v1/tenant/([a-zA-Z0-9_]+)/(add|get|del)/([a-zA-Z0-9]+).*")
 	match := reg.FindStringSubmatch(url)
 	if len(match) != 4 {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("Bad request url"))
 		return
 	}
-	uuid, err := db.StrToObjectid(match[1])
-	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("Bad tenant id"))
-		return
-	}
+	uuid := match[1]
 	usertype := (*ctx).Value("usertype").(string)
 	if usertype != "superadmin" {
-		userTenant := (*ctx).Value("user-tenant").(primitive.ObjectID)
+		userTenant := (*ctx).Value("user-tenant").(string)
 		if userTenant != uuid {
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte("User unauthorized to access this tenant"))
