@@ -519,10 +519,8 @@ func UserAdd_v1(t *testing.T, tenantadd bool, userid string, services []string) 
 		t.Error()
 		return
 	}
-	t.Log(dbTenants[0].ID)
 	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/user", "application/json", bytes.NewBuffer(body))
 	if err != nil {
-		t.Log(err.Error())
 		t.Error()
 		return
 	}
@@ -1598,6 +1596,7 @@ func testBundleAdd_v1(t *testing.T, tenantadd bool, bid string, services []strin
 		return
 	}
 	if data.Result != "ok" {
+		t.Log(data.Result)
 		t.Error()
 		return
 	}

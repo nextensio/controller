@@ -79,7 +79,7 @@ func initRoutes(readonly bool) {
 	initRdWrRoutes()
 }
 
-func isAuthenticated(r *http.Request, cid string) *context.Context {
+func IsAuthenticated(r *http.Request, cid string) *context.Context {
 	authHeader := r.Header.Get("Authorization")
 
 	if authHeader == "" {
@@ -115,42 +115,13 @@ func isAuthenticated(r *http.Request, cid string) *context.Context {
 	return &ctx
 }
 
-func authenticate(w http.ResponseWriter, r *http.Request) *context.Context {
-	// The Agents/Connectors and other UX/SDK-users are kept as seperate applications
-	// in the IDP (okta), mainly because all of them have seperate redirect-urls in their
-	// configs. So we need to validate the token against one of either client ids
-	cidMobileAgent := utils.GetEnv("AGENT_MOB_CLIENT_ID", "none")
-	ctx := isAuthenticated(r, cidMobileAgent)
-	if ctx == nil {
-		cidApi := utils.GetEnv("API_CLIENT_ID", "none")
-		ctx = isAuthenticated(r, cidApi)
-		if ctx == nil {
-			cidSpaAgent := utils.GetEnv("AGENT_SPA_CLIENT_ID", "none")
-			ctx = isAuthenticated(r, cidSpaAgent)
-		}
-	}
-
-	if ctx == nil {
-		// TODO: This is TERRIBLE, a potential security threat to have this kind
-		// of a variable lying around. Move all internal testbeds to use proper
-		// https + authentication and remove this crap
-		if utils.GetEnv("IGNORE_AUTH", "false") == "true" {
-			ctx := context.WithValue(r.Context(), "usertype", "superadmin")
-			return &ctx
-		} else {
-			return nil
-		}
-	}
-	return ctx
-}
-
 // TODO: This checking for whether non-superadmin/admin is trying to access add/del
 // etc.. is quite clunky below, need to make that code flow more modular/simpler
 // The logic is that if the request is onboarding, then we allow that regardless of
 // the user privilege. Other requests are denied unless the user is superadmin, the
 // "global" nextensio resources can be add/mod/del only by nextensio superadmin
 func GlobalMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	ctx := authenticate(w, r)
+	ctx := Authenticate(w, r)
 	if ctx == nil {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("401 - You are not authorized for this request"))
@@ -189,7 +160,7 @@ func GlobalMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 // In the case of superadmin, both can be different because superadmins can act on any
 // tenant. But for all other users, both should match
 func TenantMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	ctx := authenticate(w, r)
+	ctx := Authenticate(w, r)
 	if ctx == nil {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("401 - You are not authorized for this request"))

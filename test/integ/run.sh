@@ -3,7 +3,7 @@
 pkill -9 nxtsvr
 
 cd nxtsvr
-go build
+go build -tags unittest
 IGNORE_AUTH=true NXT_READONLY=false ./nxtsvr>/dev/null 2>&1 &
 
 cd ../test/integ

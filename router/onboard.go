@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"nextensio/controller/db"
-	"nextensio/controller/okta"
 	"nextensio/controller/utils"
 
 	"github.com/golang/glog"
@@ -181,7 +180,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	_, err = okta.AddUser(API, TOKEN, signup.Email, signup.Tenant, "admin")
+	_, err = IdpAddUser(API, TOKEN, signup.Email, signup.Tenant, "admin")
 	if err != nil {
 		result.Result = "Failure adding user, please try again: " + err.Error()
 		utils.WriteResult(w, result)
@@ -610,7 +609,7 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 	if db.DBFindUser(uuid, data.Uid) != nil {
 		exists = true
 	}
-	_, err = okta.AddUser(API, TOKEN, data.Uid, uuid, "regular")
+	_, err = IdpAddUser(API, TOKEN, data.Uid, uuid, "regular")
 	if err != nil {
 		result.Result = "Adding user to IDP fail"
 		utils.WriteResult(w, result)
@@ -679,7 +678,7 @@ func delUserHandler(w http.ResponseWriter, r *http.Request) {
 	userid := v["userid"]
 	uuid := r.Context().Value("tenant").(string)
 
-	err := okta.DelUser(API, TOKEN, userid, uuid)
+	err := IdpDelUser(API, TOKEN, userid, uuid)
 	if err != nil {
 		result.Result = "Deleting user from IDP fail"
 		utils.WriteResult(w, result)
@@ -881,7 +880,7 @@ func addBundleHandler(w http.ResponseWriter, r *http.Request) {
 	if db.DBFindBundle(uuid, data.Bid) != nil {
 		exists = true
 	}
-	_, err = okta.AddUser(API, TOKEN, data.Bid, uuid, "regular")
+	_, err = IdpAddUser(API, TOKEN, data.Bid, uuid, "regular")
 	if err != nil {
 		result.Result = "Adding bundle to IDP fail"
 		utils.WriteResult(w, result)
@@ -949,7 +948,7 @@ func delBundleHandler(w http.ResponseWriter, r *http.Request) {
 	v := mux.Vars(r)
 	bid := v["bid"]
 	uuid := r.Context().Value("tenant").(string)
-	err := okta.DelUser(API, TOKEN, bid, uuid)
+	err := IdpDelUser(API, TOKEN, bid, uuid)
 	if err != nil {
 		result.Result = "Deleting bundle from IDP fail"
 		utils.WriteResult(w, result)
