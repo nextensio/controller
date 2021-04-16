@@ -30,7 +30,7 @@ func PolicyAdd_v1(t *testing.T, addtenant bool, pid string) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID.Hex()+"/add/policy", "application/json", bytes.NewBuffer(body))
+	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/policy", "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		t.Error()
 		return
@@ -70,7 +70,7 @@ func TestPolicyGet_v1(t *testing.T) {
 	PolicyAdd_v1(t, true, "agent-authorization")
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/get/policy/agent-authorization")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/policy/agent-authorization")
 	if err != nil {
 		t.Error()
 		return
@@ -106,7 +106,7 @@ func TestGetAllPolicies_v1(t *testing.T) {
 
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/get/allpolicies")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/allpolicies")
 	if err != nil {
 		t.Error()
 		return
@@ -146,7 +146,7 @@ func TestGetAllPolicies_v1(t *testing.T) {
 func PolicyDel_v1(t *testing.T, name string) {
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/del/policy/" + name)
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/del/policy/" + name)
 	if err != nil {
 		t.Error()
 		return

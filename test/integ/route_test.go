@@ -31,7 +31,7 @@ func RouteAdd_v1(t *testing.T, addtenant bool, routeid string) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID.Hex()+"/add/route", "application/json", bytes.NewBuffer(body))
+	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/route", "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		t.Error()
 		return
@@ -71,7 +71,7 @@ func TestRouteGet_v1(t *testing.T) {
 	RouteAdd_v1(t, true, "gopa:www.google.com")
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/get/route/gopa:www.google.com")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/route/gopa:www.google.com")
 	if err != nil {
 		t.Error()
 		return
@@ -107,7 +107,7 @@ func TestGetAllRoutes_v1(t *testing.T) {
 
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/get/allroutes")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/allroutes")
 	if err != nil {
 		t.Error()
 		return
@@ -147,7 +147,7 @@ func TestGetAllRoutes_v1(t *testing.T) {
 func RouteDel_v1(t *testing.T, name string) {
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/del/route/" + name)
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/del/route/" + name)
 	if err != nil {
 		t.Error()
 		return

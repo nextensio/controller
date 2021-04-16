@@ -586,30 +586,6 @@ func DBAddUser(uuid string, data *User) error {
 	return nil
 }
 
-// Purely used for the test environment where we dont want to do the full
-// onboarding and return tenant id as part of onboarding etc.., instead
-// just look for this user in any of the matching tenants - obviously
-// assumption for test environment in that case is that username is unique
-// across tenants
-func DBFindUserAnyTenant(userid string) *string {
-	var user bson.M
-
-	tenants := DBFindAllTenants()
-	for i := 0; i < len(tenants); i++ {
-		userCltn := dbGetCollection(tenants[i].ID, "NxtUsers")
-		if userCltn != nil {
-			err := userCltn.FindOne(
-				context.TODO(),
-				bson.M{"_id": userid},
-			).Decode(&user)
-			if err == nil {
-				return &tenants[i].ID
-			}
-		}
-	}
-	return nil
-}
-
 func DBFindUser(tenant string, userid string) *User {
 	var user User
 	userCltn := dbGetCollection(tenant, "NxtUsers")
@@ -921,30 +897,6 @@ func DBAddBundle(uuid string, data *Bundle) error {
 		return err
 	}
 
-	return nil
-}
-
-// Purely used for the test environment where we dont want to do the full
-// onboarding and return tenant id as part of onboarding etc.., instead
-// just look for this user in any of the matching tenants - obviously
-// assumption for test environment in that case is that username is unique
-// across tenants
-func DBFindBundleAnyTenant(bundleid string) *string {
-	var app bson.M
-
-	tenants := DBFindAllTenants()
-	for i := 0; i < len(tenants); i++ {
-		appCltn := dbGetCollection(tenants[i].ID, "NxtApps")
-		if appCltn != nil {
-			err := appCltn.FindOne(
-				context.TODO(),
-				bson.M{"_id": bundleid},
-			).Decode(&app)
-			if err == nil {
-				return &tenants[i].ID
-			}
-		}
-	}
 	return nil
 }
 

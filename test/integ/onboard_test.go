@@ -233,7 +233,9 @@ func addTenant(tenant *Tenant_v1) bool {
 }
 
 func AddTenant_v1(t *testing.T) {
-	var tenant = Tenant_v1{Name: "foobar",
+	var tenant = Tenant_v1{
+		ID:       "nextensio",
+		Name:     "foobar",
 		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"},
 		Domains:  []string{"kismis.org"},
 		Image:    "davigupta/minion:0.80",
@@ -297,6 +299,7 @@ func TestGetAllTenant_v1(t *testing.T) {
 		return
 	}
 	var tenant1 = Tenant_v1{
+		ID:       "nextensio1",
 		Name:     "foobar",
 		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"},
 		Domains:  []string{"kismis.org"},
@@ -307,7 +310,9 @@ func TestGetAllTenant_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	var tenant2 = Tenant_v1{Name: "gloobar",
+	var tenant2 = Tenant_v1{
+		ID:       "nextensio2",
+		Name:     "gloobar",
 		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"}}
 	add = addTenant(&tenant2)
 	if add == false {
@@ -356,7 +361,7 @@ func TestGetAllTenant_v1(t *testing.T) {
 func testTenantDel(t *testing.T, expect_delete bool) {
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/global/del/tenant/" + dbTenants[0].ID.Hex())
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/global/del/tenant/" + dbTenants[0].ID)
 	if err != nil {
 		t.Error()
 		return
@@ -428,6 +433,7 @@ func addGatewayAndTenant(t *testing.T) {
 		return
 	}
 	var tenant = Tenant_v1{
+		ID:       "nextensio",
 		Name:     "foobar",
 		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"},
 		Domains:  []string{"kismis.org"},
@@ -513,8 +519,10 @@ func UserAdd_v1(t *testing.T, tenantadd bool, userid string, services []string) 
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID.Hex()+"/add/user", "application/json", bytes.NewBuffer(body))
+	t.Log(dbTenants[0].ID)
+	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/user", "application/json", bytes.NewBuffer(body))
 	if err != nil {
+		t.Log(err.Error())
 		t.Error()
 		return
 	}
@@ -558,7 +566,7 @@ func TestUserGet_v1(t *testing.T) {
 	UserAdd_v1(t, true, "gopa", []string{})
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/get/user/gopa")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/user/gopa")
 	if err != nil {
 		t.Error()
 		return
@@ -594,7 +602,7 @@ func TestGetAllUsers_v1(t *testing.T) {
 
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/get/allusers")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/allusers")
 	if err != nil {
 		t.Error()
 		return
@@ -650,7 +658,7 @@ func testUserAttrHdrAdd_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID.Hex()+"/add/userattrhdr", "application/json", bytes.NewBuffer(body))
+	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/userattrhdr", "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		t.Error()
 		return
@@ -697,7 +705,7 @@ func TestAttrHdrGet_v1(t *testing.T) {
 	testUserAttrHdrAdd_v1(t)
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/get/userattrhdr")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/userattrhdr")
 	if err != nil {
 		t.Error()
 		return
@@ -755,7 +763,7 @@ func testUserAttrAdd_v1(t *testing.T, tenantadd bool, userid string) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID.Hex()+"/add/userattr", "application/json", bytes.NewBuffer(body))
+	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/userattr", "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		t.Error()
 		return
@@ -813,7 +821,7 @@ func TestUserAttrGet_v1(t *testing.T) {
 	testUserAttrAdd_v1(t, true, "gopa")
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/get/userattr/gopa")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/userattr/gopa")
 	if err != nil {
 		t.Error()
 		return
@@ -864,7 +872,7 @@ func TestGetAllUserAttr_v1(t *testing.T) {
 
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/get/alluserattr")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/alluserattr")
 	if err != nil {
 		t.Error()
 		return
@@ -918,7 +926,7 @@ func testAttrSetAdd_v1(t *testing.T, tenant bool, user string, name string, tota
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID.Hex()+"/add/attrset", "application/json", bytes.NewBuffer(body))
+	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/attrset", "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		t.Error()
 		return
@@ -974,7 +982,7 @@ func TestAttrSetGet_v1(t *testing.T) {
 	testAttrSetAdd_v1(t, true, "gopa", "foobar", 1)
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/get/allattrset")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/allattrset")
 	if err != nil {
 		t.Error()
 		return
@@ -1020,7 +1028,7 @@ func TestAttrSetDel_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID.Hex()+"/del/attrset", "application/json", bytes.NewBuffer(body))
+	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/attrset", "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		t.Error()
 		return
@@ -1073,7 +1081,7 @@ func testUserExtAttrAdd_v1(t *testing.T, tenantadd bool, userid string) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID.Hex()+"/add/userextattr", "application/json", bytes.NewBuffer(body))
+	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/userextattr", "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		t.Error()
 		return
@@ -1129,7 +1137,7 @@ func TestUserExtAttrGet_v1(t *testing.T) {
 	testUserExtAttrAdd_v1(t, true, "gopa")
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/get/userextattr")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/userextattr")
 	if err != nil {
 		t.Error()
 		return
@@ -1173,7 +1181,7 @@ func TestUserExtAttrDel_v1(t *testing.T) {
 	testUserExtAttrAdd_v1(t, true, "gopa")
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/del/userextattr")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/del/userextattr")
 	if err != nil {
 		t.Error()
 		return
@@ -1236,7 +1244,7 @@ func testHostAttrAdd_v1(t *testing.T, tenantadd bool, userid string, host string
 		return
 	}
 
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID.Hex()+"/add/hostattr", "application/json", bytes.NewBuffer(body))
+	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/hostattr", "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		t.Error()
 		return
@@ -1292,7 +1300,7 @@ func TestHostAttrGet_v1(t *testing.T) {
 	testHostAttrAdd_v1(t, true, "gopa", "google.com")
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/get/hostattr/google.com")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/hostattr/google.com")
 	if err != nil {
 		t.Error()
 		return
@@ -1337,7 +1345,7 @@ func TestHostAttrDel_v1(t *testing.T) {
 	testHostAttrAdd_v1(t, true, "gopa", "google.com")
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/del/hostattr/google.com")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/del/hostattr/google.com")
 	if err != nil {
 		t.Error()
 		return
@@ -1372,7 +1380,7 @@ func TestHostAttrGetAll_v1(t *testing.T) {
 	testHostAttrAdd_v1(t, false, "gopa1", "yahoo.com")
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/get/allhostattr")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/allhostattr")
 	if err != nil {
 		t.Error()
 		return
@@ -1426,7 +1434,7 @@ func testHostAttrHdrAdd_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID.Hex()+"/add/hostattrhdr", "application/json", bytes.NewBuffer(body))
+	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/hostattrhdr", "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		t.Error()
 		return
@@ -1473,7 +1481,7 @@ func TestHostAttrHdrGet_v1(t *testing.T) {
 	testHostAttrHdrAdd_v1(t)
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/get/hostattrhdr")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/hostattrhdr")
 	if err != nil {
 		t.Error()
 		return
@@ -1508,7 +1516,7 @@ func TestHostAttrHdrGet_v1(t *testing.T) {
 func testUserDel(t *testing.T, user string) {
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/del/user/" + user)
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/del/user/" + user)
 	if err != nil {
 		t.Error()
 		return
@@ -1571,7 +1579,7 @@ func testBundleAdd_v1(t *testing.T, tenantadd bool, bid string, services []strin
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID.Hex()+"/add/bundle", "application/json", bytes.NewBuffer(body))
+	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/bundle", "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		t.Error()
 		return
@@ -1616,7 +1624,7 @@ func TestBundleGet_v1(t *testing.T) {
 	testBundleAdd_v1(t, true, "youtube", []string{})
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/get/bundle/youtube")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/bundle/youtube")
 	if err != nil {
 		t.Error()
 		return
@@ -1652,7 +1660,7 @@ func TestGetAllBundles_v1(t *testing.T) {
 
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/get/allbundles")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/allbundles")
 	if err != nil {
 		t.Error()
 		return
@@ -1707,7 +1715,7 @@ func testBundleAttrHdrAdd_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID.Hex()+"/add/bundleattrhdr", "application/json", bytes.NewBuffer(body))
+	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/bundleattrhdr", "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		t.Error()
 		return
@@ -1754,7 +1762,7 @@ func TestBundleAttrHdrGet_v1(t *testing.T) {
 	testBundleAttrHdrAdd_v1(t)
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/get/bundleattrhdr")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/bundleattrhdr")
 	if err != nil {
 		t.Error()
 		return
@@ -1812,7 +1820,7 @@ func testBundleAttrAdd_v1(t *testing.T, tenantadd bool, bid string) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID.Hex()+"/add/bundleattr", "application/json", bytes.NewBuffer(body))
+	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/bundleattr", "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		t.Error()
 		return
@@ -1870,7 +1878,7 @@ func TestBundleAttrGet_v1(t *testing.T) {
 	testBundleAttrAdd_v1(t, true, "youtube")
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/get/bundleattr/youtube")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/bundleattr/youtube")
 	if err != nil {
 		t.Error()
 		return
@@ -1921,7 +1929,7 @@ func TestGetAllBundleAttr_v1(t *testing.T) {
 
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/get/allbundleattr")
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/allbundleattr")
 	if err != nil {
 		t.Error()
 		return
@@ -1962,7 +1970,7 @@ func TestGetAllBundleAttr_v1(t *testing.T) {
 func testBundleDel(t *testing.T, bundle string) {
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID.Hex() + "/del/bundle/" + bundle)
+	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/del/bundle/" + bundle)
 	if err != nil {
 		t.Error()
 		return

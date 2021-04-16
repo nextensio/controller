@@ -160,7 +160,7 @@ func rdwrOnboard() {
 
 func signupHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
-	var data db.Signup
+	var signup db.Signup
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -169,14 +169,80 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = json.Unmarshal(body, &data)
+	err = json.Unmarshal(body, &signup)
 	if err != nil {
 		result.Result = "Error parsing json"
 		utils.WriteResult(w, result)
 		return
 	}
 
-	fmt.Println("Signup", data)
+	if db.DBFindTenant(signup.Tenant) != nil {
+		result.Result = "Enterprise ID already taken, please try another variation"
+		utils.WriteResult(w, result)
+		return
+	}
+	_, err = okta.AddUser(API, TOKEN, signup.Email, signup.Tenant, "admin")
+	if err != nil {
+		result.Result = "Failure adding user, please try again: " + err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	// Fill in some defaults, the tenant admin can change these later
+	gws := db.DBFindAllGateways()
+	gateways := []string{}
+	for _, g := range gws {
+		gateways = append(gateways, g.Name)
+	}
+	var data db.Tenant
+	data.ID = signup.Tenant
+	data.Gateways = gateways
+	data.Pods = 2
+	err = db.DBAddTenant(&data)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	var user db.User
+	user.Uid = signup.Email
+	user.Email = signup.Email
+	err = db.DBAddUser(signup.Tenant, &user)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+	// Add a basic attribute
+	text := fmt.Sprintf("{\"uid\":\"%s\", \"invalid\": \"\"}", signup.Email)
+	attr := []byte(text)
+	err = db.DBAddUserAttr(signup.Tenant, attr)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	accessPolicy := "package app.access\n\nallow = true\n"
+	routePolicy := "package user.routing\n\ndefault route_tag = \"\"\n"
+	policy := db.Policy{PolicyId: "AccessPolicy", Rego: []rune(accessPolicy)}
+	err = db.DBAddPolicy(signup.Tenant, &policy)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+	policy = db.Policy{PolicyId: "RoutePolicy", Rego: []rune(routePolicy)}
+	err = db.DBAddPolicy(signup.Tenant, &policy)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
 }
 
 // Add a new tenant, with information like the SSO engine used by the
@@ -454,23 +520,6 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	data.Userid = r.Context().Value("userid").(string)
 	data.Tenant = r.Context().Value("user-tenant").(string)
 
-	// As of today, the test environment we have is not dependent on the IDP putting an
-	// an accurate tenant-id (User.organization) in a user's profile. This is because
-	// the test setup has one set of test users and like ten people can use those same
-	// users in their setups, so obviously its like one user in ten tenants. So we just
-	// assume the user name is unique and pick the first tenant with that username.
-	if utils.GetEnv("TEST_ENVIRONMENT", "false") == "true" {
-		tenant := db.DBFindUserAnyTenant(data.Userid)
-		if tenant == nil {
-			tenant = db.DBFindBundleAnyTenant(data.Userid)
-			if tenant == nil {
-				result.Result = fmt.Sprintf("Cannot retrieve tenant for user %s", data.Userid)
-				utils.WriteResult(w, result)
-				return
-			}
-		}
-		data.Tenant = *tenant
-	}
 	tenant := db.DBFindTenant(data.Tenant)
 	if tenant == nil {
 		result.Result = "Tenant not found"
@@ -557,13 +606,15 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	uuid := r.Context().Value("tenant").(string)
 
-	if utils.GetEnv("TEST_ENVIRONMENT", "false") == "false" {
-		_, err = okta.AddUser(API, TOKEN, data.Uid, uuid, "regular")
-		if err != nil {
-			result.Result = "Adding user to IDP fail"
-			utils.WriteResult(w, result)
-			return
-		}
+	exists := false
+	if db.DBFindUser(uuid, data.Uid) != nil {
+		exists = true
+	}
+	_, err = okta.AddUser(API, TOKEN, data.Uid, uuid, "regular")
+	if err != nil {
+		result.Result = "Adding user to IDP fail"
+		utils.WriteResult(w, result)
+		return
 	}
 
 	err = db.DBAddUser(uuid, &data)
@@ -571,6 +622,17 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
 		return
+	}
+	// Add a basic attribute
+	if !exists {
+		text := fmt.Sprintf("{\"uid\":\"%s\", \"invalid\": \"\"}", data.Uid)
+		attr := []byte(text)
+		err = db.DBAddUserAttr(uuid, attr)
+		if err != nil {
+			result.Result = err.Error()
+			utils.WriteResult(w, result)
+			return
+		}
 	}
 
 	result.Result = "ok"
@@ -815,14 +877,15 @@ func addBundleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(string)
-
-	if utils.GetEnv("TEST_ENVIRONMENT", "false") == "false" {
-		_, err = okta.AddUser(API, TOKEN, data.Bid, uuid, "regular")
-		if err != nil {
-			result.Result = "Adding bundle to IDP fail"
-			utils.WriteResult(w, result)
-			return
-		}
+	exists := false
+	if db.DBFindBundle(uuid, data.Bid) != nil {
+		exists = true
+	}
+	_, err = okta.AddUser(API, TOKEN, data.Bid, uuid, "regular")
+	if err != nil {
+		result.Result = "Adding bundle to IDP fail"
+		utils.WriteResult(w, result)
+		return
 	}
 
 	err = db.DBAddBundle(uuid, &data)
@@ -830,6 +893,17 @@ func addBundleHandler(w http.ResponseWriter, r *http.Request) {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
 		return
+	}
+	// Add a basic attribute
+	if !exists {
+		text := fmt.Sprintf("{\"bid\":\"%s\", \"invalid\": \"\"}", data.Bid)
+		attr := []byte(text)
+		err = db.DBAddBundleAttr(uuid, attr)
+		if err != nil {
+			result.Result = err.Error()
+			utils.WriteResult(w, result)
+			return
+		}
 	}
 
 	result.Result = "ok"

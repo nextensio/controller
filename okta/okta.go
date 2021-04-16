@@ -10,7 +10,7 @@ import (
 )
 
 func makeUserId(userid string, tenant string) string {
-	return tenant + "/" + userid
+	return userid
 }
 
 func GetUser(API string, TOKEN string, userid string, tenant string) (string, error) {
@@ -35,22 +35,30 @@ func AddUser(API string, TOKEN string, userid string, tenant string, userType st
 	if err != nil {
 		return "", err
 	}
-	profile := okta.UserProfile{}
-	profile["firstName"] = "Nextensio"
-	profile["lastName"] = "Customer"
-	profile["email"] = userid
-	profile["login"] = makeUserId(userid, tenant)
-	profile["organization"] = tenant
-	profile["userType"] = userType
-	u := &okta.User{
-		Profile: &profile,
+	oktaId, e := GetUser(API, TOKEN, userid, tenant)
+	if e == nil && oktaId != "" {
+		e = UpdateUser(API, TOKEN, userid, tenant, userType)
+		if e != nil {
+			return "", e
+		}
+		return oktaId, nil
+	} else {
+		profile := okta.UserProfile{}
+		profile["firstName"] = "Nextensio"
+		profile["lastName"] = "Customer"
+		profile["email"] = userid
+		profile["login"] = makeUserId(userid, tenant)
+		profile["organization"] = tenant
+		profile["userType"] = userType
+		u := &okta.User{
+			Profile: &profile,
+		}
+		user, _, err := client.User.CreateUser(*u, nil)
+		if err != nil {
+			return "", err
+		}
+		return user.Id, nil
 	}
-
-	user, _, err := client.User.CreateUser(*u, nil)
-	if err != nil {
-		return "", err
-	}
-	return user.Id, nil
 }
 
 func DelUser(API string, TOKEN string, userid string, tenant string) error {
@@ -102,7 +110,7 @@ func GetGroup(API string, TOKEN string, group string) (string, error) {
 	return groupIds[0].Id, nil
 }
 
-func UpdateTenant(API string, TOKEN string, userid string, tenant string) error {
+func UpdateUser(API string, TOKEN string, userid string, tenant string, userType string) error {
 	client, err := okta.NewClient(context.TODO(), okta.WithOrgUrl(API), okta.WithToken(TOKEN))
 	if err != nil {
 		return err
@@ -118,6 +126,7 @@ func UpdateTenant(API string, TOKEN string, userid string, tenant string) error 
 
 	newProfile := *user.Profile
 	newProfile["organization"] = tenant
+	newProfile["userType"] = userType
 	updatedUser := &okta.User{
 		Profile: &newProfile,
 	}
