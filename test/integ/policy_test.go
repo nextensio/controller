@@ -30,7 +30,11 @@ func PolicyAdd_v1(t *testing.T, addtenant bool, pid string) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/policy", "application/json", bytes.NewBuffer(body))
+
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/policy", bytes.NewBuffer(body))
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -70,7 +74,10 @@ func TestPolicyGet_v1(t *testing.T) {
 	PolicyAdd_v1(t, true, "agent-authorization")
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/policy/agent-authorization")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/policy/agent-authorization", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -106,7 +113,10 @@ func TestGetAllPolicies_v1(t *testing.T) {
 
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/allpolicies")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allpolicies", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -146,7 +156,10 @@ func TestGetAllPolicies_v1(t *testing.T) {
 func PolicyDel_v1(t *testing.T, name string) {
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/del/policy/" + name)
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/policy/"+name, nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return

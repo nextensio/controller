@@ -4,7 +4,7 @@ pkill -9 nxtsvr
 
 cd nxtsvr
 go build -tags unittest
-IGNORE_AUTH=true NXT_READONLY=false ./nxtsvr>/dev/null 2>&1 &
+NXT_READONLY=false ./nxtsvr>/dev/null 2>&1 &
 
 cd ../test/integ
 # The test cases cant run in parallel unfortunately because they all work with

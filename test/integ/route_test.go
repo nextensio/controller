@@ -31,7 +31,11 @@ func RouteAdd_v1(t *testing.T, addtenant bool, routeid string) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/route", "application/json", bytes.NewBuffer(body))
+
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/route", bytes.NewBuffer(body))
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -71,7 +75,10 @@ func TestRouteGet_v1(t *testing.T) {
 	RouteAdd_v1(t, true, "gopa:www.google.com")
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/route/gopa:www.google.com")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/route/gopa:www.google.com", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -107,7 +114,10 @@ func TestGetAllRoutes_v1(t *testing.T) {
 
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/allroutes")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allroutes", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -147,7 +157,10 @@ func TestGetAllRoutes_v1(t *testing.T) {
 func RouteDel_v1(t *testing.T, name string) {
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/del/route/" + name)
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/route/"+name, nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return

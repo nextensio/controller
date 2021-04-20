@@ -11,6 +11,15 @@ import (
 	"testing"
 )
 
+// Well, for now controller doesnt really check whether the token has expired
+// etc.., so we can live with this. When controller starts checking for token
+// expiry, we have to get a proper token. At that time ideally we get the token
+// one time and run all the tests with that one token - getting a token for each
+// test will be time consuming
+const AccessToken string = "eyJraWQiOiI1bzJzeVdsVXVad2N5cGZnZ1FGX1F6SHp5LUx4T2NFZGJONE9PRldlcndNIiwiYWxnIjoiUlMyNTYifQ.eyJ2ZXIiOjEsImp0aSI6IkFULmd5eDMzOG5BQURodDFzR2JhNXBMbzhjTmQ2WlJlSXNUQm5OQXVscmhDNjgiLCJpc3MiOiJodHRwczovL2Rldi02MzU2NTcub2t0YS5jb20vb2F1dGgyL2RlZmF1bHQiLCJhdWQiOiJhcGk6Ly9kZWZhdWx0IiwiaWF0IjoxNjE4OTI1MzY3LCJleHAiOjE2MTg5Mjg5NjcsImNpZCI6IjBvYXo1bG5kY3pEMERTVWVoNHg2IiwidWlkIjoiMDB1MnhvMTRsZVJRVVJoTVg0eDciLCJzY3AiOlsib3BlbmlkIl0sInN1YiI6ImFkbWluQG5leHRlbnNpby5uZXQiLCJ1c2VydHlwZSI6InN1cGVyYWRtaW4iLCJ0ZW5hbnQiOiJuZXh0ZW5zaW8ifQ.KmHvrdn95UpRhkaRPrvOGL3Jd-IwdPyM10lAyvGSEPT8f_u8q7wYxtHX7mqlF7aBA1OBNyz29dj6a7O0F_5wvVb4i-a6QqEDsxGqr00UJeVkgBQD2ctZv5PmUiLN3AT7Q4Bjwui_tnohUHmAorHR1MmKgcb2ceZTftv3CHMwfmXd6EsY8DJSP5tYEiBeqWUrUQviW3RhF5IkUCIQMv6EVS0yJWpZWtaU_mcXKPdRyay7fiqpKvVD7ckSmlzaGa-ayBsUATzmONl7JDCBCEcPwjacuMzv5NGdbzn7_iu0hMEGXSdHCuN2aZ6LLk00Cr1egHac2uNMQC0M2jAI1K1DHQ"
+
+var client = &http.Client{}
+
 type Gateway_v1 struct {
 	Name string `json:"name" bson:"_id"`
 }
@@ -21,7 +30,10 @@ func addGateway(gw *Gateway_v1) bool {
 		return false
 	}
 
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/global/add/gateway", "application/json", bytes.NewBuffer(body))
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/global/add/gateway", bytes.NewBuffer(body))
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Println("Add gw failed")
 		return false
@@ -70,7 +82,10 @@ func delGateway(gw *Gateway_v1) bool {
 		return false
 	}
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/global/del/gateway/" + gw.Name)
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/global/del/gateway/"+gw.Name, nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Println("Delete gw failed")
 		return false
@@ -137,7 +152,10 @@ func TestGetAllGateway_v1(t *testing.T) {
 		return
 	}
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/global/get/allgateways")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/global/get/allgateways", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -188,7 +206,10 @@ func addTenant(tenant *Tenant_v1) bool {
 	if err != nil {
 		return false
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/global/add/tenant", "application/json", bytes.NewBuffer(body))
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/global/add/tenant", bytes.NewBuffer(body))
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		return false
 	}
@@ -321,7 +342,10 @@ func TestGetAllTenant_v1(t *testing.T) {
 		return
 	}
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/global/get/alltenants")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/global/get/alltenants", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -361,7 +385,10 @@ func TestGetAllTenant_v1(t *testing.T) {
 func testTenantDel(t *testing.T, expect_delete bool) {
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/global/del/tenant/" + dbTenants[0].ID)
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/global/del/tenant/"+dbTenants[0].ID, nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -453,7 +480,10 @@ func TestOnboard_v1(t *testing.T) {
 	UserAdd_v1(t, false, "abcd", []string{})
 	CertAdd_v1(t, "CACert")
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/global/get/onboard/")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/global/get/onboard/", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -519,7 +549,11 @@ func UserAdd_v1(t *testing.T, tenantadd bool, userid string, services []string) 
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/user", "application/json", bytes.NewBuffer(body))
+
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/user", bytes.NewBuffer(body))
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -564,7 +598,10 @@ func TestUserGet_v1(t *testing.T) {
 	UserAdd_v1(t, true, "gopa", []string{})
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/user/gopa")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/user/gopa", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -600,7 +637,10 @@ func TestGetAllUsers_v1(t *testing.T) {
 
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/allusers")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allusers", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -656,7 +696,11 @@ func testUserAttrHdrAdd_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/userattrhdr", "application/json", bytes.NewBuffer(body))
+
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/userattrhdr", bytes.NewBuffer(body))
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -703,7 +747,10 @@ func TestAttrHdrGet_v1(t *testing.T) {
 	testUserAttrHdrAdd_v1(t)
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/userattrhdr")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/userattrhdr", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -761,7 +808,11 @@ func testUserAttrAdd_v1(t *testing.T, tenantadd bool, userid string) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/userattr", "application/json", bytes.NewBuffer(body))
+
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/userattr", bytes.NewBuffer(body))
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -819,7 +870,10 @@ func TestUserAttrGet_v1(t *testing.T) {
 	testUserAttrAdd_v1(t, true, "gopa")
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/userattr/gopa")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/userattr/gopa", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -870,7 +924,10 @@ func TestGetAllUserAttr_v1(t *testing.T) {
 
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/alluserattr")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/alluserattr", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -924,7 +981,11 @@ func testAttrSetAdd_v1(t *testing.T, tenant bool, user string, name string, tota
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/attrset", "application/json", bytes.NewBuffer(body))
+
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/attrset", bytes.NewBuffer(body))
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -980,7 +1041,10 @@ func TestAttrSetGet_v1(t *testing.T) {
 	testAttrSetAdd_v1(t, true, "gopa", "foobar", 1)
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/allattrset")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allattrset", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1026,7 +1090,11 @@ func TestAttrSetDel_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/attrset", "application/json", bytes.NewBuffer(body))
+
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/attrset", bytes.NewBuffer(body))
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1079,7 +1147,11 @@ func testUserExtAttrAdd_v1(t *testing.T, tenantadd bool, userid string) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/userextattr", "application/json", bytes.NewBuffer(body))
+
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/userextattr", bytes.NewBuffer(body))
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1135,7 +1207,10 @@ func TestUserExtAttrGet_v1(t *testing.T) {
 	testUserExtAttrAdd_v1(t, true, "gopa")
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/userextattr")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/userextattr", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1179,7 +1254,10 @@ func TestUserExtAttrDel_v1(t *testing.T) {
 	testUserExtAttrAdd_v1(t, true, "gopa")
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/del/userextattr")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/userextattr", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1242,7 +1320,10 @@ func testHostAttrAdd_v1(t *testing.T, tenantadd bool, userid string, host string
 		return
 	}
 
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/hostattr", "application/json", bytes.NewBuffer(body))
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/hostattr", bytes.NewBuffer(body))
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1298,7 +1379,10 @@ func TestHostAttrGet_v1(t *testing.T) {
 	testHostAttrAdd_v1(t, true, "gopa", "google.com")
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/hostattr/google.com")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/hostattr/google.com", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1343,7 +1427,10 @@ func TestHostAttrDel_v1(t *testing.T) {
 	testHostAttrAdd_v1(t, true, "gopa", "google.com")
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/del/hostattr/google.com")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/hostattr/google.com", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1378,7 +1465,10 @@ func TestHostAttrGetAll_v1(t *testing.T) {
 	testHostAttrAdd_v1(t, false, "gopa1", "yahoo.com")
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/allhostattr")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allhostattr", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1432,7 +1522,11 @@ func testHostAttrHdrAdd_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/hostattrhdr", "application/json", bytes.NewBuffer(body))
+
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/hostattrhdr", bytes.NewBuffer(body))
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1479,7 +1573,10 @@ func TestHostAttrHdrGet_v1(t *testing.T) {
 	testHostAttrHdrAdd_v1(t)
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/hostattrhdr")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/hostattrhdr", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1514,7 +1611,10 @@ func TestHostAttrHdrGet_v1(t *testing.T) {
 func testUserDel(t *testing.T, user string) {
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/del/user/" + user)
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/user/"+user, nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1577,7 +1677,11 @@ func testBundleAdd_v1(t *testing.T, tenantadd bool, bid string, services []strin
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/bundle", "application/json", bytes.NewBuffer(body))
+
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/bundle", bytes.NewBuffer(body))
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1623,7 +1727,10 @@ func TestBundleGet_v1(t *testing.T) {
 	testBundleAdd_v1(t, true, "youtube", []string{})
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/bundle/youtube")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/bundle/youtube", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1659,7 +1766,10 @@ func TestGetAllBundles_v1(t *testing.T) {
 
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/allbundles")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allbundles", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1714,7 +1824,11 @@ func testBundleAttrHdrAdd_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/bundleattrhdr", "application/json", bytes.NewBuffer(body))
+
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/bundleattrhdr", bytes.NewBuffer(body))
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1761,7 +1875,10 @@ func TestBundleAttrHdrGet_v1(t *testing.T) {
 	testBundleAttrHdrAdd_v1(t)
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/bundleattrhdr")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/bundleattrhdr", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1819,7 +1936,11 @@ func testBundleAttrAdd_v1(t *testing.T, tenantadd bool, bid string) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/bundleattr", "application/json", bytes.NewBuffer(body))
+
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/bundleattr", bytes.NewBuffer(body))
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1877,7 +1998,10 @@ func TestBundleAttrGet_v1(t *testing.T) {
 	testBundleAttrAdd_v1(t, true, "youtube")
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/bundleattr/youtube")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/bundleattr/youtube", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1928,7 +2052,10 @@ func TestGetAllBundleAttr_v1(t *testing.T) {
 
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/get/allbundleattr")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allbundleattr", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -1969,7 +2096,10 @@ func TestGetAllBundleAttr_v1(t *testing.T) {
 func testBundleDel(t *testing.T, bundle string) {
 	dbTenants := db.DBFindAllTenants()
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/del/bundle/" + bundle)
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/bundle/"+bundle, nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -2183,7 +2313,11 @@ func CertAdd_v1(t *testing.T, name string) {
 		t.Error()
 		return
 	}
-	resp, err := http.Post("http://127.0.0.1:8080/api/v1/global/add/cert", "application/json", bytes.NewBuffer(body))
+
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/global/add/cert", bytes.NewBuffer(body))
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -2226,7 +2360,10 @@ func TestCertGet_v1(t *testing.T) {
 	db.DBReinit()
 	CertAdd_v1(t, "rootCA")
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/global/get/cert/" + "rootCA")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/global/get/cert/"+"rootCA", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -2260,7 +2397,10 @@ func TestGetAllCerts_v1(t *testing.T) {
 	CertAdd_v1(t, "rootCA")
 	CertAdd_v1(t, "interCA")
 
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/global/get/allcerts")
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/global/get/allcerts", nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return
@@ -2298,7 +2438,10 @@ func TestGetAllCerts_v1(t *testing.T) {
 }
 
 func CertDel_v1(t *testing.T, name string) {
-	resp, err := http.Get("http://127.0.0.1:8080/api/v1/global/del/cert/" + name)
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/global/del/cert/"+name, nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Error()
 		return

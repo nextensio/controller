@@ -24,17 +24,6 @@ func Authenticate(w http.ResponseWriter, r *http.Request) *context.Context {
 		}
 	}
 
-	if ctx == nil {
-		// TODO: This is TERRIBLE, a potential security threat to have this kind
-		// of a variable lying around. Move all internal testbeds to use proper
-		// https + authentication and remove this crap
-		if utils.GetEnv("IGNORE_AUTH", "false") == "true" {
-			ctx := context.WithValue(r.Context(), "usertype", "superadmin")
-			return &ctx
-		} else {
-			return nil
-		}
-	}
 	return ctx
 }
 
