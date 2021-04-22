@@ -674,19 +674,27 @@ func DBDelUser(tenant string, userid string) error {
 //}
 
 // This API will add a new user attributes doc or update existing one
-func DBAddUserAttr(uuid string, data []byte) error {
-	var Uattr bson.M
-
-	err := json.Unmarshal(data, &Uattr)
-	if err != nil {
-		return err
+func DBAddUserAttr(uuid string, user string, Uattr bson.M) error {
+	if Uattr == nil {
+		attr := DBFindUserAttr(uuid, user)
+		if attr != nil {
+			Uattr = *attr
+			delete(Uattr, "uid")
+		} else {
+			Uattr = make(bson.M)
+		}
 	}
-	user := fmt.Sprintf("%s", Uattr["uid"])
-	delete(Uattr, "uid")
-
-	if DBFindUser(uuid, user) == nil {
+	dbUser := DBFindUser(uuid, user)
+	if dbUser == nil {
 		return fmt.Errorf("Cannot find user")
 	}
+
+	// Add the "base" attributes here which are like user email, pod etc..
+	// These attributes will start with an underscore just to indicate that
+	// these are not customer defined attributes. We will let customer know
+	// about some attributes like _email which they can use in their policies
+	Uattr["_email"] = dbUser.Email
+	Uattr["_pod"] = fmt.Sprintf("pod%d", dbUser.Pod)
 
 	hdr := DBFindUserAttrHdr(uuid)
 	if hdr == nil {
@@ -986,20 +994,28 @@ func DBDelBundle(tenant string, bundleid string) error {
 //	Nonemployee string             `bson:"nonemployee" json:"nonemployee"`
 //}
 
-// This API will add/update a bundle attribute
-func DBAddBundleAttr(uuid string, data []byte) error {
-	var Battr bson.M
-
-	err := json.Unmarshal(data, &Battr)
-	if err != nil {
-		return err
+// This API will add/update a bundle attribute. If the data is nil,
+// it just updates the "base" attributes and returns
+func DBAddBundleAttr(uuid string, bid string, Battr bson.M) error {
+	if Battr == nil {
+		attr := DBFindBundleAttr(uuid, bid)
+		if attr != nil {
+			Battr = *attr
+			delete(Battr, "bid")
+		} else {
+			Battr = make(bson.M)
+		}
 	}
-	bid := fmt.Sprintf("%s", Battr["bid"])
-	delete(Battr, "bid")
-
-	if DBFindBundle(uuid, bid) == nil {
+	dbBundle := DBFindBundle(uuid, bid)
+	if dbBundle == nil {
 		return fmt.Errorf("Cannot find bundle")
 	}
+	// Add the "base" attributes here which are like bundle name, pod etc..
+	// These attributes will start with an underscore just to indicate that
+	// these are not customer defined attributes. We will let customer know
+	// about some attributes like _name which they can use in their policies
+	Battr["_name"] = dbBundle.Bundlename
+	Battr["_pod"] = fmt.Sprintf("pod%d", dbBundle.Pod)
 
 	hdr := DBFindBundleAttrHdr(uuid)
 	if hdr == nil {

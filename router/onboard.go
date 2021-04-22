@@ -213,10 +213,8 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	// Add a basic attribute
-	text := fmt.Sprintf("{\"uid\":\"%s\", \"invalid\": \"\"}", signup.Email)
-	attr := []byte(text)
-	err = db.DBAddUserAttr(signup.Tenant, attr)
+	// Add "base" attributes
+	err = db.DBAddUserAttr(signup.Tenant, user.Uid, nil)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -604,11 +602,6 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(string)
-
-	exists := false
-	if db.DBFindUser(uuid, data.Uid) != nil {
-		exists = true
-	}
 	_, err = IdpAddUser(API, TOKEN, data.Uid, uuid, "regular")
 	if err != nil {
 		result.Result = "Adding user to IDP fail"
@@ -622,16 +615,12 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	// Add a basic attribute
-	if !exists {
-		text := fmt.Sprintf("{\"uid\":\"%s\", \"invalid\": \"\"}", data.Uid)
-		attr := []byte(text)
-		err = db.DBAddUserAttr(uuid, attr)
-		if err != nil {
-			result.Result = err.Error()
-			utils.WriteResult(w, result)
-			return
-		}
+	// Add/Update base attributes
+	err = db.DBAddUserAttr(uuid, data.Uid, nil)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
 	}
 
 	result.Result = "ok"
@@ -813,8 +802,24 @@ func addUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var Uattr bson.M
+	var user string
+	err = json.Unmarshal(body, &Uattr)
+	if err != nil {
+		result.Result = "User json decode fail"
+		utils.WriteResult(w, result)
+		return
+	}
+	if v, found := Uattr["uid"]; found {
+		user = fmt.Sprintf("%s", v)
+		delete(Uattr, "uid")
+	} else {
+		result.Result = "Missing user id"
+		utils.WriteResult(w, result)
+		return
+	}
 	uuid := r.Context().Value("tenant").(string)
-	err = db.DBAddUserAttr(uuid, body)
+	err = db.DBAddUserAttr(uuid, user, Uattr)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -876,10 +881,6 @@ func addBundleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(string)
-	exists := false
-	if db.DBFindBundle(uuid, data.Bid) != nil {
-		exists = true
-	}
 	_, err = IdpAddUser(API, TOKEN, data.Bid, uuid, "regular")
 	if err != nil {
 		result.Result = "Adding bundle to IDP fail"
@@ -893,16 +894,12 @@ func addBundleHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	// Add a basic attribute
-	if !exists {
-		text := fmt.Sprintf("{\"bid\":\"%s\", \"invalid\": \"\"}", data.Bid)
-		attr := []byte(text)
-		err = db.DBAddBundleAttr(uuid, attr)
-		if err != nil {
-			result.Result = err.Error()
-			utils.WriteResult(w, result)
-			return
-		}
+	// Add/update "base" attributes
+	err = db.DBAddBundleAttr(uuid, data.Bid, nil)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
 	}
 
 	result.Result = "ok"
@@ -1036,8 +1033,24 @@ func addBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var Battr bson.M
+	var bid string
+	err = json.Unmarshal(body, &Battr)
+	if err != nil {
+		result.Result = "Bundle json decode fail"
+		utils.WriteResult(w, result)
+		return
+	}
+	if v, found := Battr["bid"]; found {
+		bid = fmt.Sprintf("%s", v)
+		delete(Battr, "bid")
+	} else {
+		result.Result = "Missing bundle id"
+		utils.WriteResult(w, result)
+		return
+	}
 	uuid := r.Context().Value("tenant").(string)
-	err = db.DBAddBundleAttr(uuid, body)
+	err = db.DBAddBundleAttr(uuid, bid, Battr)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
