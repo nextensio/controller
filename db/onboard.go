@@ -695,6 +695,7 @@ func DBAddUserAttr(uuid string, user string, Uattr bson.M) error {
 	// about some attributes like _email which they can use in their policies
 	Uattr["_email"] = dbUser.Email
 	Uattr["_pod"] = fmt.Sprintf("pod%d", dbUser.Pod)
+	Uattr["_gateway"] = dbUser.Gateway
 
 	hdr := DBFindUserAttrHdr(uuid)
 	if hdr == nil {
@@ -1016,6 +1017,7 @@ func DBAddBundleAttr(uuid string, bid string, Battr bson.M) error {
 	// about some attributes like _name which they can use in their policies
 	Battr["_name"] = dbBundle.Bundlename
 	Battr["_pod"] = fmt.Sprintf("pod%d", dbBundle.Pod)
+	Battr["_gateway"] = dbBundle.Gateway
 
 	hdr := DBFindBundleAttrHdr(uuid)
 	if hdr == nil {
