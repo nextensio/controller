@@ -508,6 +508,7 @@ type OnboardResult struct {
 	Domains   []string `json:"domains"`
 	Connectid string   `json:"connectid"`
 	Cacert    []rune   `json:"cacert"`
+	Services  []string `json:"services"`
 }
 
 func onboardHandler(w http.ResponseWriter, r *http.Request) {
@@ -532,6 +533,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			result.Connectid = user.Connectid
+			result.Services = user.Services
 			// This is used only in a test environment today, to force-associate
 			// a user to a gateway
 			if user.Gateway != "" {
@@ -546,6 +548,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				result.Connectid = bundle.Connectid
+				result.Services = bundle.Services
 				// This is used only in a test environment today, to force-associate
 				// a user to a gateway
 				if bundle.Gateway != "" {
