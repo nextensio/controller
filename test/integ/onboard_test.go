@@ -11,12 +11,8 @@ import (
 	"testing"
 )
 
-// Well, for now controller doesnt really check whether the token has expired
-// etc.., so we can live with this. When controller starts checking for token
-// expiry, we have to get a proper token. At that time ideally we get the token
-// one time and run all the tests with that one token - getting a token for each
-// test will be time consuming
-const AccessToken string = "eyJraWQiOiI1bzJzeVdsVXVad2N5cGZnZ1FGX1F6SHp5LUx4T2NFZGJONE9PRldlcndNIiwiYWxnIjoiUlMyNTYifQ.eyJ2ZXIiOjEsImp0aSI6IkFULmd5eDMzOG5BQURodDFzR2JhNXBMbzhjTmQ2WlJlSXNUQm5OQXVscmhDNjgiLCJpc3MiOiJodHRwczovL2Rldi02MzU2NTcub2t0YS5jb20vb2F1dGgyL2RlZmF1bHQiLCJhdWQiOiJhcGk6Ly9kZWZhdWx0IiwiaWF0IjoxNjE4OTI1MzY3LCJleHAiOjE2MTg5Mjg5NjcsImNpZCI6IjBvYXo1bG5kY3pEMERTVWVoNHg2IiwidWlkIjoiMDB1MnhvMTRsZVJRVVJoTVg0eDciLCJzY3AiOlsib3BlbmlkIl0sInN1YiI6ImFkbWluQG5leHRlbnNpby5uZXQiLCJ1c2VydHlwZSI6InN1cGVyYWRtaW4iLCJ0ZW5hbnQiOiJuZXh0ZW5zaW8ifQ.KmHvrdn95UpRhkaRPrvOGL3Jd-IwdPyM10lAyvGSEPT8f_u8q7wYxtHX7mqlF7aBA1OBNyz29dj6a7O0F_5wvVb4i-a6QqEDsxGqr00UJeVkgBQD2ctZv5PmUiLN3AT7Q4Bjwui_tnohUHmAorHR1MmKgcb2ceZTftv3CHMwfmXd6EsY8DJSP5tYEiBeqWUrUQviW3RhF5IkUCIQMv6EVS0yJWpZWtaU_mcXKPdRyay7fiqpKvVD7ckSmlzaGa-ayBsUATzmONl7JDCBCEcPwjacuMzv5NGdbzn7_iu0hMEGXSdHCuN2aZ6LLk00Cr1egHac2uNMQC0M2jAI1K1DHQ"
+// For unit testing, the access token is not validated, so contents dont matter
+const AccessToken string = "contents-dont-matter"
 
 var client = &http.Client{}
 
