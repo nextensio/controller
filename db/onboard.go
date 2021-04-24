@@ -62,6 +62,9 @@ func DBAddTenant(data *Tenant) error {
 		}
 	}
 
+	// See if tenant doc exists.
+	tdoc := DBFindTenant(data.ID)
+
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
@@ -89,9 +92,13 @@ func DBAddTenant(data *Tenant) error {
 		_ = DBDelTenantDocOnly(data.ID)
 		return e
 	}
-	dbAddTenantDB(data.ID)
-	// Add header docs for all attribute collections of tenant
-	DBAddTenantCollectionHdrs(data.ID)
+
+	if tdoc == nil {
+		// New tenant being added, so create logical DB for tenant
+		// and add header docs for all attribute collections of tenant
+		dbAddTenantDB(data.ID)
+		DBAddTenantCollectionHdrs(data.ID)
+	}
 
 	return nil
 }
@@ -143,10 +150,7 @@ func DBFindAllTenants() []Tenant {
 }
 
 func DBDelTenant(id string) error {
-	_, err := tenantCltn.DeleteOne(
-		context.TODO(),
-		bson.M{"_id": id},
-	)
+	err := DBDelTenantDocOnly(id)
 	if err != nil {
 		return err
 	}
@@ -245,7 +249,17 @@ func DBFindAllCerts() []Certificate {
 //----------------------------Gateway functions--------------------------
 
 type Gateway struct {
-	Name string `json:"name" bson:"_id"`
+	Name     string `json:"name" bson:"_id"`
+	Cluster  string `json:"cluster" bson:"cluster"`
+	Location string `json:"location" bson:"location"`
+	Zone     string `json:"zone" bson:"zone"`
+	Region   string `json:"region" bson:"region"`
+	Provider string `json:"provider" bson:"provider"`
+}
+
+// Derive gateway name for a cluster given the cluster name.
+func DBGetGwName(cluster string) string {
+	return cluster + ".nextensio.net"
 }
 
 // This API will add a new gateway or update a gateway if it already exists
@@ -262,7 +276,9 @@ func DBAddGateway(data *Gateway) error {
 		context.TODO(),
 		bson.M{"_id": data.Name},
 		bson.D{
-			{"$set", bson.M{"_id": data.Name}},
+			{"$set", bson.M{"cluster": data.Cluster, "location": data.Location,
+				"zone": data.Zone, "region": data.Region,
+				"provider": data.Provider}},
 		},
 		&opt,
 	)
@@ -295,6 +311,11 @@ func DBGatewayInUse(name string) bool {
 // This API will delete a gateway if its not in use by any tenants
 func DBDelGateway(name string) error {
 
+	gw := DBFindGateway(name)
+	if gw == nil {
+		// Gateway doesn't exist. Return silently
+		return nil
+	}
 	_, err := gatewayCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": name},
@@ -303,6 +324,9 @@ func DBDelGateway(name string) error {
 	if err != nil {
 		return err
 	}
+
+	// Remove the logical DB for the cluster specific collections.
+	ClusterDelDB(gw.Cluster)
 
 	e := DBDelClusterGateway(name)
 	if e != nil {
@@ -511,6 +535,7 @@ type User struct {
 	Uid       string   `json:"uid" bson:"_id"`
 	Username  string   `json:"name" bson:"name"`
 	Email     string   `json:"email" bson:"email"`
+	Cluster   string   `json:"cluster" bson:"cluster"`
 	Gateway   string   `json:"gateway" bson:"gateway"`
 	Pod       int      `json:"pod" bson:"pod"`
 	Connectid string   `json:"connectid" bson:"connectid"`
@@ -525,7 +550,15 @@ func DBAddUser(uuid string, data *User) error {
 		return fmt.Errorf("Unknown tenant")
 	}
 
+	// In our test setup, we preassign the gateway/cluster and pod.
+	// In a real deployment, the gateway/cluster and pod have to be dynamically
+	// assigned when a user agent is on-boarded.
+	// If gateway/cluster is assigned, ensure it is valid, ie., in our configuration.
 	data.Gateway = strings.TrimSpace(data.Gateway)
+	data.Cluster = strings.TrimSpace(data.Cluster)
+	if data.Cluster != "" && data.Gateway == "" {
+		data.Gateway = DBGetGwName(data.Cluster)
+	}
 	if data.Gateway != "" {
 		if DBFindGateway(data.Gateway) == nil {
 			return fmt.Errorf("Gateway %s not configured", data.Gateway)
@@ -569,7 +602,7 @@ func DBAddUser(uuid string, data *User) error {
 		bson.D{
 			{"$set", bson.M{"name": data.Username, "email": data.Email,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
-				"services": data.Services}},
+				"cluster": data.Cluster, "services": data.Services}},
 		},
 		&opt,
 	)
@@ -642,19 +675,24 @@ func DBFindAllUsers(tenant string) []bson.M {
 
 func DBDelUser(tenant string, userid string) error {
 	// TODO: Do not allow delete if user attribute doc exists
+	var user User
 
 	userCltn := dbGetCollection(tenant, "NxtUsers")
 	if userCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
-	_, err := userCltn.DeleteOne(
+	err := userCltn.FindOne(context.TODO(), bson.M{"_id": userid}).Decode(&user)
+	if err != nil {
+		return fmt.Errorf("Request to delete unknown user %s", userid)
+	}
+	_, err = userCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": userid},
 	)
 	if err != nil {
 		return err
 	}
-	err = DBDelClusterUser(tenant, userid)
+	err = DBDelClusterUser(user.Cluster, tenant, userid)
 	if err != nil {
 		return err
 	}
@@ -838,6 +876,7 @@ func DBDelBundleAttrHdr(tenant string) error {
 type Bundle struct {
 	Bid        string   `json:"bid" bson:"_id"`
 	Bundlename string   `json:"name" bson:"name"`
+	Cluster    string   `json:"cluster" bson:"cluster"`
 	Gateway    string   `json:"gateway" bson:"gateway"`
 	Pod        int      `json:"pod" bson:"pod"`
 	Connectid  string   `json:"connectid" bson:"connectid"`
@@ -852,7 +891,16 @@ func DBAddBundle(uuid string, data *Bundle) error {
 		return fmt.Errorf("Unknown tenant")
 	}
 
+	// We currently preassign the gateway/cluster and pod. This may change to
+	// just the cluster assignment if k8s does the pod assignment from amongst
+	// a replicaset. TBD whether the cluster assignment should be dynamic when
+	// connector signs-in.
+	// If gateway/cluster is preassigned, ensure it is valid (in our config).
 	data.Gateway = strings.TrimSpace(data.Gateway)
+	data.Cluster = strings.TrimSpace(data.Cluster)
+	if data.Cluster != "" && data.Gateway == "" {
+		data.Gateway = DBGetGwName(data.Cluster)
+	}
 	if data.Gateway != "" {
 		if DBFindGateway(data.Gateway) == nil {
 			return fmt.Errorf("Gateway %s not configured", data.Gateway)
@@ -893,7 +941,7 @@ func DBAddBundle(uuid string, data *Bundle) error {
 		bson.D{
 			{"$set", bson.M{"name": data.Bundlename,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
-				"services": data.Services}},
+				"cluster": data.Cluster, "services": data.Services}},
 		},
 		&opt,
 	)
@@ -964,11 +1012,17 @@ func DBFindAllBundles(tenant string) []bson.M {
 }
 
 func DBDelBundle(tenant string, bundleid string) error {
+	var bun Bundle
+
 	appCltn := dbGetCollection(tenant, "NxtApps")
 	if appCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
-	_, err := appCltn.DeleteOne(
+	err := appCltn.FindOne(context.TODO(), bson.M{"_id": bundleid}).Decode(&bun)
+	if err != nil {
+		return fmt.Errorf("Request to delete unknown bundle %s", bundleid)
+	}
+	_, err = appCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": bundleid},
 	)
@@ -976,7 +1030,7 @@ func DBDelBundle(tenant string, bundleid string) error {
 		return err
 	}
 
-	err = DBDelClusterUser(tenant, bundleid)
+	err = DBDelClusterUser(bun.Cluster, tenant, bundleid)
 	if err != nil {
 		return err
 	}

@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"flag"
 	"nextensio/controller/utils"
 	"time"
 
@@ -168,13 +169,15 @@ func dbDelTenantDB(tnt string) {
 }
 
 func dbDrop() {
+	// Purge the cluster related operational data first before removing
+	// gateway/cluster configuration
+	ClusterDBDrop()
 	dbTenants := DBFindAllTenants()
 	for i := 0; i < len(dbTenants); i++ {
 		tdb := dbClient.Database(dbGetTenantDBName(dbTenants[i].ID))
 		tdb.Drop(context.TODO())
 	}
 	nxtDB.Drop(context.TODO())
-	ClusterDBDrop()
 }
 
 func DBReinit() {
@@ -192,6 +195,7 @@ func DBReinit() {
 }
 
 func DBInit() {
+	flag.Parse()
 	for dbConnect() != true {
 		time.Sleep(1 * time.Second)
 	}

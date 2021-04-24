@@ -5,28 +5,99 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/golang/glog"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// DB used by the Nxt Cluster to configure kubernetes rules etc.
-var clusterDB *mongo.Database
+const maxClusters = 100 // A swag
+
+// These collections represent operational data needed to configure
+// the kubernetes system. They are populated from configuration data
+// as well as dynamically at run-time when agents connect or leave.
+// We will organize the collections as follows for scaling nextensio
+// manager (mel) processing to configure the kubernetes system.
+// The NxtClusters and NxtNamespaces collections will be in a single
+// DB called NxtClusterDB since we need a global view of all clusters
+// and tenants.
+// The NxtUsers and NxtServices collections will be in per-cluster DBs
+// so that the nextensio manager in each cluster can work with the
+// operational data relevant to just that cluster.
+
+var mongoClient *mongo.Client
+var globalClusterDB *mongo.Database
+var ClusterDBs = make(map[string]*mongo.Database, maxClusters)
+
 var clusterGwCltn *mongo.Collection
 var namespaceCltn *mongo.Collection
-var usersCltn *mongo.Collection
-var serviceCltn *mongo.Collection
+
+var usersCltn = make(map[string]*mongo.Collection, maxClusters)
+var serviceCltn = make(map[string]*mongo.Collection, maxClusters)
 
 func ClusterDBInit(dbClient *mongo.Client) {
-	clusterDB = dbClient.Database("ClusterDB")
-	clusterGwCltn = clusterDB.Collection("NxtGateways")
-	namespaceCltn = clusterDB.Collection("NxtNamespaces")
-	usersCltn = clusterDB.Collection("NxtUsers")
-	serviceCltn = clusterDB.Collection("NxtServices")
+	mongoClient = dbClient
+	globalClusterDB = dbClient.Database("NxtClusterDB")
+	clusterGwCltn = globalClusterDB.Collection("NxtGateways")
+	namespaceCltn = globalClusterDB.Collection("NxtNamespaces")
+}
+
+func ClusterGetDBName(cl string) string {
+	return ("Nxt-" + cl + "-DB")
+}
+
+func ClusterGetCollection(cluster string, cltn string) *mongo.Collection {
+
+	_, ok := ClusterDBs[cluster]
+	if ok == false {
+		ClusterDBs[cluster] = mongoClient.Database(ClusterGetDBName(cluster))
+	}
+	switch cltn {
+	case "NxtUsers":
+		_, cok := usersCltn[cluster]
+		if cok == false {
+			usersCltn[cluster] = ClusterDBs[cluster].Collection("NxtUsers")
+		}
+		return usersCltn[cluster]
+	case "NxtServices":
+		_, cok := serviceCltn[cluster]
+		if cok == false {
+			serviceCltn[cluster] = ClusterDBs[cluster].Collection("NxtServices")
+		}
+		return serviceCltn[cluster]
+	}
+	return nil
+}
+
+func ClusterAddDB(cluster string) {
+
+	_, ok := ClusterDBs[cluster]
+	if ok {
+		return
+	}
+	ClusterDBs[cluster] = mongoClient.Database(ClusterGetDBName(cluster))
+	ClusterAddCollections(cluster, ClusterDBs[cluster])
+}
+
+func ClusterAddCollections(cluster string, cldb *mongo.Database) {
+	usersCltn[cluster] = cldb.Collection("NxtUsers")
+	serviceCltn[cluster] = cldb.Collection("NxtServices")
+}
+
+func ClusterDelDB(cluster string) {
+	delete(usersCltn, cluster)
+	delete(serviceCltn, cluster)
+	ClusterDBs[cluster].Drop(context.TODO())
+	delete(ClusterDBs, cluster)
 }
 
 func ClusterDBDrop() {
-	clusterDB.Drop(context.TODO())
+	allGws := DBFindAllGateways()
+	for i := 0; i < len(allGws); i++ {
+		cldb := mongoClient.Database(ClusterGetDBName(allGws[i].Cluster))
+		cldb.Drop(context.TODO())
+	}
+	globalClusterDB.Drop(context.TODO())
 }
 
 type ClusterGateway struct {
@@ -34,7 +105,7 @@ type ClusterGateway struct {
 	Version int    `json:"version" bson:"version"`
 }
 
-// This API will add a new namespace
+// This API will add a new gateway/cluster
 func DBAddClusterGateway(data *Gateway) error {
 	version := 1
 	gw := DBFindClusterGateway(data.Name)
@@ -56,9 +127,13 @@ func DBAddClusterGateway(data *Gateway) error {
 		},
 		&opt,
 	)
-	if err != nil {
+	if err.Err() != nil {
 		return err.Err()
 	}
+
+	// Create the logical DB for the cluster specific collections that are
+	// required by the nextensio manager in each cluster.
+	ClusterAddDB(data.Cluster)
 
 	return nil
 }
@@ -85,6 +160,7 @@ func DBDelClusterGateway(name string) error {
 }
 
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
+// Tenant info
 type Namespace struct {
 	ID      string `json:"_id" bson:"_id"` // Tenant id
 	Name    string `json:"name" bson:"name"`
@@ -93,7 +169,7 @@ type Namespace struct {
 	Version int    `json:"version" bson:"version"`
 }
 
-// This API will add a new namespace
+// This API will add a new namespace or update an existing one
 func DBAddNamespace(data *Tenant) error {
 
 	version := 1
@@ -117,7 +193,7 @@ func DBAddNamespace(data *Tenant) error {
 		},
 		&opt,
 	)
-	if err != nil {
+	if err.Err() != nil {
 		return err.Err()
 	}
 
@@ -188,10 +264,15 @@ func diffSlices(a []string, b []string) []string {
 	return new
 }
 
+// Today, this function is called when a new user is added to the system.
+// At that time, we are also assigning the user to a cluster and pod.
+// In future, the cluster/pod assignment will be dynamic when user signs-in.
+// Also, same user may connect via multiple devices, to the same or different
+// pods.
 func DBAddClusterUser(tenant string, data *User) error {
 	uid := tenant + ":" + data.Uid
 	version := 1
-	user := DBFindClusterUser(tenant, data.Uid)
+	user := DBFindClusterUser(data.Cluster, tenant, data.Uid)
 	var addServices []string
 	var delServices []string
 	if user != nil {
@@ -213,7 +294,14 @@ func DBAddClusterUser(tenant string, data *User) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	result := usersCltn.FindOneAndUpdate(
+	clusersCltn := ClusterGetCollection(data.Cluster, "NxtUsers")
+	if clusersCltn == nil {
+		msg := fmt.Sprintf("Could not find Clusterusers collection for cluster %s",
+			data.Cluster)
+		glog.Error(msg)
+		return errors.New(msg)
+	}
+	result := clusersCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": uid},
 		bson.D{
@@ -227,13 +315,13 @@ func DBAddClusterUser(tenant string, data *User) error {
 	}
 
 	for _, s := range addServices {
-		err := dbAddClusterSvc(tenant, s, data.Uid, data.Pod)
+		err := dbAddClusterSvc(data.Cluster, tenant, s, data.Uid, data.Pod)
 		if err != nil {
 			return err
 		}
 	}
 	for _, s := range delServices {
-		err := dbDelClusterSvc(tenant, s, data.Uid)
+		err := dbDelClusterSvc(data.Cluster, tenant, s, data.Uid)
 		if err != nil {
 			return err
 		}
@@ -242,10 +330,15 @@ func DBAddClusterUser(tenant string, data *User) error {
 	return nil
 }
 
-func DBFindClusterUser(tenant string, userid string) *ClusterUser {
+// Find a specific tenant's user within a cluster
+func DBFindClusterUser(clid string, tenant string, userid string) *ClusterUser {
 	uid := tenant + ":" + userid
 	var user ClusterUser
-	err := usersCltn.FindOne(
+	clusersCltn := ClusterGetCollection(clid, "NxtUsers")
+	if clusersCltn == nil {
+		return nil
+	}
+	err := clusersCltn.FindOne(
 		context.TODO(),
 		bson.M{"_id": uid},
 	).Decode(&user)
@@ -255,10 +348,16 @@ func DBFindClusterUser(tenant string, userid string) *ClusterUser {
 	return &user
 }
 
-func DBFindAllClusterUsers() []ClusterUser {
+// Find all users in a cluster.
+func DBFindAllClusterUsers(clid string) []ClusterUser {
 	var users []ClusterUser
 
-	cursor, err := usersCltn.Find(context.TODO(), bson.M{})
+	clusersCltn := ClusterGetCollection(clid, "NxtUsers")
+	if clusersCltn == nil {
+		return nil
+	}
+	// cursor, err := clusersCltn.Find(context.TODO(), bson.M{"tenant": tid})
+	cursor, err := clusersCltn.Find(context.TODO(), bson.M{})
 	if err != nil {
 		return nil
 	}
@@ -270,20 +369,26 @@ func DBFindAllClusterUsers() []ClusterUser {
 	return users
 }
 
-func DBDelClusterUser(tenant string, userid string) error {
-	user := DBFindClusterUser(tenant, userid)
+func DBDelClusterUser(clid string, tenant string, userid string) error {
+	user := DBFindClusterUser(clid, tenant, userid)
 	if user == nil {
 		error := fmt.Sprintf("User %s not found", userid)
 		return errors.New(error)
 	}
 	for _, s := range user.Services {
-		err := dbDelClusterSvc(tenant, s, userid)
+		err := dbDelClusterSvc(clid, tenant, s, userid)
 		if err != nil {
 			return err
 		}
 	}
+	clusersCltn := ClusterGetCollection(clid, "NxtUsers")
+	if clusersCltn == nil {
+		msg := fmt.Sprintf("Could not find Clusterusers collection for cluster %s", clid)
+		glog.Error(msg)
+		return errors.New(msg)
+	}
 	uid := tenant + ":" + userid
-	_, err := usersCltn.DeleteOne(
+	_, err := clusersCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": uid},
 	)
@@ -291,10 +396,16 @@ func DBDelClusterUser(tenant string, userid string) error {
 	return err
 }
 
+// Today, this function is called when a new connector is added to the system.
+// At that time, we are also assigning the connector to a cluster and pod.
+// TBD whether cluster assignment should be dynamic when connector signs-in
+// as connectors are static. Pod assignment may also be dynamic and done by k8s
+// if we have to assign from a replicaset.
+// We also need to cater to multi-homing of connectors to different pods.
 func DBAddClusterBundle(tenant string, data *Bundle) error {
 	uid := tenant + ":" + data.Bid
 	version := 1
-	user := DBFindClusterUser(tenant, data.Bid)
+	user := DBFindClusterUser(data.Cluster, tenant, data.Bid)
 	var addServices []string
 	var delServices []string
 	if user != nil {
@@ -316,7 +427,14 @@ func DBAddClusterBundle(tenant string, data *Bundle) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	result := usersCltn.FindOneAndUpdate(
+	clusersCltn := ClusterGetCollection(data.Cluster, "NxtUsers")
+	if clusersCltn == nil {
+		msg := fmt.Sprintf("Could not find Clusterusers collection for cluster %s",
+			data.Cluster)
+		glog.Error(msg)
+		return errors.New(msg)
+	}
+	result := clusersCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": uid},
 		bson.D{
@@ -330,13 +448,13 @@ func DBAddClusterBundle(tenant string, data *Bundle) error {
 	}
 
 	for _, s := range addServices {
-		err := dbAddClusterSvc(tenant, s, data.Bid, data.Pod)
+		err := dbAddClusterSvc(data.Cluster, tenant, s, data.Bid, data.Pod)
 		if err != nil {
 			return err
 		}
 	}
 	for _, s := range delServices {
-		err := dbDelClusterSvc(tenant, s, data.Bid)
+		err := dbDelClusterSvc(data.Cluster, tenant, s, data.Bid)
 		if err != nil {
 			return err
 		}
@@ -353,10 +471,10 @@ type ClusterService struct {
 	Version int      `json:"version" bson:"version"`
 }
 
-func dbAddClusterSvc(tenant string, service string, agent string, pod int) error {
+func dbAddClusterSvc(clid string, tenant string, service string, agent string, pod int) error {
 	sid := tenant + ":" + service
 	version := 1
-	svc := DBFindClusterSvc(tenant, service)
+	svc := DBFindClusterSvc(clid, tenant, service)
 	var agents []string
 	var pods []int
 	if svc != nil {
@@ -393,7 +511,11 @@ func dbAddClusterSvc(tenant string, service string, agent string, pod int) error
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	result := serviceCltn.FindOneAndUpdate(
+	clserviceCltn := ClusterGetCollection(clid, "NxtServices")
+	if clserviceCltn == nil {
+		return nil
+	}
+	result := clserviceCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": sid},
 		bson.D{
@@ -408,10 +530,14 @@ func dbAddClusterSvc(tenant string, service string, agent string, pod int) error
 	return nil
 }
 
-func DBFindClusterSvc(tenant string, service string) *ClusterService {
+func DBFindClusterSvc(clid string, tenant string, service string) *ClusterService {
 	sid := tenant + ":" + service
 	var svc ClusterService
-	err := serviceCltn.FindOne(
+	clserviceCltn := ClusterGetCollection(clid, "NxtServices")
+	if clserviceCltn == nil {
+		return nil
+	}
+	err := clserviceCltn.FindOne(
 		context.TODO(),
 		bson.M{"_id": sid},
 	).Decode(&svc)
@@ -421,10 +547,14 @@ func DBFindClusterSvc(tenant string, service string) *ClusterService {
 	return &svc
 }
 
-func DBFindAllClusterSvcs() []ClusterService {
+func DBFindAllClusterSvcs(clid string) []ClusterService {
 	var svcs []ClusterService
 
-	cursor, err := serviceCltn.Find(context.TODO(), bson.M{})
+	clserviceCltn := ClusterGetCollection(clid, "NxtServices")
+	if clserviceCltn == nil {
+		return nil
+	}
+	cursor, err := clserviceCltn.Find(context.TODO(), bson.M{})
 	if err != nil {
 		return nil
 	}
@@ -436,9 +566,9 @@ func DBFindAllClusterSvcs() []ClusterService {
 	return svcs
 }
 
-func dbDelClusterSvc(tenant string, service string, agent string) error {
+func dbDelClusterSvc(clid string, tenant string, service string, agent string) error {
 	sid := tenant + ":" + service
-	svc := DBFindClusterSvc(tenant, service)
+	svc := DBFindClusterSvc(clid, tenant, service)
 	if svc == nil {
 		return errors.New("No service")
 	}
@@ -456,8 +586,12 @@ func dbDelClusterSvc(tenant string, service string, agent string) error {
 		return nil
 	}
 	version := svc.Version + 1
+	clserviceCltn := ClusterGetCollection(clid, "NxtServices")
+	if clserviceCltn == nil {
+		return nil // TODO: or return error ?
+	}
 	if len(agents) == 0 {
-		_, err := serviceCltn.DeleteOne(
+		_, err := clserviceCltn.DeleteOne(
 			context.TODO(),
 			bson.M{"_id": sid},
 		)
@@ -472,7 +606,7 @@ func dbDelClusterSvc(tenant string, service string, agent string) error {
 			ReturnDocument: &after,
 			Upsert:         &upsert,
 		}
-		result := serviceCltn.FindOneAndUpdate(
+		result := clserviceCltn.FindOneAndUpdate(
 			context.TODO(),
 			bson.M{"_id": sid},
 			bson.D{
