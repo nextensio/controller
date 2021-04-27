@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -25,6 +24,7 @@ var gatewayCltn *mongo.Collection
 var nxtDB *mongo.Database
 var tenantDBs = make(map[string]*mongo.Database, maxTenants)
 
+var tenantClusCltn = make(map[string]*mongo.Collection, maxTenants)
 var tenantPolicyCltn = make(map[string]*mongo.Collection, maxTenants)
 var tenantUserCltn = make(map[string]*mongo.Collection, maxTenants)
 var tenantUserAttrCltn = make(map[string]*mongo.Collection, maxTenants)
@@ -80,6 +80,12 @@ func dbGetCollection(tnt string, cltn string) *mongo.Collection {
 		tenantDBs[tenant] = dbClient.Database(dbGetTenantDBName(tenant))
 	}
 	switch cltn {
+	case "NxtTenantClusters":
+		_, cok := tenantClusCltn[tenant]
+		if cok == false {
+			tenantClusCltn[tenant] = tenantDBs[tenant].Collection("NxtTenantClusters")
+		}
+		return tenantClusCltn[tenant]
 	case "NxtPolicies":
 		_, cok := tenantPolicyCltn[tenant]
 		if cok == false {
@@ -143,6 +149,7 @@ func dbAddTenantDB(tnt string) {
 }
 
 func dbAddTenantCollections(tenant string, tntdb *mongo.Database) {
+	tenantClusCltn[tenant] = tntdb.Collection("NxtTenantClusters")
 	tenantPolicyCltn[tenant] = tntdb.Collection("NxtPolicies")
 	tenantUserCltn[tenant] = tntdb.Collection("NxtUsers")
 	tenantUserAttrCltn[tenant] = tntdb.Collection("NxtUserAttr")
@@ -155,6 +162,7 @@ func dbAddTenantCollections(tenant string, tntdb *mongo.Database) {
 
 func dbDelTenantDB(tnt string) {
 	tenant := tnt
+	delete(tenantClusCltn, tenant)
 	delete(tenantPolicyCltn, tenant)
 	delete(tenantUserCltn, tenant)
 	delete(tenantUserAttrCltn, tenant)
@@ -205,8 +213,4 @@ func DBInit() {
 func dbSetup() {
 	dbCollections()
 	ClusterDBInit(dbClient)
-}
-
-func StrToObjectid(objid string) (primitive.ObjectID, error) {
-	return primitive.ObjectIDFromHex(objid)
 }

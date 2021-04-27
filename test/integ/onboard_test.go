@@ -190,12 +190,17 @@ func TestGetAllGateway_v1(t *testing.T) {
 }
 
 type Tenant_v1 struct {
-	ID       string   `json:"_id" bson:"_id"`
-	Name     string   `json:"name" bson:"name"`
-	Gateways []string `json:"gateways"`
-	Domains  []string `json:"domains"`
-	Image    string   `json:"image" bson:"image"`
-	Pods     int      `json:"pods" bson:"pods"`
+	ID      string   `json:"_id" bson:"_id"`
+	Name    string   `json:"name" bson:"name"`
+	Domains []string `json:"domains"`
+	Image   string   `json:"image" bson:"image"`
+}
+
+type TenantCluster_v1 struct {
+	Tenant  string `json:"tenant" bson:"tenant"`
+	Cluster string `json:"cluster" bson:"cluster"`
+	Image   string `json:"image" bson:"image"`
+	Pods    int    `json:"apods" bson:"apods"`
 }
 
 func addTenant(tenant *Tenant_v1) bool {
@@ -250,33 +255,139 @@ func addTenant(tenant *Tenant_v1) bool {
 	return true
 }
 
+func addTenantCluster_v1(tcl *TenantCluster_v1) bool {
+	body, err := json.Marshal(tcl)
+	if err != nil {
+		return false
+	}
+	url := "http://127.0.0.1:8080/api/v1/tenant/"+tcl.Tenant+"/add/tenantcluster"
+	req, _ := http.NewRequest("POST", url, 	bytes.NewBuffer(body))
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	body, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return false
+	}
+	var data router.OpResult
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		return false
+	}
+	if data.Result != "ok" {
+		return false
+	}
+	return true
+}
+
+func testTenantClusterDel(t *testing.T, cluster string) {
+	dbTenants := db.DBFindAllTenants()
+
+	cldoc := db.DBFindTenantCluster(dbTenants[0].ID, cluster)
+	if cldoc == nil {
+		t.Error()
+		return
+	}
+	url := "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/tenantcluster/"+cluster
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer "+AccessToken)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Error()
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error()
+		return
+	}
+	var data router.OpResult
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		t.Error()
+		return
+	}
+	if data.Result != "ok" {
+		t.Error()
+		return
+	}
+	if db.DBFindTenantCluster(dbTenants[0].ID, cluster) != nil ||
+		db.DBFindClusterConfig(cluster, dbTenants[0].ID) != nil {
+		t.Error()
+		return
+	}
+}
+
+// Add tenant, then add clusters sjc and ric, then assign tenant to both clusters.
+// Each cluster has two pods.
 func AddTenant_v1(t *testing.T) {
 	var tenant = Tenant_v1{
-		ID:       "nextensio",
-		Name:     "foobar",
-		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"},
-		Domains:  []string{"kismis.org"},
-		Image:    "davigupta/minion:0.80",
-		Pods:     10,
+		ID:      "nextensio",
+		Name:    "foobar",
+		Domains: []string{"kismis.org"},
+		Image:   "davigupta/minion:0.80",
 	}
 	add := addTenant(&tenant)
-	if add == true {
-		// The above add should NOT succeed because we have not added any gateways yet
+	if add == false {
+		// The above add should succeed
 		t.Error()
 		return
 	}
 
-	// add one gateway, but the tenant add should still fail since only one is added yet
+	tenants := db.DBFindAllTenants()
+	if tenants == nil {
+		t.Error()
+		return
+	}
+	if len(tenants) > 1 {
+		// We've added only one tenant
+		t.Error()
+		return
+	}
+
+	var tcluster1 = TenantCluster_v1{
+		Tenant:  tenant.ID,
+		Cluster: "sjc",
+		Pods:    2,
+	}
+	var tcluster2 = TenantCluster_v1{
+		Tenant:  tenant.ID,
+		Cluster: "ric",
+		Pods:    2,
+	}
+
+	// Try to assign tenant to sjc cluster. Should fail since we haven't created sjc
+	add = addTenantCluster_v1(&tcluster1)
+	if add == true {
+		t.Error()
+		return
+	}
+
+	// add gateway for sjc
 	gw := Gateway_v1{Name: "sjc.nextensio.net", Cluster: "sjc"}
 	add = addGateway(&gw)
 	if add == false {
 		t.Error()
 		return
 	}
+	add = addTenantCluster_v1(&tcluster1)
+	if add == false {
+		// The above add should have succeeded since sjc was added
+		t.Error()
+		return
+	}
 
-	add = addTenant(&tenant)
+	add = addTenantCluster_v1(&tcluster2)
 	if add == true {
-		// The above add should NOT succeed because we have not added second gateway yet
+		// The above add should have failed since ric hasn't been created
 		t.Error()
 		return
 	}
@@ -287,9 +398,9 @@ func AddTenant_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	add = addTenant(&tenant)
+	add = addTenantCluster_v1(&tcluster2)
 	if add == false {
-		// Now that both gateways are added, tenant added should succeed
+		// Now that ric is also added, tenant add to ric should succeed
 		t.Error()
 		return
 	}
@@ -317,24 +428,24 @@ func TestGetAllTenant_v1(t *testing.T) {
 		return
 	}
 	var tenant1 = Tenant_v1{
-		ID:       "nextensio1",
-		Name:     "foobar",
-		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"},
-		Domains:  []string{"kismis.org"},
+		ID:      "nextensio1",
+		Name:    "foobar",
+		Domains: []string{"kismis.org"},
 	}
 	add = addTenant(&tenant1)
 	if add == false {
-		// The above add should NOT succeed because we have not added any gateways yet
+		// The above add should have succeeded
 		t.Error()
 		return
 	}
 	var tenant2 = Tenant_v1{
-		ID:       "nextensio2",
-		Name:     "gloobar",
-		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"}}
+		ID:      "nextensio2",
+		Name:    "gloobar",
+		Domains: []string{"kismis.org"},
+	}
 	add = addTenant(&tenant2)
 	if add == false {
-		// The above add should NOT succeed because we have not added any gateways yet
+		// The above add should have succeeded
 		t.Error()
 		return
 	}
@@ -408,9 +519,13 @@ func testTenantDel(t *testing.T, expect_delete bool) {
 			t.Error()
 			return
 		}
-		if db.DBFindAllUsers(dbTenants[0].ID) != nil || db.DBFindAllUserAttrs(dbTenants[0].ID) != nil ||
-			db.DBFindAllBundles(dbTenants[0].ID) != nil || db.DBFindAllBundleAttrs(dbTenants[0].ID) != nil ||
-			db.DBFindAllPolicies(dbTenants[0].ID) != nil || db.DBFindNamespace(dbTenants[0].ID) != nil {
+		if db.DBFindAllUsers(dbTenants[0].ID) != nil ||
+			db.DBFindAllUserAttrs(dbTenants[0].ID) != nil ||
+			db.DBFindAllBundles(dbTenants[0].ID) != nil ||
+			db.DBFindAllBundleAttrs(dbTenants[0].ID) != nil ||
+			db.DBFindAllPolicies(dbTenants[0].ID) != nil ||
+			db.DBFindNamespace(dbTenants[0].ID) != nil ||
+			db.DBFindAllClustersForTenant(dbTenants[0].ID) != nil {
 			t.Error()
 			return
 		}
@@ -419,9 +534,12 @@ func testTenantDel(t *testing.T, expect_delete bool) {
 			t.Error()
 			return
 		}
-		if db.DBFindAllUsers(dbTenants[0].ID) == nil && db.DBFindAllUserAttrs(dbTenants[0].ID) == nil &&
-			db.DBFindAllBundles(dbTenants[0].ID) == nil && db.DBFindAllBundleAttrs(dbTenants[0].ID) == nil &&
-			db.DBFindAllPolicies(dbTenants[0].ID) == nil {
+		if db.DBFindAllUsers(dbTenants[0].ID) == nil &&
+			db.DBFindAllUserAttrs(dbTenants[0].ID) == nil &&
+			db.DBFindAllBundles(dbTenants[0].ID) == nil &&
+			db.DBFindAllBundleAttrs(dbTenants[0].ID) == nil &&
+			db.DBFindAllPolicies(dbTenants[0].ID) == nil &&
+			db.DBFindAllClustersForTenant(dbTenants[0].ID) == nil {
 			t.Error()
 			return
 		}
@@ -439,11 +557,15 @@ func TestTenantDel(t *testing.T) {
 	testBundleDel(t, "youtube")
 	testTenantDel(t, false)
 	PolicyDel_v1(t, "agent-access")
+	testTenantDel(t, false)
+	testTenantClusterDel(t, "ric")
+	testTenantDel(t, false)
+	testTenantClusterDel(t, "sjc")
 	testTenantDel(t, true)
 }
 
 func addGatewayAndTenant(t *testing.T) {
-	// add one gateway, but the tenant add should still fail since only one is added yet
+	// add two gateways, add tenant, then assign tenant to both gateways
 	gw := Gateway_v1{Name: "sjc.nextensio.net", Cluster: "sjc"}
 	add := addGateway(&gw)
 	if add == false {
@@ -457,14 +579,43 @@ func addGatewayAndTenant(t *testing.T) {
 		return
 	}
 	var tenant = Tenant_v1{
-		ID:       "nextensio",
-		Name:     "foobar",
-		Gateways: []string{"sjc.nextensio.net", "ric.nextensio.net"},
-		Domains:  []string{"kismis.org"},
+		ID:      "nextensio",
+		Name:    "foobar",
+		Domains: []string{"kismis.org"},
 	}
 	add = addTenant(&tenant)
 	if add == false {
-		// The above add should NOT succeed because we have not added any gateways yet
+		// The above add should have succeeded
+		t.Error()
+		return
+	}
+
+	tenants := db.DBFindAllTenants()
+	if tenants == nil {
+		t.Error()
+		return
+	}
+	var tcluster1 = TenantCluster_v1{
+		Tenant:  tenants[0].ID,
+		Cluster: "sjc",
+		Pods:    2,
+	}
+	var tcluster2 = TenantCluster_v1{
+		Tenant:  tenants[0].ID,
+		Cluster: "ric",
+		Pods:    2,
+	}
+
+	add = addTenantCluster_v1(&tcluster1)
+	if add == false {
+		// The above add should have succeeded since sjc was added
+		t.Error()
+		return
+	}
+
+	add = addTenantCluster_v1(&tcluster2)
+	if add == false {
+		// The above add should have succeeded since ric was added
 		t.Error()
 		return
 	}
@@ -527,6 +678,9 @@ type User_v1 struct {
 	Services  []string `json:"services" bson:"services"`
 }
 
+// Create tenant if first user being added. When tenant is created, two clusters
+// called sjc and ric with two pods each are also created and tenant is assigned
+// to both clusters. User is added to connect to pod1 in sjc.
 func UserAdd_v1(t *testing.T, tenantadd bool, userid string, services []string) {
 	if tenantadd {
 		AddTenant_v1(t)
@@ -1664,6 +1818,9 @@ type Bundle_v1 struct {
 	Services   []string `json:"services" bson:"services"`
 }
 
+// Create tenant if first bundle being added. When tenant is created, two clusters
+// called sjc and ric with two pods each are also created and tenant is assigned
+// to both clusters. Bundle is added to connect to pod1 in sjc.
 func testBundleAdd_v1(t *testing.T, tenantadd bool, bid string, services []string) {
 	if tenantadd {
 		AddTenant_v1(t)
@@ -1675,7 +1832,7 @@ func testBundleAdd_v1(t *testing.T, tenantadd bool, bid string, services []strin
 		Bundlename: "Google Youtube service",
 		Cluster:    "sjc",
 		Gateway:    "",
-		Pod:        1,
+		Pod:        2,
 		Connectid:  "unused",
 		Services:   services,
 	}

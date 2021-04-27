@@ -31,6 +31,7 @@ var ClusterDBs = make(map[string]*mongo.Database, maxClusters)
 
 var clusterGwCltn *mongo.Collection
 var namespaceCltn *mongo.Collection
+var clusterCfgCltn *mongo.Collection
 
 var usersCltn = make(map[string]*mongo.Collection, maxClusters)
 var serviceCltn = make(map[string]*mongo.Collection, maxClusters)
@@ -40,6 +41,7 @@ func ClusterDBInit(dbClient *mongo.Client) {
 	globalClusterDB = dbClient.Database("NxtClusterDB")
 	clusterGwCltn = globalClusterDB.Collection("NxtGateways")
 	namespaceCltn = globalClusterDB.Collection("NxtNamespaces")
+	clusterCfgCltn = globalClusterDB.Collection("NxtClusters")
 }
 
 func ClusterGetDBName(cl string) string {
@@ -102,13 +104,15 @@ func ClusterDBDrop() {
 
 type ClusterGateway struct {
 	Name    string `json:"name" bson:"name"`
+	Cluster string `json:"cluster" bson:"cluster"`
 	Version int    `json:"version" bson:"version"`
 }
 
 // This API will add a new gateway/cluster
 func DBAddClusterGateway(data *Gateway) error {
 	version := 1
-	gw := DBFindClusterGateway(data.Name)
+	// Get the gateway/cluster doc using the gateway name
+	gw := DBFindGatewayCluster(data.Name)
 	if gw != nil {
 		version = gw.Version + 1
 	}
@@ -123,7 +127,8 @@ func DBAddClusterGateway(data *Gateway) error {
 		context.TODO(),
 		bson.M{"name": data.Name},
 		bson.D{
-			{"$set", bson.M{"name": data.Name, "version": version}},
+			{"$set", bson.M{"name": data.Name, "cluster": data.Cluster,
+				"version": version}},
 		},
 		&opt,
 	)
@@ -138,11 +143,12 @@ func DBAddClusterGateway(data *Gateway) error {
 	return nil
 }
 
-func DBFindClusterGateway(name string) *ClusterGateway {
+// Find gateway/cluster doc given the cluster name
+func DBFindClusterGateway(clname string) *ClusterGateway {
 	var gateway ClusterGateway
 	err := clusterGwCltn.FindOne(
 		context.TODO(),
-		bson.M{"name": name},
+		bson.M{"cluster": clname},
 	).Decode(&gateway)
 	if err != nil {
 		return nil
@@ -150,13 +156,35 @@ func DBFindClusterGateway(name string) *ClusterGateway {
 	return &gateway
 }
 
-func DBDelClusterGateway(name string) error {
+// Find gateway/cluster doc given the gateway name
+func DBFindGatewayCluster(gwname string) *ClusterGateway {
+	var gateway ClusterGateway
+	err := clusterGwCltn.FindOne(
+		context.TODO(),
+		bson.M{"name": gwname},
+	).Decode(&gateway)
+	if err != nil {
+		return nil
+	}
+	return &gateway
+}
+
+func DBDelClusterGateway(gwname string) error {
+	clgw := DBFindGatewayCluster(gwname)
+	if clgw == nil {
+		return errors.New("Cluster gateway not found - cannot delete")
+	}
 	_, err := clusterGwCltn.DeleteOne(
 		context.TODO(),
-		bson.M{"name": name},
+		bson.M{"name": gwname},
 	)
+	if err != nil {
+		return err
+	}
 
-	return err
+	// Remove the logical DB for per-cluster collections
+	ClusterDelDB(clgw.Cluster)
+	return nil
 }
 
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
@@ -165,7 +193,6 @@ type Namespace struct {
 	ID      string `json:"_id" bson:"_id"` // Tenant id
 	Name    string `json:"name" bson:"name"`
 	Image   string `json:"image" bson:"image"`
-	Pods    int    `json:"pods" bson:"pods"`
 	Version int    `json:"version" bson:"version"`
 }
 
@@ -189,7 +216,7 @@ func DBAddNamespace(data *Tenant) error {
 		bson.M{"_id": data.ID},
 		bson.D{
 			{"$set", bson.M{"name": data.Name, "image": data.Image,
-				"pods": data.Pods, "version": version}},
+				"version": version}},
 		},
 		&opt,
 	)
@@ -234,6 +261,209 @@ func DBDelNamespace(id string) error {
 	)
 
 	return err
+}
+
+// Each cluster will have one or more tenants, and for each tenant, we will configure
+// how many pods should be deployed in that cluster and what image should be used.
+// TODO very soon: separation of apods from cpods.
+// The mongoDB collection with this doc will be created from the TenantCluster configs
+// and give the overall composition of a cluster by various tenants.
+// Dynamic pod assignment for each user will also be managed from here.
+// Changes in Image should trigger a regeneration of the deployment yamls in the
+// associated cluster by its clustermgr.
+// Changes in number of pods will also trigger adds or deletes so that new pods can be
+// deployed or existing ones brought down.
+// Currently, we don't support increasing or decreasing pods once allocated.
+// TODO: addition and removal of pods for any tenant in any cluster.
+// The cluster manager in each cluster generates a connectivity mesh between clusters
+// from this collection to create egress gateways as needed.
+// TODO: Processing of tenant removals from a cluster (and egress gateway removals).
+type ClusterConfig struct {
+	Id      string `json:"id" bson:"_id"` // ClusterID:TenantID
+	Cluster string `json:"cluster" bson:"cluster"`
+	Tenant  string `json:"tenant" bson:"tenant"`
+	Image   string `json:"image" bson:"image"`
+	Pods    int    `json:"pods" bson:"pods"`
+	NextPod int    `json:"nextpod" bson:"nextpod"`
+	Version int    `json:"version" bson:"version"`
+}
+
+// This API will add a new doc or update one for pods allocated to a tenant
+// within a specific cluster
+func DBAddClusterConfig(tenant string, data *TenantCluster) error {
+	version := 1
+	nextpod := 0
+	clc := DBFindClusterConfig(data.Cluster, tenant)
+	if clc != nil {
+		if clc.Pods != data.Pods {
+			msg := "Cannot currently change # of pods once allocated within a cluster"
+			glog.Error(msg)
+			return errors.New(msg)
+		}
+		// If ClusterConfig exists, use following fields
+		version = clc.Version + 1
+		nextpod = clc.NextPod
+	}
+	id := data.Cluster + ":" + tenant
+
+	// The upsert option asks the DB to add if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	err := clusterCfgCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": id},
+		bson.D{
+			{"$set", bson.M{"_id": id, "nextpod": nextpod, "pods": data.Pods,
+				"image": data.Image, "cluster": data.Cluster,
+				"tenant": tenant, "version": version}},
+		},
+		&opt,
+	)
+	if err.Err() != nil {
+		glog.Errorf("Add ClusterConfig failed - %v", err.Err())
+		return err.Err()
+	}
+	glog.Infof("ClusterConfig added or updated for %s, pods=%d", id, data.Pods)
+
+	// TODO: Handle increase or decrease in # of pods
+
+	return nil
+}
+
+// Update the doc for a tenant within a cluster when a pod is assigned to a user.
+// Note that we don't bump up Version.
+func DBUpdClusterConfig(clcfg *ClusterConfig) error {
+
+	change := bson.M{"nextpod": clcfg.NextPod}
+	filter := bson.D{{"_id", clcfg.Id}}
+	update := bson.D{{"$set", change}}
+	_, err := clusterCfgCltn.UpdateOne(context.TODO(), filter, update)
+	glog.Infof("ClusterConfig updated for %s, Nextpod=%d", clcfg.Id, clcfg.NextPod)
+	return err
+}
+
+// Find the ClusterConfig doc for a tenant within a cluster
+func DBFindClusterConfig(clid string, tenant string) *ClusterConfig {
+	var clcfg ClusterConfig
+	id := clid + ":" + tenant
+	err := clusterCfgCltn.FindOne(context.TODO(), bson.M{"_id": id}).Decode(&clcfg)
+	if err != nil {
+		return nil
+	}
+	return &clcfg
+}
+
+// Check if any tenants are present in a cluster - return tenant count
+// 0 == no tenants; > 0 indicates tenants present
+func DBAnyTenantsInCluster(clid string) int {
+	clcfg := DBFindAllTenantsInCluster(clid)
+	if clcfg == nil {
+		return 0
+	}
+	return len(clcfg)
+}
+
+// Find and return docs for all tenants present in a cluster
+func DBFindAllTenantsInCluster(clid string) []ClusterConfig {
+	var clcfg []ClusterConfig
+	cursor, err := clusterCfgCltn.Find(context.TODO(), bson.M{"cluster": clid})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &clcfg)
+	if err != nil {
+		return nil
+	}
+	if len(clcfg) > 0 {
+		return clcfg
+	}
+	return nil
+}
+
+// Find and return docs for all clusters for specified tenant
+func DBFindAllClustersForTenant(tenant string) []ClusterConfig {
+	var clcfg []ClusterConfig
+	cursor, err := clusterCfgCltn.Find(context.TODO(), bson.M{"tenant": tenant})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &clcfg)
+	if err != nil {
+		return nil
+	}
+	if len(clcfg) > 0 {
+		return clcfg
+	}
+	return nil
+}
+
+// Delete the ClusterConfig doc for a tenant within a cluster.
+// For now, check if there are any active users or connectors.
+// If none, then delete the ClusterConfig.
+// Need a way to ensure that new users are blocked from connecting
+// to any of the tenant's pods that are to be removed.
+func DBDelClusterConfig(clid string, tenant string) error {
+	clcfg := DBFindClusterConfig(clid, tenant)
+	if clcfg == nil {
+		msg := fmt.Sprintf("Could not find ClusterConfig to delete for %s:%s", clid, tenant)
+		glog.Errorf(msg)
+		return errors.New(msg)
+	}
+	users := DBFindAllClusterUsersForTenant(clid, tenant)
+	if users != nil {
+		msg := fmt.Sprintf("Cannot delete ClusterConfig for %s:%s - active users",
+			clid, tenant)
+		glog.Errorf(msg)
+		return errors.New(msg)
+	}
+	// TODO: removal of pods
+
+	id := clid + ":" + tenant
+	_, err := clusterCfgCltn.DeleteOne(context.TODO(), bson.M{"_id": id})
+	glog.Infof("ClusterConfig deleted for %s", id)
+
+	return err
+}
+
+// To be used when we support dynamic assignment of cluster and pod to a user or
+// cluster to a connector. The algorithm here may need to be enhanced considering the
+// requirement to take pods offline, either for an upgrade or for reducing number of pods.
+// It is ok to allow a user to connect to the same pod from multiple devices.
+// Multi-homing of a user from the same device is TBD.
+// Multi-homing of connectors will always be to different pods, either within the
+// same cluster or different clusters.
+func ClusterUserGetNextPod(tenant string, clid string, utype string) int {
+	nextpod := 0
+
+	clcfg := DBFindClusterConfig(clid, tenant)
+	if clcfg == nil {
+		return nextpod
+	}
+	switch utype {
+	case "agent":
+		if clcfg.Pods == 0 {
+			return 0
+		}
+		nextpod = clcfg.NextPod + 1 // Pods are created one-based
+		clcfg.NextPod = (nextpod + 1) % clcfg.Pods
+	case "connector":
+		if clcfg.Pods == 0 {
+			return 0
+		}
+		nextpod = clcfg.NextPod + 1 // Pods are created one-based
+		clcfg.NextPod = (nextpod + 1) % clcfg.Pods
+	default:
+		return 0
+	}
+
+	// Update NextPod in cluster config doc
+	DBUpdClusterConfig(clcfg)
+
+	return nextpod
 }
 
 type ClusterUser struct {
@@ -356,8 +586,26 @@ func DBFindAllClusterUsers(clid string) []ClusterUser {
 	if clusersCltn == nil {
 		return nil
 	}
-	// cursor, err := clusersCltn.Find(context.TODO(), bson.M{"tenant": tid})
 	cursor, err := clusersCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &users)
+	if err != nil {
+		return nil
+	}
+
+	return users
+}
+
+func DBFindAllClusterUsersForTenant(clid string, tenant string) []ClusterUser {
+	var users []ClusterUser
+
+	clusersCltn := ClusterGetCollection(clid, "NxtUsers")
+	if clusersCltn == nil {
+		return nil
+	}
+	cursor, err := clusersCltn.Find(context.TODO(), bson.M{"tenant": tenant})
 	if err != nil {
 		return nil
 	}
@@ -530,6 +778,7 @@ func dbAddClusterSvc(clid string, tenant string, service string, agent string, p
 	return nil
 }
 
+// Find a specific tenant service within a cluster
 func DBFindClusterSvc(clid string, tenant string, service string) *ClusterService {
 	sid := tenant + ":" + service
 	var svc ClusterService
@@ -547,14 +796,15 @@ func DBFindClusterSvc(clid string, tenant string, service string) *ClusterServic
 	return &svc
 }
 
-func DBFindAllClusterSvcs(clid string) []ClusterService {
+// Find all services within a cluster for a specific tenant
+func DBFindAllClusterSvcsForTenant(clid string, tenant string) []ClusterService {
 	var svcs []ClusterService
 
 	clserviceCltn := ClusterGetCollection(clid, "NxtServices")
 	if clserviceCltn == nil {
 		return nil
 	}
-	cursor, err := clserviceCltn.Find(context.TODO(), bson.M{})
+	cursor, err := clserviceCltn.Find(context.TODO(), bson.M{"tenant": tenant})
 	if err != nil {
 		return nil
 	}

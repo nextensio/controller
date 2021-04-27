@@ -80,6 +80,12 @@ func rdonlyOnboard() {
 
 	// This route is used to get application attributes for a specific app-bundle
 	getTenantRoute("/bundleattr/{bid}", "GET", getBundleAttrHandler)
+
+	// This route is used to get all cluster assignments for a tenant
+	getTenantRoute("/alltenantclusters", "GET", getAllClustersForTenantHandler)
+
+	// This route is used to get a specific cluster assignment for a tenant
+	getTenantRoute("/tenantcluster/{clusterid}", "GET", getTenantClusterHandler)
 }
 
 func rdwrOnboard() {
@@ -155,6 +161,12 @@ func rdwrOnboard() {
 
 	// This route is used to get attributes for a specific host
 	delTenantRoute("/hostattr/{host}", "GET", delHostAttrHandler)
+
+	// This route is used to add or update a cluster assignment for a tenant
+	addTenantRoute("/tenantcluster", "POST", addTenantClusterHandler)
+
+	// This route is used to delete a cluster assignment for a tenant
+	delTenantRoute("/tenantcluster/{clusterid}", "GET", delTenantClusterHandler)
 }
 
 func signupHandler(w http.ResponseWriter, r *http.Request) {
@@ -196,7 +208,6 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 	var data db.Tenant
 	data.ID = signup.Tenant
 	data.Gateways = gateways
-	data.Pods = 2
 	err = db.DBAddTenant(&data)
 	if err != nil {
 		result.Result = err.Error()
@@ -302,8 +313,18 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
+	if db.DBFindAllUserAttrs(uuid) != nil {
+		result.Result = "Tenant still has user attribute docs"
+		utils.WriteResult(w, result)
+		return
+	}
 	if db.DBFindAllBundles(uuid) != nil {
 		result.Result = "Tenant still has bundles"
+		utils.WriteResult(w, result)
+		return
+	}
+	if db.DBFindAllBundleAttrs(uuid) != nil {
+		result.Result = "Tenant still has bundle attribute docs"
 		utils.WriteResult(w, result)
 		return
 	}
@@ -317,20 +338,8 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err := db.DBDelUserAttrHdr(uuid)
-	if err != nil {
-		result.Result = "Failed to delete user attribute header"
-		utils.WriteResult(w, result)
-		return
-	}
-	err = db.DBDelBundleAttrHdr(uuid)
-	if err != nil {
-		result.Result = "Failed to delete bundle attribute header"
-		utils.WriteResult(w, result)
-		return
-	}
-
-	err = db.DBDelTenant(uuid)
+	// DBDelTenant() will remove all header docs for tenant collections
+	err := db.DBDelTenant(uuid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {
@@ -379,11 +388,19 @@ type DelgatewayResult struct {
 // Delete a Nextensio gateway
 func delgatewayHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
+	var inuse int
 
 	v := mux.Vars(r)
 	name := v["name"]
 
-	if db.DBGatewayInUse(name) {
+	inuse = db.DBGatewayInUse(name)
+	if inuse < 0 {
+		result.Result = "Gateway not found"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	if inuse > 0 {
 		result.Result = "Gateway still in use by tenants"
 		utils.WriteResult(w, result)
 		return
@@ -524,41 +541,51 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	{
-		user := db.DBFindUser(data.Tenant, data.Userid)
-		if user != nil {
-			if user.Uid != data.Userid {
-				result.Result = "IDP / controller username mismatch"
-				utils.WriteResult(w, result)
-				return
+	user := db.DBFindUser(data.Tenant, data.Userid)
+	if user != nil {
+		result.Connectid = user.Connectid
+		result.Services = user.Services
+		result.Gateway = user.Gateway
+		// This is used only in a test environment today, to force-associate
+		// a user to a gateway
+		if user.Gateway == "" {
+			if user.Cluster != "" {
+				result.Gateway = db.DBGetGwName(user.Cluster)
+			} else {
+				// TODO: Return the appropriate gateway from the list to
+				// the agent, the appropriate geo-located gateway, using
+				// maxmind maybe ?
+				tcluster := db.DBFindAllClusterConfigsForTenant(data.Tenant)
+				if tcluster != nil {
+					result.Gateway = db.DBGetGwName(tcluster[0].Cluster)
+				}
 			}
-			result.Connectid = user.Connectid
-			result.Services = user.Services
+		}
+	} else {
+		bundle := db.DBFindBundle(data.Tenant, data.Userid)
+		if bundle != nil {
+			result.Connectid = bundle.Connectid
+			result.Services = bundle.Services
+			result.Gateway = bundle.Gateway
 			// This is used only in a test environment today, to force-associate
-			// a user to a gateway
-			if user.Gateway != "" {
-				result.Gateway = user.Gateway
+			// a connector to a gateway
+			if bundle.Gateway == "" {
+				if bundle.Cluster != "" {
+					result.Gateway = db.DBGetGwName(bundle.Cluster)
+				} else {
+					// TODO: Return the appropriate gateway from the list to
+					// the connector, the appropriate geo-located gateway, using
+					// maxmind maybe ?
+					tcluster := db.DBFindAllClusterConfigsForTenant(data.Tenant)
+					if tcluster != nil {
+						result.Gateway = db.DBGetGwName(tcluster[0].Cluster)
+					}
+				}
 			}
 		} else {
-			bundle := db.DBFindBundle(data.Tenant, data.Userid)
-			if bundle != nil {
-				if bundle.Bid != data.Userid {
-					result.Result = "IDP / controller bundlename mismatch"
-					utils.WriteResult(w, result)
-					return
-				}
-				result.Connectid = bundle.Connectid
-				result.Services = bundle.Services
-				// This is used only in a test environment today, to force-associate
-				// a user to a gateway
-				if bundle.Gateway != "" {
-					result.Gateway = bundle.Gateway
-				}
-			} else {
-				result.Result = "IDP user/bundle not found on controller"
-				utils.WriteResult(w, result)
-				return
-			}
+			result.Result = "IDP user/bundle not found on controller"
+			utils.WriteResult(w, result)
+			return
 		}
 	}
 	cert := db.DBFindCert("CACert")
@@ -571,15 +598,11 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	result.Userid = data.Userid
 	result.Tenant = data.Tenant
 	result.Cacert = cert.Cert
-	// TODO: This needs modification where we return the appropriate gateway from
-	// the list to the agent, the appropriate geo-located gateway using maxmind maybe ?
-	if result.Gateway == "" {
-		result.Gateway = tenant.Gateways[0]
-	}
 	result.Domains = tenant.Domains
 	utils.WriteResult(w, result)
 
-	glog.Info("User ", data.Userid, " tenant ", data.Tenant, " signed in")
+	glog.Infof("User %s of tenant %s with connectid %s signed in. Gateway %s assigned",
+		data.Userid, data.Tenant, result.Connectid, result.Gateway)
 }
 
 type OpResult struct {
@@ -1258,6 +1281,92 @@ func delUserExtAttrHandler(w http.ResponseWriter, r *http.Request) {
 
 	uuid := r.Context().Value("tenant").(string)
 	err := db.DBDelUserExtAttr(uuid)
+	if err != nil {
+		result.Result = err.Error()
+	} else {
+		result.Result = "ok"
+	}
+	utils.WriteResult(w, result)
+}
+
+//------------------------------Tenant allocation to clusters --------------------------------
+
+// Allocate a tenant to a cluster, specifying the number of pods allocated
+// for the tenant in the cluster and image to use for the pods (for now).
+func addTenantClusterHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+	var data db.TenantCluster
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Add tenant cluster - HTTP Req Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		result.Result = "Add tenant cluster - Error parsing json"
+		utils.WriteResult(w, result)
+		return
+	}
+	uuid := r.Context().Value("tenant").(string)
+	err = db.DBAddTenantCluster(uuid, &data)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+type GetTenantClusResult struct {
+	Result   string `json:"Result"`
+	TenantCl db.TenantCluster
+}
+
+// Get a cluster assignment config for a tenant
+func getTenantClusterHandler(w http.ResponseWriter, r *http.Request) {
+	var result GetTenantClusResult
+
+	v := mux.Vars(r)
+	clid := v["clusterid"]
+	uuid := r.Context().Value("tenant").(string)
+
+	tenantcl := db.DBFindTenantCluster(uuid, clid)
+	if tenantcl == nil {
+		result.Result = "Cannot find tenant cluster/gateway"
+	} else {
+		result = GetTenantClusResult{Result: "ok", TenantCl: *tenantcl}
+	}
+	utils.WriteResult(w, result)
+}
+
+// Get all clusters assigned for a tenant
+func getAllClustersForTenantHandler(w http.ResponseWriter, r *http.Request) {
+
+	uuid := r.Context().Value("tenant").(string)
+	tenantcls := db.DBFindAllClusterConfigsForTenant(uuid)
+	if tenantcls == nil {
+		tenantcls = make([]db.TenantCluster, 0)
+	}
+	utils.WriteResult(w, tenantcls)
+}
+
+// Delete a tenant cluster assignment
+// When a tenant cluster assignment is deleted, need to ensure all pods
+// in the cluster for that tenant are not in use, ie., no active users
+// or connectors.
+func delTenantClusterHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+
+	v := mux.Vars(r)
+	clid := v["clusterid"]
+	uuid := r.Context().Value("tenant").(string)
+
+	err := db.DBDelTenantCluster(uuid, clid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {

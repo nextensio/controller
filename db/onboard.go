@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -35,32 +36,18 @@ func delEmpty(s []string) []string {
 type Tenant struct {
 	ID       string   `json:"_id" bson:"_id"`
 	Name     string   `json:"name" bson:"name"`
-	Gateways []string `json:"gateways" bson:"gateways"`
+	Gateways []string `json:"gateways" bson:"gateways"` // used for signup only
 	Domains  []string `json:"domains" bson:"domains"`
 	Image    string   `json:"image" bson:"image"`
-	Pods     int      `json:"pods" bson:"pods"`
-	NextPod  int      `json:"nextpod" bson:"nextpod"`
 }
 
-func tenantNextPod(tenant *Tenant) int {
-	if tenant.Pods == 0 {
-		return 0
-	}
-	nextpod := tenant.NextPod + 1 // Pods are created one-based
-	tenant.NextPod = (tenant.NextPod + 1) % tenant.Pods
-	DBAddTenant(tenant)
-
-	return nextpod
-}
-
-// This API will add a new tenant or update a tenant if it already exists
+// This API will add a new tenant or update a tenant if it already exists.
+// Tenant additions are now not dependent on gateways/clusters. After adding
+// the tenant, we link the tenant to one or more gateways/clusters via the
+// TenantCluster configuration. This can be done incrementally. Tenants can be
+// in different clusters using different number of minion allocations in each
+// cluster.
 func DBAddTenant(data *Tenant) error {
-
-	for i := 0; i < len(data.Gateways); i++ {
-		if DBFindGateway(data.Gateways[i]) == nil {
-			return fmt.Errorf("Gateway %s not configured", data.Gateways[i])
-		}
-	}
 
 	// See if tenant doc exists.
 	tdoc := DBFindTenant(data.ID)
@@ -73,8 +60,7 @@ func DBAddTenant(data *Tenant) error {
 		Upsert:         &upsert,
 	}
 
-	change := bson.M{"name": data.Name, "gateways": data.Gateways, "domains": data.Domains,
-		"image": data.Image, "pods": data.Pods, "nextpod": data.NextPod}
+	change := bson.M{"name": data.Name, "domains": data.Domains, "image": data.Image}
 	err := tenantCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": data.ID},
@@ -111,6 +97,7 @@ func DBAddTenantCollectionHdrs(tenant string) {
 	_ = DBAddBundleInfoHdr(tenant, &hdr)
 	_ = DBAddBundleAttrHdr(tenant, &hdr)
 	_ = DBAddHostAttrHdr(tenant, &hdr)
+	// TenantCluster collection does not have a header doc for now
 }
 
 func DBDelTenantCollectionHdrs(tenant string) {
@@ -120,6 +107,7 @@ func DBDelTenantCollectionHdrs(tenant string) {
 	_ = DBDelBundleInfoHdr(tenant)
 	_ = DBDelBundleAttrHdr(tenant)
 	_ = DBDelHostAttrHdr(tenant)
+	// TenantCluster collection does not have a header doc for now
 }
 
 func DBFindTenant(id string) *Tenant {
@@ -150,6 +138,9 @@ func DBFindAllTenants() []Tenant {
 }
 
 func DBDelTenant(id string) error {
+	if DBFindAllClustersForTenant(id) != nil {
+		return errors.New("Tenant assigned to clusters - cannot delete")
+	}
 	err := DBDelTenantDocOnly(id)
 	if err != nil {
 		return err
@@ -169,6 +160,128 @@ func DBDelTenantDocOnly(id string) error {
 		bson.M{"_id": id},
 	)
 
+	return err
+}
+
+//------------------------Tenant cluster functions-------------------------
+
+// Per-tenant config to specify which clusters should have how many pods
+// allocated for the tenant and which image to use for the pods. By default,
+// the image is pulled from the tenant config but can be overridden per
+// cluster. These docs are used to generate the global ClusterConfig collection
+// which gives the per-cluster allocation of tenants and used as operational
+// data by the clustermgr.
+type TenantCluster struct {
+	Id      string `json:"id" bson: "_id"` // TenantID:ClusterId
+	Cluster string `json:"cluster" bson:"cluster"`
+	Image   string `json:"image" bson:"image"`
+	Pods    int    `json:"pods" bson:"pods"`
+}
+
+// This API will add a tenant to a cluster or update one if it already exists
+func DBAddTenantCluster(tenant string, data *TenantCluster) error {
+
+	gw := DBFindGateway(DBGetGwName(data.Cluster))
+	if gw == nil {
+		return fmt.Errorf("Cannot find Gateway config for cluster %s", data.Cluster)
+	}
+	tdoc := DBFindTenant(tenant)
+	if tdoc == nil {
+		return fmt.Errorf("Unknown tenant %s", tenant)
+	}
+
+	if data.Image == "" {
+		// Default to image specified at tenant level
+		data.Image = tdoc.Image
+	}
+	// The upsert option asks the DB to add if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	tenantClusCltn := dbGetCollection(tenant, "NxtTenantClusters")
+	if tenantClusCltn == nil {
+		return fmt.Errorf("Unknown TenantClusters Collection")
+	}
+	id := tenant + ":" + data.Cluster
+	err := tenantClusCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": id},
+		bson.D{
+			{"$set", bson.M{"tenant": tenant, "cluster": data.Cluster,
+				"image": data.Image, "pods": data.Pods}},
+		},
+		&opt,
+	)
+	if err.Err() != nil {
+		return err.Err()
+	}
+	// Add the cluster assignment config into the ClusterConfig collection that
+	// maintains the configuration of each cluster for the cluster manager.
+	_ = DBAddClusterConfig(tenant, data)
+	return nil
+}
+
+// Find the doc for a specific cluster allocation of a given tenant
+func DBFindTenantCluster(tid string, clid string) *TenantCluster {
+	var tenantclus TenantCluster
+
+	tenantClusCltn := dbGetCollection(tid, "NxtTenantClusters")
+	if tenantClusCltn == nil {
+		return nil
+	}
+	err := tenantClusCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": tid + ":" + clid},
+	).Decode(&tenantclus)
+	if err != nil {
+		return nil
+	}
+	return &tenantclus
+}
+
+// Find all clusters configured/assigned to a tenant
+func DBFindAllClusterConfigsForTenant(tid string) []TenantCluster {
+	var tenantcls []TenantCluster
+
+	tenantClusCltn := dbGetCollection(tid, "NxtTenantClusters")
+	if tenantClusCltn == nil {
+		return nil
+	}
+	cursor, err := tenantClusCltn.Find(context.TODO(), bson.M{"tenant": tid})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &tenantcls)
+	if err != nil {
+		return nil
+	}
+
+	return tenantcls
+}
+
+func DBDelTenantCluster(tid string, clid string) error {
+
+	// Before removing the allocation of a tenant in a cluster, since we
+	// have already created a ClusterConfig doc, we need to ensure first
+	// that all pods of the tenant in the cluster are not in use.
+	// TODO: figure out how to take pods out of service and then improve
+	// the deletion of a tenant's cluster assignment.
+	err := DBDelClusterConfig(clid, tid)
+	if err != nil {
+		return err
+	}
+
+	tenantClusCltn := dbGetCollection(tid, "NxtTenantClusters")
+	if tenantClusCltn == nil {
+		return fmt.Errorf("Unknown TenantClusters Collection")
+	}
+	_, err = tenantClusCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": tid + ":" + clid},
+	)
 	return err
 }
 
@@ -296,16 +409,15 @@ func DBAddGateway(data *Gateway) error {
 	return nil
 }
 
-func DBGatewayInUse(name string) bool {
-	tenants := DBFindAllTenants()
-	for _, t := range tenants {
-		for _, n := range t.Gateways {
-			if name == n {
-				return true
-			}
-		}
+// Return < 0 if gateway/cluster not found
+//          0 if no tenants assigned to cluster/gateway
+//        > 0 if tenants currently assigned to cluster/gateway
+func DBGatewayInUse(gwname string) int {
+	gw := DBFindGateway(gwname)
+	if gw == nil {
+		return -1
 	}
-	return false
+	return DBAnyTenantsInCluster(gw.Cluster)
 }
 
 // This API will delete a gateway if its not in use by any tenants
@@ -316,6 +428,10 @@ func DBDelGateway(name string) error {
 		// Gateway doesn't exist. Return silently
 		return nil
 	}
+	if DBAnyTenantsInCluster(gw.Cluster) > 0 {
+		// Gateway has tenants allocated.
+		return errors.New("Gateway in use - cannot delete")
+	}
 	_, err := gatewayCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": name},
@@ -324,9 +440,6 @@ func DBDelGateway(name string) error {
 	if err != nil {
 		return err
 	}
-
-	// Remove the logical DB for the cluster specific collections.
-	ClusterDelDB(gw.Cluster)
 
 	e := DBDelClusterGateway(name)
 	if e != nil {
@@ -554,16 +667,19 @@ func DBAddUser(uuid string, data *User) error {
 	// In a real deployment, the gateway/cluster and pod have to be dynamically
 	// assigned when a user agent is on-boarded.
 	// If gateway/cluster is assigned, ensure it is valid, ie., in our configuration.
+	// TODO: handle cluster/pod assignment when user connects via multiple devices.
 	data.Gateway = strings.TrimSpace(data.Gateway)
 	data.Cluster = strings.TrimSpace(data.Cluster)
 	if data.Cluster != "" && data.Gateway == "" {
 		data.Gateway = DBGetGwName(data.Cluster)
 	}
 	if data.Gateway != "" {
+		// Ensure any gateway specified is valid
 		if DBFindGateway(data.Gateway) == nil {
 			return fmt.Errorf("Gateway %s not configured", data.Gateway)
 		}
 	} else {
+		// Should we do this ?
 		data.Gateway = "gateway.nextensio.net"
 	}
 
@@ -576,9 +692,9 @@ func DBAddUser(uuid string, data *User) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	// TODO:  need a a better algo for pod assignment
-	if data.Pod == 0 {
-		data.Pod = tenantNextPod(tenant)
+	// TODO: rethink pod assignment
+	if data.Pod == 0 && data.Cluster != "" {
+		data.Pod = ClusterUserGetNextPod(uuid, data.Cluster, "agent")
 	}
 	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
 	// not happy with @, minion wants to replace dot with dash, keep everyone happy
@@ -916,9 +1032,9 @@ func DBAddBundle(uuid string, data *Bundle) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	// TODO:  need a a better algo for pod assignment
-	if data.Pod == 0 {
-		data.Pod = tenantNextPod(tenant)
+	// TODO: rethink pod assignment. For connector, it may be via k8s.
+	if data.Pod == 0 && data.Cluster != "" {
+		data.Pod = ClusterUserGetNextPod(uuid, data.Cluster, "connector")
 	}
 	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
 	// not happy with @, minion wants to replace dot with dash, keep everyone happy
