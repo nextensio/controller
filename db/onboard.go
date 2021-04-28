@@ -175,7 +175,8 @@ type TenantCluster struct {
 	Id      string `json:"id" bson: "_id"` // TenantID:ClusterId
 	Cluster string `json:"cluster" bson:"cluster"`
 	Image   string `json:"image" bson:"image"`
-	Pods    int    `json:"pods" bson:"pods"`
+	Apods   int    `json:"apods" bson:"apods"`
+	Cpods   int    `json:"cpods" bson:"cpods"`
 }
 
 // This API will add a tenant to a cluster or update one if it already exists
@@ -211,7 +212,7 @@ func DBAddTenantCluster(tenant string, data *TenantCluster) error {
 		bson.M{"_id": id},
 		bson.D{
 			{"$set", bson.M{"tenant": tenant, "cluster": data.Cluster,
-				"image": data.Image, "pods": data.Pods}},
+				"apods": data.Apods, "cpods": data.Cpods, "image": data.Image}},
 		},
 		&opt,
 	)
@@ -693,8 +694,14 @@ func DBAddUser(uuid string, data *User) error {
 		Upsert:         &upsert,
 	}
 	// TODO: rethink pod assignment
-	if data.Pod == 0 && data.Cluster != "" {
-		data.Pod = ClusterUserGetNextPod(uuid, data.Cluster, "agent")
+	if data.Cluster != "" {
+		tcl := DBFindTenantCluster(uuid, data.Cluster)
+		if tcl == nil {
+			return errors.New("Unknown cluster assigned to user")
+		}
+		if (data.Pod == 0) || (data.Pod > tcl.Apods) {
+			data.Pod = ClusterUserGetNextPod(uuid, data.Cluster, "agent")
+		}
 	}
 	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
 	// not happy with @, minion wants to replace dot with dash, keep everyone happy
@@ -848,7 +855,7 @@ func DBAddUserAttr(uuid string, user string, Uattr bson.M) error {
 	// these are not customer defined attributes. We will let customer know
 	// about some attributes like _email which they can use in their policies
 	Uattr["_email"] = dbUser.Email
-	Uattr["_pod"] = fmt.Sprintf("pod%d", dbUser.Pod)
+	Uattr["_pod"] = fmt.Sprintf("apod%d", dbUser.Pod)
 	Uattr["_gateway"] = dbUser.Gateway
 
 	hdr := DBFindUserAttrHdr(uuid)
@@ -1033,8 +1040,14 @@ func DBAddBundle(uuid string, data *Bundle) error {
 		Upsert:         &upsert,
 	}
 	// TODO: rethink pod assignment. For connector, it may be via k8s.
-	if data.Pod == 0 && data.Cluster != "" {
-		data.Pod = ClusterUserGetNextPod(uuid, data.Cluster, "connector")
+	if data.Cluster != "" {
+		tcl := DBFindTenantCluster(uuid, data.Cluster)
+		if tcl == nil {
+			return errors.New("Unknown cluster assigned to connector")
+		}
+		if (data.Pod == 0) || (data.Pod > tcl.Cpods) {
+			data.Pod = ClusterUserGetNextPod(uuid, data.Cluster, "connector")
+		}
 	}
 	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
 	// not happy with @, minion wants to replace dot with dash, keep everyone happy
@@ -1146,7 +1159,7 @@ func DBDelBundle(tenant string, bundleid string) error {
 		return err
 	}
 
-	err = DBDelClusterUser(bun.Cluster, tenant, bundleid)
+	err = DBDelClusterBundle(bun.Cluster, tenant, bundleid)
 	if err != nil {
 		return err
 	}
@@ -1186,7 +1199,7 @@ func DBAddBundleAttr(uuid string, bid string, Battr bson.M) error {
 	// these are not customer defined attributes. We will let customer know
 	// about some attributes like _name which they can use in their policies
 	Battr["_name"] = dbBundle.Bundlename
-	Battr["_pod"] = fmt.Sprintf("pod%d", dbBundle.Pod)
+	Battr["_pod"] = fmt.Sprintf("cpod%d", dbBundle.Pod)
 	Battr["_gateway"] = dbBundle.Gateway
 
 	hdr := DBFindBundleAttrHdr(uuid)

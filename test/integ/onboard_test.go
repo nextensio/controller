@@ -200,7 +200,8 @@ type TenantCluster_v1 struct {
 	Tenant  string `json:"tenant" bson:"tenant"`
 	Cluster string `json:"cluster" bson:"cluster"`
 	Image   string `json:"image" bson:"image"`
-	Pods    int    `json:"apods" bson:"apods"`
+	Apods   int    `json:"apods" bson:"apods"`
+	Cpods   int    `json:"cpods" bson:"cpods"`
 }
 
 func addTenant(tenant *Tenant_v1) bool {
@@ -356,12 +357,14 @@ func AddTenant_v1(t *testing.T) {
 	var tcluster1 = TenantCluster_v1{
 		Tenant:  tenant.ID,
 		Cluster: "sjc",
-		Pods:    2,
+		Apods:   1,
+		Cpods:   1,
 	}
 	var tcluster2 = TenantCluster_v1{
 		Tenant:  tenant.ID,
 		Cluster: "ric",
-		Pods:    2,
+		Apods:   1,
+		Cpods:   1,
 	}
 
 	// Try to assign tenant to sjc cluster. Should fail since we haven't created sjc
@@ -598,12 +601,14 @@ func addGatewayAndTenant(t *testing.T) {
 	var tcluster1 = TenantCluster_v1{
 		Tenant:  tenants[0].ID,
 		Cluster: "sjc",
-		Pods:    2,
+		Apods:   1,
+		Cpods:   1,
 	}
 	var tcluster2 = TenantCluster_v1{
 		Tenant:  tenants[0].ID,
 		Cluster: "ric",
-		Pods:    2,
+		Apods:   1,
+		Cpods:   1,
 	}
 
 	add = addTenantCluster_v1(&tcluster1)
@@ -1832,7 +1837,7 @@ func testBundleAdd_v1(t *testing.T, tenantadd bool, bid string, services []strin
 		Bundlename: "Google Youtube service",
 		Cluster:    "sjc",
 		Gateway:    "",
-		Pod:        2,
+		Pod:        1,
 		Connectid:  "unused",
 		Services:   services,
 	}
@@ -1874,7 +1879,7 @@ func testBundleAdd_v1(t *testing.T, tenantadd bool, bid string, services []strin
 		t.Error()
 		return
 	}
-	clUser := db.DBFindClusterUser(user.Cluster, dbTenants[0].ID, user.Bid)
+	clUser := db.DBFindClusterBundle(user.Cluster, dbTenants[0].ID, user.Bid)
 	if clUser == nil {
 		t.Error()
 		return
@@ -2292,7 +2297,7 @@ func testBundleDel(t *testing.T, bundle string) {
 	}
 	if db.DBFindBundle(dbTenants[0].ID, bundle) != nil ||
 		db.DBFindBundleAttr(dbTenants[0].ID, bundle) != nil ||
-		db.DBFindClusterUser(udoc.Cluster, dbTenants[0].ID, bundle) != nil {
+		db.DBFindClusterBundle(udoc.Cluster, dbTenants[0].ID, bundle) != nil {
 		t.Error()
 		return
 	}
@@ -2308,7 +2313,7 @@ func TestAgentServiceAdd_v1(t *testing.T) {
 	db.DBReinit()
 	UserAdd_v1(t, true, "gopa", []string{"a"})
 	dbTenants := db.DBFindAllTenants()
-	svc := db.DBFindClusterSvc("sjc", dbTenants[0].ID, "a")
+	svc := db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "a")
 	if svc == nil {
 		t.Error()
 		return
@@ -2318,50 +2323,50 @@ func TestAgentServiceAdd_v1(t *testing.T) {
 		return
 	}
 	UserAdd_v1(t, false, "gopa", []string{"a", "b"})
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "a")
+	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "a")
 	if svc.Agents[0] != "gopa" {
 		t.Error()
 		return
 	}
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "b")
+	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "b")
 	if svc.Agents[0] != "gopa" {
 		t.Error()
 		return
 	}
 	UserAdd_v1(t, false, "gopa", []string{"b", "c"})
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "a")
+	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "a")
 	if svc != nil {
 		t.Error()
 		return
 	}
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "b")
+	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "b")
 	if svc.Agents[0] != "gopa" {
 		t.Error()
 		return
 	}
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "c")
+	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "c")
 	if svc.Agents[0] != "gopa" {
 		t.Error()
 		return
 	}
 	UserAdd_v1(t, false, "gopa", []string{"c"})
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "a")
+	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "a")
 	if svc != nil {
 		t.Error()
 		return
 	}
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "b")
+	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "b")
 	if svc != nil {
 		t.Error()
 		return
 	}
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "c")
+	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "c")
 	if svc.Agents[0] != "gopa" {
 		t.Error()
 		return
 	}
 	UserAdd_v1(t, false, "kumar", []string{"c"})
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "c")
+	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "c")
 	if len(svc.Agents) != 2 {
 		t.Error()
 		return
@@ -2375,7 +2380,7 @@ func TestAgentServiceAdd_v1(t *testing.T) {
 		return
 	}
 	UserAdd_v1(t, false, "gopa", []string{})
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "c")
+	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "c")
 	if len(svc.Agents) != 1 {
 		t.Error()
 		return
@@ -2390,7 +2395,7 @@ func TestBundleServiceAdd_v1(t *testing.T) {
 	db.DBReinit()
 	testBundleAdd_v1(t, true, "gopa", []string{"a"})
 	dbTenants := db.DBFindAllTenants()
-	svc := db.DBFindClusterSvc("sjc", dbTenants[0].ID, "a")
+	svc := db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "a")
 	if svc == nil {
 		t.Error()
 		return
@@ -2400,50 +2405,50 @@ func TestBundleServiceAdd_v1(t *testing.T) {
 		return
 	}
 	testBundleAdd_v1(t, false, "gopa", []string{"a", "b"})
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "a")
+	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "a")
 	if svc.Agents[0] != "gopa" {
 		t.Error()
 		return
 	}
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "b")
+	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "b")
 	if svc.Agents[0] != "gopa" {
 		t.Error()
 		return
 	}
 	testBundleAdd_v1(t, false, "gopa", []string{"b", "c"})
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "a")
+	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "a")
 	if svc != nil {
 		t.Error()
 		return
 	}
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "b")
+	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "b")
 	if svc.Agents[0] != "gopa" {
 		t.Error()
 		return
 	}
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "c")
+	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "c")
 	if svc.Agents[0] != "gopa" {
 		t.Error()
 		return
 	}
 	testBundleAdd_v1(t, false, "gopa", []string{"c"})
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "a")
+	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "a")
 	if svc != nil {
 		t.Error()
 		return
 	}
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "b")
+	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "b")
 	if svc != nil {
 		t.Error()
 		return
 	}
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "c")
+	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "c")
 	if svc.Agents[0] != "gopa" {
 		t.Error()
 		return
 	}
 	testBundleAdd_v1(t, false, "kumar", []string{"c"})
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "c")
+	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "c")
 	if len(svc.Agents) != 2 {
 		t.Error()
 		return
@@ -2457,7 +2462,7 @@ func TestBundleServiceAdd_v1(t *testing.T) {
 		return
 	}
 	testBundleAdd_v1(t, false, "gopa", []string{})
-	svc = db.DBFindClusterSvc("sjc", dbTenants[0].ID, "c")
+	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "c")
 	if len(svc.Agents) != 1 {
 		t.Error()
 		return
