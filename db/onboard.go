@@ -684,8 +684,6 @@ func DBAddUser(uuid string, data *User) error {
 		data.Gateway = "gateway.nextensio.net"
 	}
 
-	data.Services = delEmpty(data.Services)
-
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
@@ -704,16 +702,16 @@ func DBAddUser(uuid string, data *User) error {
 		}
 	}
 	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
-	// not happy with @, minion wants to replace dot with dash, keep everyone happy
-	// TODO: Same user/uuid can login from multiple devices, in which case the connectid
-	// has to be different, somehow figure out a scheme to make multiple connectids per user
-	// Also the connectid eventually will be of a form where it is podNN-blah so that the
-	// cluster yamls can just install one wildcard rule for podNN-* rather than a rule for
-	// each user on that pod
-	data.Connectid = strings.ReplaceAll(uuid+"-"+data.Uid, "@", "-")
-	data.Connectid = strings.ReplaceAll(data.Connectid, ".", "-")
-	// The connectid is a service by default
-	data.Services = append(data.Services, data.Connectid)
+	// not happy with @, minion wants to replace dot with dash, keep everyone happy.
+	// A user will have just one service, based on "tenant-userid"
+	service := strings.ReplaceAll(uuid+"-"+data.Uid, "@", "-")
+	service = strings.ReplaceAll(service, ".", "-")
+	data.Services = []string{service}
+
+	// Same user/uuid can login from multiple devices. The connectid will be based on the
+	// pod assigned to each user device when on-boarding. Here we just initialize it to
+	// any pre-configured pod. It may change during on-boarding.
+	data.Connectid = ClusterGetPodName(data.Pod, "A")
 
 	userCltn := dbGetCollection(uuid, "NxtUsers")
 	if userCltn == nil {
@@ -1051,15 +1049,13 @@ func DBAddBundle(uuid string, data *Bundle) error {
 	}
 	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
 	// not happy with @, minion wants to replace dot with dash, keep everyone happy
-	// TODO: Same user/uuid can login from multiple devices, in which case the connectid
-	// has to be different, somehow figure out a scheme to make multiple connectids per user
-	// Also the connectid eventually will be of a form where it is podNN-blah so that the
-	// cluster yamls can just install one wildcard rule for podNN-* rather than a rule for
-	// each user on that pod
+	// A Connector can login from same device to multiple pods. Currently, the connectid
+	// is based on "tenant-bundleid" which is also treated as a service and registered
+	// with Consul.
 	data.Connectid = strings.ReplaceAll(uuid+"-"+data.Bid, "@", "-")
 	data.Connectid = strings.ReplaceAll(data.Connectid, ".", "-")
-	// The connectid is a service by default
 	data.Services = append(data.Services, data.Connectid)
+
 	appCltn := dbGetCollection(uuid, "NxtApps")
 	if appCltn == nil {
 		return fmt.Errorf("Unknown Collection")
