@@ -33,6 +33,7 @@ var tenantAppCltn = make(map[string]*mongo.Collection, maxTenants)
 var tenantAppAttrCltn = make(map[string]*mongo.Collection, maxTenants)
 var tenantHostAttrCltn = make(map[string]*mongo.Collection, maxTenants)
 var tenantRouteCltn = make(map[string]*mongo.Collection, maxTenants)
+var tenantOnboardCltn = make(map[string]*mongo.Collection, maxTenants)
 
 func dbConnect() bool {
 	mongoURI := utils.GetEnv("MONGO_URI", "mongodb://127.0.0.1:27017/")
@@ -134,6 +135,12 @@ func dbGetCollection(tnt string, cltn string) *mongo.Collection {
 			tenantHostAttrCltn[tenant] = tenantDBs[tenant].Collection("NxtHostAttr")
 		}
 		return tenantHostAttrCltn[tenant]
+	case "NxtOnboardLog":
+		_, cok := tenantOnboardCltn[tenant]
+		if cok == false {
+			tenantOnboardCltn[tenant] = tenantDBs[tenant].Collection("NxtOnboardLog")
+		}
+		return tenantOnboardCltn[tenant]
 	}
 	return nil
 }
@@ -158,6 +165,7 @@ func dbAddTenantCollections(tenant string, tntdb *mongo.Database) {
 	tenantAppAttrCltn[tenant] = tntdb.Collection("NxtAppAttr")
 	tenantRouteCltn[tenant] = tntdb.Collection("NxtRoutes")
 	tenantHostAttrCltn[tenant] = tntdb.Collection("NxtHostAttr")
+	tenantOnboardCltn[tenant] = tntdb.Collection("NxtOnboardLog")
 }
 
 func dbDelTenantDB(tnt string) {
@@ -171,6 +179,7 @@ func dbDelTenantDB(tnt string) {
 	delete(tenantAppAttrCltn, tenant)
 	delete(tenantRouteCltn, tenant)
 	delete(tenantHostAttrCltn, tenant)
+	delete(tenantOnboardCltn, tenant)
 	tenantDBs[tenant].Drop(context.TODO())
 	delete(tenantDBs, tenant)
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"time"
 	"net/http"
 	"nextensio/controller/db"
 	"nextensio/controller/utils"
@@ -86,6 +87,9 @@ func rdonlyOnboard() {
 
 	// This route is used to get a specific cluster assignment for a tenant
 	getTenantRoute("/tenantcluster/{clusterid}", "GET", getTenantClusterHandler)
+
+	// This route is used to get a specific user onboard log entry
+	getTenantRoute("/onboardlog/{userid}", "GET", getOnboardLogHandler)
 }
 
 func rdwrOnboard() {
@@ -167,6 +171,9 @@ func rdwrOnboard() {
 
 	// This route is used to delete a cluster assignment for a tenant
 	delTenantRoute("/tenantcluster/{clusterid}", "GET", delTenantClusterHandler)
+
+	// This route is used to delete an onboarding log entry for a user
+	delTenantRoute("/onboardlog/{userid}", "GET", delOnboardLogHandler)
 }
 
 func signupHandler(w http.ResponseWriter, r *http.Request) {
@@ -531,6 +538,8 @@ type OnboardResult struct {
 func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	var result OnboardResult
 	var data onboardData
+	var pod int
+	var podname string
 
 	data.Userid = r.Context().Value("userid").(string)
 	data.Tenant = r.Context().Value("user-tenant").(string)
@@ -546,6 +555,8 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 		result.Connectid = user.Connectid
 		result.Services = user.Services
 		result.Gateway = user.Gateway
+		pod = user.Pod
+		podname = db.ClusterGetPodName(pod, "A")
 		// This is used only in a test environment today, to force-associate
 		// a user to a gateway
 		if user.Gateway == "" {
@@ -567,6 +578,8 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 			result.Connectid = bundle.Connectid
 			result.Services = bundle.Services
 			result.Gateway = bundle.Gateway
+			pod = bundle.Pod
+			podname = db.ClusterGetPodName(pod, "C")
 			// This is used only in a test environment today, to force-associate
 			// a connector to a gateway
 			if bundle.Gateway == "" {
@@ -601,6 +614,18 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	result.Domains = tenant.Domains
 	utils.WriteResult(w, result)
 
+	var onbl db.OnboardLog
+	onbl.Uid = result.Userid
+	onbl.Gw = result.Gateway
+	onbl.Pod = pod
+	onbl.Podname = podname
+	onbl.Connectid = result.Connectid
+	tbytes, _ := time.Now().MarshalJSON()
+	onbl.OnbTime = string(tbytes)
+	err := db.DBAddOnboardLog(result.Tenant, &onbl)
+	if err != nil {
+		glog.Errorf("Onboarding log add error %v (for %v)", err, onbl)
+	}
 	glog.Infof("User %s of tenant %s with connectid %s signed in. Gateway %s assigned",
 		data.Userid, data.Tenant, result.Connectid, result.Gateway)
 }
@@ -1367,6 +1392,59 @@ func delTenantClusterHandler(w http.ResponseWriter, r *http.Request) {
 	uuid := r.Context().Value("tenant").(string)
 
 	err := db.DBDelTenantCluster(uuid, clid)
+	if err != nil {
+		result.Result = err.Error()
+	} else {
+		result.Result = "ok"
+	}
+	utils.WriteResult(w, result)
+}
+
+//-----------------------------------------Onboard Log-------------------------------------
+
+type GetOnboardLogResult struct {
+	Result   string `json:"Result"`
+	Gw       string `json:"gw"`
+	Pod      int    `json:"pod"`
+	Podnm    string `json:"podnm"`
+	Connectid string `json:"connectid"`
+	OnbTime  string `json:"onbtime"`
+	Count    int    `json:"count"`
+	PrevTime string `json:"prevtime"`
+}
+
+// Get a user's onboarding log entry. Only the last onboarding log is kept for now.
+func getOnboardLogHandler(w http.ResponseWriter, r *http.Request) {
+	var result GetOnboardLogResult
+
+	v := mux.Vars(r)
+	tid := r.Context().Value("tenant").(string)
+	uid := v["userid"]
+
+	onblog := db.DBFindOnboardLog(tid, uid)
+	if onblog == nil {
+		result.Result = "Cannot find user onboarding log"
+	} else {
+		result = GetOnboardLogResult{Result: "ok",
+			Gw: onblog.Gw,
+			Pod: onblog.Pod,
+			Podnm: onblog.Podname,
+			Connectid: onblog.Connectid,
+			OnbTime: onblog.OnbTime,
+			Count: onblog.Count,
+			PrevTime: onblog.PrevTime}
+	}
+	utils.WriteResult(w, result)
+}
+
+func delOnboardLogHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+
+	v := mux.Vars(r)
+	tid := r.Context().Value("tenant").(string)
+	uid := v["userid"]
+
+	err := db.DBDelOnboardLog(tid, uid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {

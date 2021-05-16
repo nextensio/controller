@@ -1520,3 +1520,89 @@ func DBDelUserExtAttr(tenant string) error {
 
 	return err
 }
+
+//--------------------------------Agent Onboarding Log-------------------------------------
+
+type OnboardLog struct {
+	Uid      string `json:"uid" bson:"_id"`
+	Gw       string `json:"gw" bson:"gw"`
+	Pod      int    `json:"pod" bson:"pod"`
+	Podname  string `json:"podname" bson:"podname"`
+	Connectid string `json:"connectid" bson:"connectid"`
+	OnbTime  string `json:"onbtime" bson:"onbtime"` // Time as a RFC3339 format json string
+	Count    int    `json:"count" bson:"count"`
+	PrevTime string `json:"prevtime" bson:"prevtime"`
+}
+
+// This API will add a new onboarding log entry
+func DBAddOnboardLog(tenant string, data *OnboardLog) error {
+
+	data.Count = 1
+	data.PrevTime = ""
+	onbl := DBFindOnboardLog(tenant, data.Uid)
+	if onbl != nil {
+		data.Count = onbl.Count + 1
+		data.PrevTime = onbl.OnbTime
+	}
+	// The upsert option asks the DB to add if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	onboardCltn := dbGetCollection(tenant, "NxtOnboardLog")
+	if onboardCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	err := onboardCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": data.Uid},
+		bson.D{
+			{"$set", bson.M{"gw": data.Gw, "pod": data.Pod, "podname": data.Podname,
+				"connectid": data.Connectid, "onbtime": data.OnbTime,
+				"count": data.Count, "prevtime": data.PrevTime}},
+		},
+		&opt,
+	)
+
+	if err.Err() != nil {
+		return err.Err()
+	}
+	return nil
+}
+
+// This API will delete a gateway if its not in use by any tenants
+func DBDelOnboardLog(tenant string, name string) error {
+
+	ol := DBFindOnboardLog(tenant, name)
+	if ol == nil {
+		// Log entry doesn't exist. Return silently
+		return nil
+	}
+	onboardCltn := dbGetCollection(tenant, "NxtOnboardLog")
+	if onboardCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	_, err := onboardCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": name},
+	)
+	return err
+}
+
+func DBFindOnboardLog(tenant string, name string) *OnboardLog {
+	var ol OnboardLog
+	onboardCltn := dbGetCollection(tenant, "NxtOnboardLog")
+	if onboardCltn == nil {
+		return nil
+	}
+	err := onboardCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": name},
+	).Decode(&ol)
+	if err != nil {
+		return nil
+	}
+	return &ol
+}
