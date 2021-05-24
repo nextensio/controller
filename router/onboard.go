@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"time"
 	"net/http"
 	"nextensio/controller/db"
 	"nextensio/controller/utils"
+	"time"
 
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
@@ -531,6 +531,8 @@ type OnboardResult struct {
 	Gateway   string   `json:"gateway"`
 	Domains   []string `json:"domains"`
 	Connectid string   `json:"connectid"`
+	Cluster   string   `json:"cluster"`
+	Podname   string   `json:"podname"`
 	Cacert    []rune   `json:"cacert"`
 	Services  []string `json:"services"`
 }
@@ -555,6 +557,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 		result.Connectid = user.Connectid
 		result.Services = user.Services
 		result.Gateway = user.Gateway
+		result.Cluster = user.Cluster
 		pod = user.Pod
 		podname = db.ClusterGetPodName(pod, "A")
 		// This is used only in a test environment today, to force-associate
@@ -569,6 +572,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 				tcluster := db.DBFindAllClusterConfigsForTenant(data.Tenant)
 				if tcluster != nil {
 					result.Gateway = db.DBGetGwName(tcluster[0].Cluster)
+					result.Cluster = tcluster[0].Cluster
 				}
 			}
 		}
@@ -578,6 +582,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 			result.Connectid = bundle.Connectid
 			result.Services = bundle.Services
 			result.Gateway = bundle.Gateway
+			result.Cluster = bundle.Cluster
 			pod = bundle.Pod
 			podname = db.ClusterGetPodName(pod, "C")
 			// This is used only in a test environment today, to force-associate
@@ -592,6 +597,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 					tcluster := db.DBFindAllClusterConfigsForTenant(data.Tenant)
 					if tcluster != nil {
 						result.Gateway = db.DBGetGwName(tcluster[0].Cluster)
+						result.Cluster = tcluster[0].Cluster
 					}
 				}
 			}
@@ -612,6 +618,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	result.Tenant = data.Tenant
 	result.Cacert = cert.Cert
 	result.Domains = tenant.Domains
+	result.Podname = podname
 	utils.WriteResult(w, result)
 
 	var onbl db.OnboardLog
@@ -1403,14 +1410,14 @@ func delTenantClusterHandler(w http.ResponseWriter, r *http.Request) {
 //-----------------------------------------Onboard Log-------------------------------------
 
 type GetOnboardLogResult struct {
-	Result   string `json:"Result"`
-	Gw       string `json:"gw"`
-	Pod      int    `json:"pod"`
-	Podnm    string `json:"podnm"`
+	Result    string `json:"Result"`
+	Gw        string `json:"gw"`
+	Pod       int    `json:"pod"`
+	Podnm     string `json:"podnm"`
 	Connectid string `json:"connectid"`
-	OnbTime  string `json:"onbtime"`
-	Count    int    `json:"count"`
-	PrevTime string `json:"prevtime"`
+	OnbTime   string `json:"onbtime"`
+	Count     int    `json:"count"`
+	PrevTime  string `json:"prevtime"`
 }
 
 // Get a user's onboarding log entry. Only the last onboarding log is kept for now.
@@ -1426,13 +1433,13 @@ func getOnboardLogHandler(w http.ResponseWriter, r *http.Request) {
 		result.Result = "Cannot find user onboarding log"
 	} else {
 		result = GetOnboardLogResult{Result: "ok",
-			Gw: onblog.Gw,
-			Pod: onblog.Pod,
-			Podnm: onblog.Podname,
+			Gw:        onblog.Gw,
+			Pod:       onblog.Pod,
+			Podnm:     onblog.Podname,
 			Connectid: onblog.Connectid,
-			OnbTime: onblog.OnbTime,
-			Count: onblog.Count,
-			PrevTime: onblog.PrevTime}
+			OnbTime:   onblog.OnbTime,
+			Count:     onblog.Count,
+			PrevTime:  onblog.PrevTime}
 	}
 	utils.WriteResult(w, result)
 }

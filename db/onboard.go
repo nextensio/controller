@@ -680,8 +680,9 @@ func DBAddUser(uuid string, data *User) error {
 			return fmt.Errorf("Gateway %s not configured", data.Gateway)
 		}
 	} else {
-		// Should we do this ?
+		// Neither cluster nor gw configured. Let user agent select gw.
 		data.Gateway = "gateway.nextensio.net"
+		data.Cluster = "gateway"
 	}
 
 	// The upsert option asks the DB to add if one is not found
@@ -1524,14 +1525,14 @@ func DBDelUserExtAttr(tenant string) error {
 //--------------------------------Agent Onboarding Log-------------------------------------
 
 type OnboardLog struct {
-	Uid      string `json:"uid" bson:"_id"`
-	Gw       string `json:"gw" bson:"gw"`
-	Pod      int    `json:"pod" bson:"pod"`
-	Podname  string `json:"podname" bson:"podname"`
+	Uid       string `json:"uid" bson:"_id"`
+	Gw        string `json:"gw" bson:"gw"`
+	Pod       int    `json:"pod" bson:"pod"`
+	Podname   string `json:"podname" bson:"podname"`
 	Connectid string `json:"connectid" bson:"connectid"`
-	OnbTime  string `json:"onbtime" bson:"onbtime"` // Time as a RFC3339 format json string
-	Count    int    `json:"count" bson:"count"`
-	PrevTime string `json:"prevtime" bson:"prevtime"`
+	OnbTime   string `json:"onbtime" bson:"onbtime"` // Time as a RFC3339 format json string
+	Count     int    `json:"count" bson:"count"`
+	PrevTime  string `json:"prevtime" bson:"prevtime"`
 }
 
 // This API will add a new onboarding log entry
