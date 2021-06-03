@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/golang/glog"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -479,9 +480,12 @@ func DBFindAllGateways() []Gateway {
 
 //------------------------Attribute set functions-----------------------------
 type AttrSet struct {
-	Name      string `bson:"name" json:"name"`
-	AppliesTo string `bson:"appliesTo" json:"appliesTo"`
-	Type      string `bson:"type" json:"type"`
+	Name       string `bson:"name" json:"name"`
+	AppliesTo  string `bson:"appliesTo" json:"appliesTo"`
+	Type       string `bson:"type" json:"type"`
+	IsArray    bool   `bson:"isArray" json:"isArray"`
+	NumType    string `bson:"numType" json:"numType"`
+	RangeCheck string `bson:"rangeCheck" json:"rangeCheck"`
 }
 
 func DBAddAttrSet(tenant string, set []AttrSet) error {
@@ -498,13 +502,16 @@ func DBAddAttrSet(tenant string, set []AttrSet) error {
 	for _, s := range set {
 		err := Cltn.FindOneAndUpdate(
 			context.TODO(),
-			bson.M{"name": s.Name, "appliesTo": s.AppliesTo},
+			bson.M{"_id": s.Name + ":" + s.AppliesTo},
 			bson.D{
-				{"$set", bson.M{"name": s.Name, "appliesTo": s.AppliesTo, "type": s.Type}},
+				{"$set", bson.M{"name": s.Name, "appliesTo": s.AppliesTo,
+					"type": s.Type, "isArray": s.IsArray, "numType": s.NumType,
+					"rangeCheck": s.RangeCheck}},
 			},
 			&opt,
 		)
 		if err.Err() != nil {
+			glog.Errorf("AttrSet: Add error - %v", err)
 			return err.Err()
 		}
 	}
@@ -519,7 +526,7 @@ func DBDelAttrSet(tenant string, set []AttrSet) error {
 	for _, s := range set {
 		_, err := Cltn.DeleteOne(
 			context.TODO(),
-			bson.M{"name": s.Name, "appliesTo": s.AppliesTo},
+			bson.M{"_id": s.Name + ":" + s.AppliesTo},
 		)
 		if err != nil {
 			return err
@@ -538,6 +545,7 @@ func DBFindAllAttrSet(tenant string) []AttrSet {
 	}
 	err = cursor.All(context.TODO(), &set)
 	if err != nil {
+		glog.Errorf("AttrSet: Find all attr sets failed - %v", err)
 		return nil
 	}
 
