@@ -305,15 +305,15 @@ func DBDelNamespace(id string) error {
 // from this collection to create egress gateways as needed.
 // TODO: Processing of tenant removals from a cluster (and egress gateway removals).
 type ClusterConfig struct {
-	Id      string `json:"id" bson:"_id"` // ClusterID:TenantID
-	Cluster string `json:"cluster" bson:"cluster"`
-	Tenant  string `json:"tenant" bson:"tenant"`
-	Image   string `json:"image" bson:"image"`
-	Apods    int   `json:"apods" bson:"apods"`
-	Cpods    int   `json:"cpods" bson:"cpods"`
-	NextApod int   `json:"nextapod" bson:"nextapod"`
-	NextCpod int   `json:"nextcpod" bson:"nextcpod"`
-	Version int    `json:"version" bson:"version"`
+	Id       string `json:"id" bson:"_id"` // ClusterID:TenantID
+	Cluster  string `json:"cluster" bson:"cluster"`
+	Tenant   string `json:"tenant" bson:"tenant"`
+	Image    string `json:"image" bson:"image"`
+	Apods    int    `json:"apods" bson:"apods"`
+	Cpods    int    `json:"cpods" bson:"cpods"`
+	NextApod int    `json:"nextapod" bson:"nextapod"`
+	NextCpod int    `json:"nextcpod" bson:"nextcpod"`
+	Version  int    `json:"version" bson:"version"`
 }
 
 // This API will add a new doc or update one for pods allocated to a tenant
@@ -324,18 +324,6 @@ func DBAddClusterConfig(tenant string, data *TenantCluster) error {
 	nextcpod := 0
 	clc := DBFindClusterConfig(data.Cluster, tenant)
 	if clc != nil {
-		// Temporary checks until we figure out how to deal with increase or
-		// decrease in pod allocations
-		if clc.Apods != data.Apods {
-			msg := "Cannot currently change # of Apods once allocated within a cluster"
-			glog.Error(msg)
-			return errors.New(msg)
-		}
-		if clc.Cpods != data.Cpods {
-			msg := "Cannot currently change # of Cpods once allocated within a cluster"
-			glog.Error(msg)
-			return errors.New(msg)
-		}
 		// If ClusterConfig exists, use following fields
 		version = clc.Version + 1
 		nextapod = clc.NextApod
@@ -354,7 +342,7 @@ func DBAddClusterConfig(tenant string, data *TenantCluster) error {
 		context.TODO(),
 		bson.M{"_id": id},
 		bson.D{
-			{"$set", bson.M{"_id": id, "nextapod": nextapod, "nextcpod": nextcpod, 
+			{"$set", bson.M{"_id": id, "nextapod": nextapod, "nextcpod": nextcpod,
 				"apods": data.Apods, "cpods": data.Cpods, "image": data.Image,
 				"cluster": data.Cluster, "tenant": tenant, "version": version}},
 		},
@@ -957,7 +945,6 @@ func DBDelUserClusterSvc(clid string, tenant string, service string, agent strin
 	}
 	return nil
 }
-
 
 func DBAddBundleClusterSvc(clid string, tenant string, service string, agent string, pod int) error {
 	sid := tenant + ":" + service

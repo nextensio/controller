@@ -692,14 +692,30 @@ func DBAddUser(uuid string, data *User) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	// TODO: rethink pod assignment
-	if data.Cluster != "" {
+	// TODO: User pod assignments will vanish soon when Ashwin makes pod assigments
+	// to be done by kubernetes in a loadbalanced stateful set. And then we should
+	// get rid of this entire block. For now this is a hack where we just pick the
+	// first gateway for this tenant and calculate the pod based on that, assuming
+	// that all gateways have the same number of apods
+	if data.Cluster != "gateway" {
 		tcl := DBFindTenantCluster(uuid, data.Cluster)
 		if tcl == nil {
 			return errors.New("Unknown cluster assigned to user")
 		}
 		if (data.Pod == 0) || (data.Pod > tcl.Apods) {
 			data.Pod = ClusterUserGetNextPod(uuid, data.Cluster, "agent")
+		}
+	} else {
+		gws := DBFindAllGateways()
+		if len(gws) == 0 {
+			return fmt.Errorf("No Gateway configured")
+		}
+		tcl := DBFindTenantCluster(uuid, gws[0].Cluster)
+		if tcl == nil {
+			return errors.New("Unknown cluster assigned to user")
+		}
+		if (data.Pod == 0) || (data.Pod > tcl.Apods) {
+			data.Pod = ClusterUserGetNextPod(uuid, gws[0].Cluster, "agent")
 		}
 	}
 	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
