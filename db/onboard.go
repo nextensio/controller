@@ -35,11 +35,40 @@ func delEmpty(s []string) []string {
 
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type Tenant struct {
-	ID       string   `json:"_id" bson:"_id"`
-	Name     string   `json:"name" bson:"name"`
-	Gateways []string `json:"gateways" bson:"gateways"` // used for signup only
-	Domains  []string `json:"domains" bson:"domains"`
-	Image    string   `json:"image" bson:"image"`
+	ID      string   `json:"_id" bson:"_id"`
+	Name    string   `json:"name" bson:"name"`
+	Domains []string `json:"domains" bson:"domains"`
+	Image   string   `json:"image" bson:"image"`
+}
+
+func dbUpdateTenantDomains(uuid string) error {
+	tenant := DBFindTenant(uuid)
+	if tenant == nil {
+		return errors.New("Cant find tenant")
+	}
+	hosts := DBFindAllHosts(uuid)
+
+	// The upsert option asks the DB to add if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+
+	change := bson.M{"domains": hosts}
+	err := tenantCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": tenant.ID},
+		bson.D{
+			{"$set", change},
+		},
+		&opt,
+	)
+	if err.Err() != nil {
+		return err.Err()
+	}
+	return nil
 }
 
 // This API will add a new tenant or update a tenant if it already exists.
@@ -61,7 +90,11 @@ func DBAddTenant(data *Tenant) error {
 		Upsert:         &upsert,
 	}
 
-	change := bson.M{"name": data.Name, "domains": data.Domains, "image": data.Image}
+	if data.Image == "" {
+		data.Image = "registry.gitlab.com/nextensio/cluster/minion:latest"
+	}
+
+	change := bson.M{"name": data.Name, "image": data.Image}
 	err := tenantCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": data.ID},
@@ -174,7 +207,7 @@ func DBDelTenantDocOnly(id string) error {
 // data by the clustermgr.
 type TenantCluster struct {
 	Id      string `json:"id" bson: "_id"` // TenantID:ClusterId
-	Cluster string `json:"cluster" bson:"cluster"`
+	Gateway string `json:"gateway" bson:"gateway"`
 	Image   string `json:"image" bson:"image"`
 	Apods   int    `json:"apods" bson:"apods"`
 	Cpods   int    `json:"cpods" bson:"cpods"`
@@ -183,19 +216,21 @@ type TenantCluster struct {
 // This API will add a tenant to a cluster or update one if it already exists
 func DBAddTenantCluster(tenant string, data *TenantCluster) error {
 
-	gw := DBFindGateway(DBGetGwName(data.Cluster))
+	Cluster := DBGetClusterName(data.Gateway)
+
+	gw := DBFindGateway(data.Gateway)
 	if gw == nil {
-		return fmt.Errorf("Cannot find Gateway config for cluster %s", data.Cluster)
+		return fmt.Errorf("Cannot find Gateway config for gateway %s", data.Gateway)
 	}
 	tdoc := DBFindTenant(tenant)
 	if tdoc == nil {
 		return fmt.Errorf("Unknown tenant %s", tenant)
 	}
-
 	if data.Image == "" {
 		// Default to image specified at tenant level
 		data.Image = tdoc.Image
 	}
+
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
@@ -207,12 +242,12 @@ func DBAddTenantCluster(tenant string, data *TenantCluster) error {
 	if tenantClusCltn == nil {
 		return fmt.Errorf("Unknown TenantClusters Collection")
 	}
-	id := tenant + ":" + data.Cluster
+	id := tenant + ":" + Cluster
 	err := tenantClusCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": id},
 		bson.D{
-			{"$set", bson.M{"tenant": tenant, "cluster": data.Cluster,
+			{"$set", bson.M{"tenant": tenant, "gateway": data.Gateway, "cluster": Cluster,
 				"apods": data.Apods, "cpods": data.Cpods, "image": data.Image}},
 		},
 		&opt,
@@ -365,7 +400,6 @@ func DBFindAllCerts() []Certificate {
 
 type Gateway struct {
 	Name     string `json:"name" bson:"_id"`
-	Cluster  string `json:"cluster" bson:"cluster"`
 	Location string `json:"location" bson:"location"`
 	Zone     string `json:"zone" bson:"zone"`
 	Region   string `json:"region" bson:"region"`
@@ -375,6 +409,14 @@ type Gateway struct {
 // Derive gateway name for a cluster given the cluster name.
 func DBGetGwName(cluster string) string {
 	return cluster + ".nextensio.net"
+}
+
+func DBGetClusterName(gateway string) string {
+	if len(gateway) <= len(".nextensio.net") {
+		return "unknown"
+	}
+	end := len(gateway) - len(".nextensio.net")
+	return gateway[0:end]
 }
 
 // This API will add a new gateway or update a gateway if it already exists
@@ -391,7 +433,7 @@ func DBAddGateway(data *Gateway) error {
 		context.TODO(),
 		bson.M{"_id": data.Name},
 		bson.D{
-			{"$set", bson.M{"cluster": data.Cluster, "location": data.Location,
+			{"$set", bson.M{"cluster": DBGetClusterName(data.Name), "location": data.Location,
 				"zone": data.Zone, "region": data.Region,
 				"provider": data.Provider}},
 		},
@@ -419,7 +461,8 @@ func DBGatewayInUse(gwname string) int {
 	if gw == nil {
 		return -1
 	}
-	return DBAnyTenantsInCluster(gw.Cluster)
+	Cluster := DBGetClusterName(gw.Name)
+	return DBAnyTenantsInCluster(Cluster)
 }
 
 // This API will delete a gateway if its not in use by any tenants
@@ -430,7 +473,8 @@ func DBDelGateway(name string) error {
 		// Gateway doesn't exist. Return silently
 		return nil
 	}
-	if DBAnyTenantsInCluster(gw.Cluster) > 0 {
+	Cluster := DBGetClusterName(gw.Name)
+	if DBAnyTenantsInCluster(Cluster) > 0 {
 		// Gateway has tenants allocated.
 		return errors.New("Gateway in use - cannot delete")
 	}
@@ -657,7 +701,6 @@ type User struct {
 	Uid       string   `json:"uid" bson:"_id"`
 	Username  string   `json:"name" bson:"name"`
 	Email     string   `json:"email" bson:"email"`
-	Cluster   string   `json:"cluster" bson:"cluster"`
 	Gateway   string   `json:"gateway" bson:"gateway"`
 	Pod       int      `json:"pod" bson:"pod"`
 	Connectid string   `json:"connectid" bson:"connectid"`
@@ -678,10 +721,7 @@ func DBAddUser(uuid string, data *User) error {
 	// If gateway/cluster is assigned, ensure it is valid, ie., in our configuration.
 	// TODO: handle cluster/pod assignment when user connects via multiple devices.
 	data.Gateway = strings.TrimSpace(data.Gateway)
-	data.Cluster = strings.TrimSpace(data.Cluster)
-	if data.Cluster != "" && data.Gateway == "" {
-		data.Gateway = DBGetGwName(data.Cluster)
-	}
+	Cluster := DBGetClusterName(data.Gateway)
 	if data.Gateway != "" {
 		// Ensure any gateway specified is valid
 		if DBFindGateway(data.Gateway) == nil {
@@ -690,7 +730,7 @@ func DBAddUser(uuid string, data *User) error {
 	} else {
 		// Neither cluster nor gw configured. Let user agent select gw.
 		data.Gateway = "gateway.nextensio.net"
-		data.Cluster = "gateway"
+		Cluster = "gateway"
 	}
 
 	// The upsert option asks the DB to add if one is not found
@@ -705,25 +745,28 @@ func DBAddUser(uuid string, data *User) error {
 	// get rid of this entire block. For now this is a hack where we just pick the
 	// first gateway for this tenant and calculate the pod based on that, assuming
 	// that all gateways have the same number of apods
-	if data.Cluster != "gateway" {
-		tcl := DBFindTenantCluster(uuid, data.Cluster)
+	if Cluster != "gateway" {
+		tcl := DBFindTenantCluster(uuid, Cluster)
 		if tcl == nil {
 			return errors.New("Unknown cluster assigned to user")
 		}
 		if (data.Pod == 0) || (data.Pod > tcl.Apods) {
-			data.Pod = ClusterUserGetNextPod(uuid, data.Cluster, "agent")
+			data.Pod = ClusterUserGetNextPod(uuid, Cluster, "agent")
 		}
 	} else {
 		gws := DBFindAllGateways()
 		if len(gws) == 0 {
-			return fmt.Errorf("No Gateway configured")
-		}
-		tcl := DBFindTenantCluster(uuid, gws[0].Cluster)
-		if tcl == nil {
-			return errors.New("Unknown cluster assigned to user")
-		}
-		if (data.Pod == 0) || (data.Pod > tcl.Apods) {
-			data.Pod = ClusterUserGetNextPod(uuid, gws[0].Cluster, "agent")
+			data.Pod = 1
+		} else {
+			Cluster := DBGetClusterName(gws[0].Name)
+			tcl := DBFindTenantCluster(uuid, Cluster)
+			if tcl == nil {
+				data.Pod = 1
+			} else {
+				if (data.Pod == 0) || (data.Pod > tcl.Apods) {
+					data.Pod = ClusterUserGetNextPod(uuid, Cluster, "agent")
+				}
+			}
 		}
 	}
 	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
@@ -748,7 +791,7 @@ func DBAddUser(uuid string, data *User) error {
 		bson.D{
 			{"$set", bson.M{"name": data.Username, "email": data.Email,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
-				"cluster": data.Cluster, "services": data.Services}},
+				"cluster": Cluster, "services": data.Services}},
 		},
 		&opt,
 	)
@@ -838,7 +881,8 @@ func DBDelUser(tenant string, userid string) error {
 	if err != nil {
 		return err
 	}
-	err = DBDelClusterUser(user.Cluster, tenant, userid)
+	Cluster := DBGetClusterName(user.Gateway)
+	err = DBDelClusterUser(Cluster, tenant, userid)
 	if err != nil {
 		return err
 	}
@@ -1022,7 +1066,6 @@ func DBDelBundleAttrHdr(tenant string) error {
 type Bundle struct {
 	Bid        string   `json:"bid" bson:"_id"`
 	Bundlename string   `json:"name" bson:"name"`
-	Cluster    string   `json:"cluster" bson:"cluster"`
 	Gateway    string   `json:"gateway" bson:"gateway"`
 	Pod        int      `json:"pod" bson:"pod"`
 	Connectid  string   `json:"connectid" bson:"connectid"`
@@ -1043,14 +1086,12 @@ func DBAddBundle(uuid string, data *Bundle) error {
 	// connector signs-in.
 	// If gateway/cluster is preassigned, ensure it is valid (in our config).
 	data.Gateway = strings.TrimSpace(data.Gateway)
-	data.Cluster = strings.TrimSpace(data.Cluster)
-	if data.Cluster != "" && data.Gateway == "" {
-		data.Gateway = DBGetGwName(data.Cluster)
+	Cluster := DBGetClusterName(data.Gateway)
+	if data.Gateway == "" {
+		return fmt.Errorf("Gateway not configured")
 	}
-	if data.Gateway != "" {
-		if DBFindGateway(data.Gateway) == nil {
-			return fmt.Errorf("Gateway %s not configured", data.Gateway)
-		}
+	if DBFindGateway(data.Gateway) == nil {
+		return fmt.Errorf("Gateway %s not configured", data.Gateway)
 	}
 
 	data.Services = delEmpty(data.Services)
@@ -1063,14 +1104,12 @@ func DBAddBundle(uuid string, data *Bundle) error {
 		Upsert:         &upsert,
 	}
 	// TODO: rethink pod assignment. For connector, it may be via k8s.
-	if data.Cluster != "" {
-		tcl := DBFindTenantCluster(uuid, data.Cluster)
-		if tcl == nil {
-			return errors.New("Unknown cluster assigned to connector")
-		}
-		if (data.Pod == 0) || (data.Pod > tcl.Cpods) {
-			data.Pod = ClusterUserGetNextPod(uuid, data.Cluster, "connector")
-		}
+	tcl := DBFindTenantCluster(uuid, Cluster)
+	if tcl == nil {
+		return errors.New("Unknown cluster assigned to connector")
+	}
+	if (data.Pod == 0) || (data.Pod > tcl.Cpods) {
+		data.Pod = ClusterUserGetNextPod(uuid, Cluster, "connector")
 	}
 	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
 	// not happy with @, minion wants to replace dot with dash, keep everyone happy
@@ -1091,7 +1130,7 @@ func DBAddBundle(uuid string, data *Bundle) error {
 		bson.D{
 			{"$set", bson.M{"name": data.Bundlename,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
-				"cluster": data.Cluster, "services": data.Services}},
+				"cluster": Cluster, "services": data.Services}},
 		},
 		&opt,
 	)
@@ -1180,7 +1219,8 @@ func DBDelBundle(tenant string, bundleid string) error {
 		return err
 	}
 
-	err = DBDelClusterBundle(bun.Cluster, tenant, bundleid)
+	Cluster := DBGetClusterName(bun.Gateway)
+	err = DBDelClusterBundle(Cluster, tenant, bundleid)
 	if err != nil {
 		return err
 	}
@@ -1365,6 +1405,35 @@ func DBFindHostAttr(tenant string, host string) *bson.M {
 	return &Hattr
 }
 
+func DBFindAllHosts(tenant string) []string {
+	var hostAttrs []bson.M
+	hosts := []string{}
+
+	hostAttrCltn := dbGetCollection(tenant, "NxtHostAttr")
+	if hostAttrCltn == nil {
+		return nil
+	}
+	cursor, err := hostAttrCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &hostAttrs)
+	if err != nil {
+		return nil
+	}
+
+	hdockey := DBGetHdrKey("HostAttr")
+	for i := 0; i < len(hostAttrs); i++ {
+		// Need to skip header doc
+		host := fmt.Sprintf("%s", hostAttrs[i]["_id"])
+		if host != hdockey {
+			hosts = append(hosts, host)
+		}
+	}
+
+	return hosts
+}
+
 func DBFindAllHostAttrs(tenant string) []bson.M {
 	var hostAttrs []bson.M
 
@@ -1448,6 +1517,11 @@ func DBAddHostAttr(uuid string, data []byte) error {
 
 	DBAddHostAttrHdr(uuid, hdr)
 
+	err = dbUpdateTenantDomains(uuid)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -1460,8 +1534,15 @@ func DBDelHostAttr(tenant string, hostid string) error {
 		context.TODO(),
 		bson.M{"_id": hostid},
 	)
+	if err != nil {
+		return err
+	}
+	err = dbUpdateTenantDomains(tenant)
+	if err != nil {
+		return err
+	}
 
-	return err
+	return nil
 }
 
 //----------------------------User extended attributes------------------------------

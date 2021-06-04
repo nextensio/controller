@@ -122,7 +122,8 @@ func ClusterDelDB(cluster string) {
 func ClusterDBDrop() {
 	allGws := DBFindAllGateways()
 	for i := 0; i < len(allGws); i++ {
-		cldb := mongoClient.Database(ClusterGetDBName(allGws[i].Cluster))
+		Cluster := DBGetClusterName(allGws[i].Name)
+		cldb := mongoClient.Database(ClusterGetDBName(Cluster))
 		cldb.Drop(context.TODO())
 	}
 	globalClusterDB.Drop(context.TODO())
@@ -142,6 +143,7 @@ func DBAddClusterGateway(data *Gateway) error {
 	if gw != nil {
 		version = gw.Version + 1
 	}
+	Cluster := DBGetClusterName(data.Name)
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
@@ -153,7 +155,7 @@ func DBAddClusterGateway(data *Gateway) error {
 		context.TODO(),
 		bson.M{"name": data.Name},
 		bson.D{
-			{"$set", bson.M{"name": data.Name, "cluster": data.Cluster,
+			{"$set", bson.M{"name": data.Name, "cluster": Cluster,
 				"version": version}},
 		},
 		&opt,
@@ -164,7 +166,7 @@ func DBAddClusterGateway(data *Gateway) error {
 
 	// Create the logical DB for the cluster specific collections that are
 	// required by the nextensio manager in each cluster.
-	ClusterAddDB(data.Cluster)
+	ClusterAddDB(Cluster)
 
 	return nil
 }
@@ -322,14 +324,15 @@ func DBAddClusterConfig(tenant string, data *TenantCluster) error {
 	version := 1
 	nextapod := 0
 	nextcpod := 0
-	clc := DBFindClusterConfig(data.Cluster, tenant)
+	Cluster := DBGetClusterName(data.Gateway)
+	clc := DBFindClusterConfig(Cluster, tenant)
 	if clc != nil {
 		// If ClusterConfig exists, use following fields
 		version = clc.Version + 1
 		nextapod = clc.NextApod
 		nextcpod = clc.NextCpod
 	}
-	id := data.Cluster + ":" + tenant
+	id := Cluster + ":" + tenant
 
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
@@ -344,7 +347,7 @@ func DBAddClusterConfig(tenant string, data *TenantCluster) error {
 		bson.D{
 			{"$set", bson.M{"_id": id, "nextapod": nextapod, "nextcpod": nextcpod,
 				"apods": data.Apods, "cpods": data.Cpods, "image": data.Image,
-				"cluster": data.Cluster, "tenant": tenant, "version": version}},
+				"cluster": Cluster, "tenant": tenant, "version": version}},
 		},
 		&opt,
 	)
@@ -533,7 +536,8 @@ func diffSlices(a []string, b []string) []string {
 func DBAddClusterUser(tenant string, data *User) error {
 	uid := tenant + ":" + data.Uid
 	version := 1
-	user := DBFindClusterUser(data.Cluster, tenant, data.Uid)
+	Cluster := DBGetClusterName(data.Gateway)
+	user := DBFindClusterUser(Cluster, tenant, data.Uid)
 	var addServices []string
 	var delServices []string
 	if user != nil {
@@ -555,10 +559,10 @@ func DBAddClusterUser(tenant string, data *User) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	clusersCltn := ClusterGetCollection(data.Cluster, "NxtUsers")
+	clusersCltn := ClusterGetCollection(Cluster, "NxtUsers")
 	if clusersCltn == nil {
 		msg := fmt.Sprintf("Could not find users collection for cluster %s",
-			data.Cluster)
+			Cluster)
 		glog.Error(msg)
 		return errors.New(msg)
 	}
@@ -576,13 +580,13 @@ func DBAddClusterUser(tenant string, data *User) error {
 	}
 
 	for _, s := range addServices {
-		err := DBAddUserClusterSvc(data.Cluster, tenant, s, data.Uid, data.Pod)
+		err := DBAddUserClusterSvc(Cluster, tenant, s, data.Uid, data.Pod)
 		if err != nil {
 			return err
 		}
 	}
 	for _, s := range delServices {
-		err := DBDelUserClusterSvc(data.Cluster, tenant, s, data.Uid)
+		err := DBDelUserClusterSvc(Cluster, tenant, s, data.Uid)
 		if err != nil {
 			return err
 		}
@@ -664,7 +668,8 @@ func DBDelClusterUser(clid string, tenant string, userid string) error {
 func DBAddClusterBundle(tenant string, data *Bundle) error {
 	uid := tenant + ":" + data.Bid
 	version := 1
-	user := DBFindClusterBundle(data.Cluster, tenant, data.Bid)
+	Cluster := DBGetClusterName(data.Gateway)
+	user := DBFindClusterBundle(Cluster, tenant, data.Bid)
 	var addServices []string
 	var delServices []string
 	if user != nil {
@@ -686,10 +691,10 @@ func DBAddClusterBundle(tenant string, data *Bundle) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	clbundleCltn := ClusterGetCollection(data.Cluster, "NxtConnectors")
+	clbundleCltn := ClusterGetCollection(Cluster, "NxtConnectors")
 	if clbundleCltn == nil {
 		msg := fmt.Sprintf("Could not find Connectors collection for cluster %s",
-			data.Cluster)
+			Cluster)
 		glog.Error(msg)
 		return errors.New(msg)
 	}
@@ -707,13 +712,13 @@ func DBAddClusterBundle(tenant string, data *Bundle) error {
 	}
 
 	for _, s := range addServices {
-		err := DBAddBundleClusterSvc(data.Cluster, tenant, s, data.Bid, data.Pod)
+		err := DBAddBundleClusterSvc(Cluster, tenant, s, data.Bid, data.Pod)
 		if err != nil {
 			return err
 		}
 	}
 	for _, s := range delServices {
-		err := DBDelBundleClusterSvc(data.Cluster, tenant, s, data.Bid)
+		err := DBDelBundleClusterSvc(Cluster, tenant, s, data.Bid)
 		if err != nil {
 			return err
 		}
