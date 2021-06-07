@@ -728,9 +728,19 @@ func DBAddUser(uuid string, data *User) error {
 			return fmt.Errorf("Gateway %s not configured", data.Gateway)
 		}
 	} else {
+		gw := "gateway.nextensio.net"
+		cl := "gateway"
+		// If user already has a gateway set then just use that
+		user := DBFindUser(uuid, data.Uid)
+		if user != nil {
+			if user.Gateway != "" {
+				gw = user.Gateway
+				cl = DBGetClusterName(gw)
+			}
+		}
 		// Neither cluster nor gw configured. Let user agent select gw.
-		data.Gateway = "gateway.nextensio.net"
-		Cluster = "gateway"
+		data.Gateway = gw
+		Cluster = cl
 	}
 
 	// The upsert option asks the DB to add if one is not found
@@ -1088,9 +1098,16 @@ func DBAddBundle(uuid string, data *Bundle) error {
 	data.Gateway = strings.TrimSpace(data.Gateway)
 	Cluster := DBGetClusterName(data.Gateway)
 	if data.Gateway == "" {
-		return fmt.Errorf("Gateway not configured")
+		// If bundle already has a gateway set then just use that
+		bundle := DBFindBundle(uuid, data.Bid)
+		if bundle != nil {
+			if bundle.Gateway != "" {
+				data.Gateway = bundle.Gateway
+				Cluster = DBGetClusterName(data.Gateway)
+			}
+		}
 	}
-	if DBFindGateway(data.Gateway) == nil {
+	if data.Gateway != "" && DBFindGateway(data.Gateway) == nil {
 		return fmt.Errorf("Gateway %s not configured", data.Gateway)
 	}
 
