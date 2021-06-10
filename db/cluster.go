@@ -50,12 +50,8 @@ func ClusterGetDBName(cl string) string {
 	return ("Nxt-" + cl + "-DB")
 }
 
-func ClusterGetPodName(pod int, podtype string) string {
-	prefix := "apod"
-	if podtype != "A" {
-		prefix = "cpod"
-	}
-	return prefix + fmt.Sprintf("%d", pod)
+func ClusterGetApodSetName(tenant string, pod int) string {
+	return tenant + "-apod" + fmt.Sprintf("%d", pod)
 }
 
 func ClusterGetCollection(cluster string, cltn string) *mongo.Collection {
@@ -220,7 +216,6 @@ func DBDelClusterGateway(gwname string) error {
 type Namespace struct {
 	ID      string `json:"_id" bson:"_id"` // Tenant id
 	Name    string `json:"name" bson:"name"`
-	Image   string `json:"image" bson:"image"`
 	Version int    `json:"version" bson:"version"`
 }
 
@@ -243,7 +238,7 @@ func DBAddNamespace(data *Tenant) error {
 		context.TODO(),
 		bson.M{"_id": data.ID},
 		bson.D{
-			{"$set", bson.M{"name": data.Name, "image": data.Image,
+			{"$set", bson.M{"name": data.Name,
 				"version": version}},
 		},
 		&opt,
@@ -311,10 +306,8 @@ type ClusterConfig struct {
 	Cluster  string `json:"cluster" bson:"cluster"`
 	Tenant   string `json:"tenant" bson:"tenant"`
 	Image    string `json:"image" bson:"image"`
-	Apods    int    `json:"apods" bson:"apods"`
-	Cpods    int    `json:"cpods" bson:"cpods"`
-	NextApod int    `json:"nextapod" bson:"nextapod"`
-	NextCpod int    `json:"nextcpod" bson:"nextcpod"`
+	ApodRepl int    `json:"apodrepl" bson:"apodrepl"`
+	ApodSets int    `json:"apodsets" bson:"apodsets"`
 	Version  int    `json:"version" bson:"version"`
 }
 
@@ -322,15 +315,11 @@ type ClusterConfig struct {
 // within a specific cluster
 func DBAddClusterConfig(tenant string, data *TenantCluster) error {
 	version := 1
-	nextapod := 0
-	nextcpod := 0
 	Cluster := DBGetClusterName(data.Gateway)
 	clc := DBFindClusterConfig(Cluster, tenant)
 	if clc != nil {
 		// If ClusterConfig exists, use following fields
 		version = clc.Version + 1
-		nextapod = clc.NextApod
-		nextcpod = clc.NextCpod
 	}
 	id := Cluster + ":" + tenant
 
@@ -345,8 +334,9 @@ func DBAddClusterConfig(tenant string, data *TenantCluster) error {
 		context.TODO(),
 		bson.M{"_id": id},
 		bson.D{
-			{"$set", bson.M{"_id": id, "nextapod": nextapod, "nextcpod": nextcpod,
-				"apods": data.Apods, "cpods": data.Cpods, "image": data.Image,
+			{"$set", bson.M{"_id": id,
+				"apodsets": data.ApodSets, "apodrepl": data.ApodRepl,
+				"image":   data.Image,
 				"cluster": Cluster, "tenant": tenant, "version": version}},
 		},
 		&opt,
@@ -356,20 +346,19 @@ func DBAddClusterConfig(tenant string, data *TenantCluster) error {
 		return err.Err()
 	}
 
-	// TODO: Handle increase or decrease in # of pods
+	// The very first time we are associating a gateway with a tenant,
+	// add all the bundles of the tenant to this gateway
+	if clc == nil {
+		bundles := DBFindAllBundlesStruct(tenant)
+		for _, b := range bundles {
+			e := DBAddOneClusterBundle(tenant, &b, Cluster)
+			if e != nil {
+				return e
+			}
+		}
+	}
 
 	return nil
-}
-
-// Update the doc for a tenant within a cluster when a pod is assigned to a user.
-// Note that we don't bump up Version.
-func DBUpdClusterConfig(clcfg *ClusterConfig) error {
-
-	change := bson.M{"nextapod": clcfg.NextApod, "nextcpod": clcfg.NextCpod}
-	filter := bson.D{{"_id", clcfg.Id}}
-	update := bson.D{{"$set", change}}
-	_, err := clusterCfgCltn.UpdateOne(context.TODO(), filter, update)
-	return err
 }
 
 // Find the ClusterConfig doc for a tenant within a cluster
@@ -462,44 +451,8 @@ func DBDelClusterConfig(clid string, tenant string) error {
 	return err
 }
 
-// To be used when we support dynamic assignment of cluster and pod to a user or
-// cluster to a connector. The algorithm here may need to be enhanced considering the
-// requirement to take pods offline, either for an upgrade or for reducing number of pods.
-// It is ok to allow a user to connect to the same pod from multiple devices.
-// Multi-homing of a user from the same device is TBD.
-// Multi-homing of connectors will always be to different pods, either within the
-// same cluster or different clusters.
-func ClusterUserGetNextPod(tenant string, clid string, utype string) int {
-	nextpod := 0
-
-	clcfg := DBFindClusterConfig(clid, tenant)
-	if clcfg == nil {
-		return nextpod
-	}
-	switch utype {
-	case "agent":
-		if clcfg.Apods == 0 {
-			return 0
-		}
-		nextpod = clcfg.NextApod + 1 // Pods are created one-based
-		clcfg.NextApod = (nextpod + 1) % clcfg.Apods
-	case "connector":
-		if clcfg.Cpods == 0 {
-			return 0
-		}
-		nextpod = clcfg.NextCpod + 1 // Pods are created one-based
-		clcfg.NextCpod = (nextpod + 1) % clcfg.Cpods
-	default:
-		return 0
-	}
-
-	// Update NextPod in cluster config doc
-	DBUpdClusterConfig(clcfg)
-
-	return nextpod
-}
-
-// Common structure for agent or connector
+// The Pod here indicates the "pod set" that this user should
+// connect to, each pod set has its own number of replicas etc..
 type ClusterUser struct {
 	Uid       string   `json:"uid" bson:"_id"` // Tenant-ID:[User-ID | Bundle-ID]
 	Tenant    string   `json:"tenant" bson:"tenant"`
@@ -541,7 +494,7 @@ func DBAddClusterUser(tenant string, data *User) error {
 	var addServices []string
 	var delServices []string
 	if user != nil {
-		// If pod chnaged, all the services also are considered modified
+		// If pod changed, all the services also are considered modified
 		if data.Pod != user.Pod {
 			addServices = data.Services
 		} else {
@@ -659,28 +612,28 @@ func DBDelClusterUser(clid string, tenant string, userid string) error {
 	return err
 }
 
-// Today, this function is called when a new connector is added to the system.
-// At that time, we are also assigning the connector to a cluster and pod.
-// TBD whether cluster assignment should be dynamic when connector signs-in
-// as connectors are static. Pod assignment may also be dynamic and done by k8s
-// if we have to assign from a replicaset.
-// We also need to cater to multi-homing of connectors to different pods.
-func DBAddClusterBundle(tenant string, data *Bundle) error {
+// The Pod here indicates the "pod set" that this user should
+// connect to, each pod set has its own number of replicas etc..
+type ClusterBundle struct {
+	Uid       string   `json:"uid" bson:"_id"`
+	Tenant    string   `json:"tenant" bson:"tenant"`
+	Pod       string   `json:"pod" bson:"pod"`
+	Connectid string   `json:"connectid" bson:"connectid"`
+	Services  []string `json:"services" bson:"services"`
+	Version   int      `json:"version" bson:"version"`
+	CpodRepl  int      `json:"cpodrepl" bson:"cpodrepl"`
+}
+
+func DBAddOneClusterBundle(tenant string, data *Bundle, Cluster string) error {
 	uid := tenant + ":" + data.Bid
 	version := 1
-	Cluster := DBGetClusterName(data.Gateway)
-	user := DBFindClusterBundle(Cluster, tenant, data.Bid)
+	bundle := DBFindClusterBundle(Cluster, tenant, data.Bid)
 	var addServices []string
 	var delServices []string
-	if user != nil {
-		// If pod chnaged, all the services also are considered modified
-		if data.Pod != user.Pod {
-			addServices = data.Services
-		} else {
-			addServices = diffSlices(data.Services, user.Services)
-		}
-		delServices = diffSlices(user.Services, data.Services)
-		version = user.Version + 1
+	if bundle != nil {
+		addServices = diffSlices(data.Services, bundle.Services)
+		delServices = diffSlices(bundle.Services, data.Services)
+		version = bundle.Version + 1
 	} else {
 		addServices = data.Services
 	}
@@ -703,7 +656,7 @@ func DBAddClusterBundle(tenant string, data *Bundle) error {
 		bson.M{"_id": uid},
 		bson.D{
 			{"$set", bson.M{"tenant": tenant, "version": version, "pod": data.Pod,
-				"connectid": data.Connectid, "services": data.Services}},
+				"connectid": data.Connectid, "services": data.Services, "cpodrepl": data.CpodRepl}},
 		},
 		&opt,
 	)
@@ -712,7 +665,7 @@ func DBAddClusterBundle(tenant string, data *Bundle) error {
 	}
 
 	for _, s := range addServices {
-		err := DBAddBundleClusterSvc(Cluster, tenant, s, data.Bid, data.Pod)
+		err := DBAddBundleClusterSvc(Cluster, tenant, s, data.Bid)
 		if err != nil {
 			return err
 		}
@@ -727,26 +680,49 @@ func DBAddClusterBundle(tenant string, data *Bundle) error {
 	return nil
 }
 
+// TODO: This API adds the bundle to ALL gateways as of now, but a tenant
+// might not have all gateways given to it, it might have a subset of all
+// gateways. When that support comes in later, modify this to ensure the bundle
+// is added only to the tenant's subset. And even in the tenant's gateway subset,
+// all gateways might not need this bundle pre-configured. We will eventually move
+// to a model where when the bundle onboards with controller before connecting to
+// a gateway, the controller will tell the gateway to add the configs for the
+// bundle. Which also means that when the gateway has no connections from the
+// bundle for a long period of time (idle time), "somehow" the bundle yamls
+// should get removed from the gateway. Will implement that one day and then we
+// dont need to do this busines of adding configs to all gateways
+func DBAddClusterBundle(tenant string, data *Bundle) error {
+	gws := DBFindAllGateways()
+	for _, gw := range gws {
+		Cluster := DBGetClusterName(gw.Name)
+		err := DBAddOneClusterBundle(tenant, data, Cluster)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Find a specific tenant's connector within a cluster
-func DBFindClusterBundle(clid string, tenant string, bundleid string) *ClusterUser {
-	uid := tenant + ":" + bundleid
-	var user ClusterUser
+func DBFindClusterBundle(clid string, tenant string, bundleid string) *ClusterBundle {
+	bid := tenant + ":" + bundleid
+	var bundle ClusterBundle
 	clbundleCltn := ClusterGetCollection(clid, "NxtConnectors")
 	if clbundleCltn == nil {
 		return nil
 	}
 	err := clbundleCltn.FindOne(
 		context.TODO(),
-		bson.M{"_id": uid},
-	).Decode(&user)
+		bson.M{"_id": bid},
+	).Decode(&bundle)
 	if err != nil {
 		return nil
 	}
-	return &user
+	return &bundle
 }
 
-func DBFindAllClusterBundlesForTenant(clid string, tenant string) []ClusterUser {
-	var users []ClusterUser
+func DBFindAllClusterBundlesForTenant(clid string, tenant string) []ClusterBundle {
+	var bundles []ClusterBundle
 
 	clbundleCltn := ClusterGetCollection(clid, "NxtConnectors")
 	if clbundleCltn == nil {
@@ -756,21 +732,21 @@ func DBFindAllClusterBundlesForTenant(clid string, tenant string) []ClusterUser 
 	if err != nil {
 		return nil
 	}
-	err = cursor.All(context.TODO(), &users)
+	err = cursor.All(context.TODO(), &bundles)
 	if err != nil {
 		return nil
 	}
 
-	return users
+	return bundles
 }
 
 func DBDelClusterBundle(clid string, tenant string, bundleid string) error {
-	user := DBFindClusterBundle(clid, tenant, bundleid)
-	if user == nil {
+	bundle := DBFindClusterBundle(clid, tenant, bundleid)
+	if bundle == nil {
 		error := fmt.Sprintf("Connector %s not found", bundleid)
 		return errors.New(error)
 	}
-	for _, s := range user.Services {
+	for _, s := range bundle.Services {
 		err := DBDelBundleClusterSvc(clid, tenant, s, bundleid)
 		if err != nil {
 			return err
@@ -782,10 +758,10 @@ func DBDelClusterBundle(clid string, tenant string, bundleid string) error {
 		glog.Error(msg)
 		return errors.New(msg)
 	}
-	uid := tenant + ":" + bundleid
+	bid := tenant + ":" + bundleid
 	_, err := clbundleCltn.DeleteOne(
 		context.TODO(),
-		bson.M{"_id": uid},
+		bson.M{"_id": bid},
 	)
 
 	return err
@@ -951,38 +927,26 @@ func DBDelUserClusterSvc(clid string, tenant string, service string, agent strin
 	return nil
 }
 
-func DBAddBundleClusterSvc(clid string, tenant string, service string, agent string, pod int) error {
+func DBAddBundleClusterSvc(clid string, tenant string, service string, agent string) error {
 	sid := tenant + ":" + service
 	version := 1
 	svc := DBFindBundleClusterSvc(clid, tenant, service)
 	var agents []string
-	var pods []int
 	if svc != nil {
 		version = svc.Version + 1
 		agents = svc.Agents
-		pods = svc.Pods
 	}
-	nochange := false
 	found := false
-	for i, v := range agents {
+	for _, v := range agents {
 		if v == agent {
 			found = true
-			if pods[i] == pod {
-				nochange = true
-				break
-			} else {
-				pods[i] = pod
-			}
 		}
 	}
-	if nochange {
+	if found {
 		// no change
 		return nil
 	}
-	if !found {
-		agents = append(agents, agent)
-		pods = append(pods, pod)
-	}
+	agents = append(agents, agent)
 
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
@@ -999,7 +963,7 @@ func DBAddBundleClusterSvc(clid string, tenant string, service string, agent str
 		context.TODO(),
 		bson.M{"_id": sid},
 		bson.D{
-			{"$set", bson.M{"tenant": tenant, "agents": agents, "pods": pods, "version": version}},
+			{"$set", bson.M{"tenant": tenant, "agents": agents, "version": version}},
 		},
 		&opt,
 	)

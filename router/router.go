@@ -168,7 +168,7 @@ func TenantMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 	}
 
 	url := r.URL.String()
-	reg, _ := regexp.Compile("/api/v1/tenant/([a-zA-Z0-9_]+)/(add|get|del)/([a-zA-Z0-9]+).*")
+	reg, _ := regexp.Compile("/api/v1/tenant/([a-z0-9]+)/(add|get|del)/([_a-zA-Z0-9]+).*")
 	match := reg.FindStringSubmatch(url)
 	if len(match) != 4 {
 		w.WriteHeader(http.StatusUnauthorized)

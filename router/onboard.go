@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"nextensio/controller/db"
 	"nextensio/controller/utils"
+	"strings"
 	"time"
 
 	"github.com/golang/glog"
@@ -220,7 +221,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 
 	gws := db.DBFindAllGateways()
 	for _, g := range gws {
-		tcl := db.TenantCluster{Gateway: g.Name, Image: "", Apods: 1, Cpods: 1}
+		tcl := db.TenantCluster{Gateway: g.Name, Image: "", ApodSets: 1, ApodRepl: 1}
 		err = db.DBAddTenantCluster(data.ID, &tcl)
 		if err != nil {
 			result.Result = err.Error()
@@ -547,8 +548,6 @@ type OnboardResult struct {
 func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	var result OnboardResult
 	var data onboardData
-	var pod int
-	var podname string
 
 	data.Userid = r.Context().Value("userid").(string)
 	data.Tenant = r.Context().Value("user-tenant").(string)
@@ -565,17 +564,16 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 		result.Services = user.Services
 		result.Gateway = user.Gateway
 		result.Cluster = db.DBGetClusterName(user.Gateway)
-		pod = user.Pod
-		podname = db.ClusterGetPodName(pod, "A")
 	} else {
 		bundle := db.DBFindBundle(data.Tenant, data.Userid)
 		if bundle != nil {
 			result.Connectid = bundle.Connectid
+			if bundle.Pod != "" {
+				result.Connectid = bundle.Pod
+			}
 			result.Services = bundle.Services
 			result.Gateway = bundle.Gateway
 			result.Cluster = db.DBGetClusterName(bundle.Gateway)
-			pod = bundle.Pod
-			podname = db.ClusterGetPodName(pod, "C")
 		} else {
 			result.Result = "IDP user/bundle not found on controller"
 			utils.WriteResult(w, result)
@@ -593,14 +591,11 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	result.Tenant = data.Tenant
 	result.Cacert = cert.Cert
 	result.Domains = tenant.Domains
-	result.Podname = podname
 	utils.WriteResult(w, result)
 
 	var onbl db.OnboardLog
 	onbl.Uid = result.Userid
 	onbl.Gw = result.Gateway
-	onbl.Pod = pod
-	onbl.Podname = podname
 	onbl.Connectid = result.Connectid
 	tbytes, _ := time.Now().MarshalJSON()
 	onbl.OnbTime = string(tbytes)
@@ -689,7 +684,6 @@ func getAllUsersHandler(w http.ResponseWriter, r *http.Request) {
 		users = make([]bson.M, 0)
 	}
 	utils.WriteResult(w, users)
-
 }
 
 // Delete a user
@@ -1229,6 +1223,8 @@ func delHostAttrHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	host := v["host"]
+	// IP/Mask will be sent as IP_Mask since / will be interpreted as an http path
+	host = strings.ReplaceAll(host, "_", "/")
 	uuid := r.Context().Value("tenant").(string)
 	err := db.DBDelHostAttr(uuid, host)
 	if err != nil {
@@ -1411,8 +1407,6 @@ func getOnboardLogHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		result = GetOnboardLogResult{Result: "ok",
 			Gw:        onblog.Gw,
-			Pod:       onblog.Pod,
-			Podnm:     onblog.Podname,
 			Connectid: onblog.Connectid,
 			OnbTime:   onblog.OnbTime,
 			Count:     onblog.Count,

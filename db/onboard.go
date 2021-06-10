@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/golang/glog"
@@ -38,7 +39,6 @@ type Tenant struct {
 	ID      string   `json:"_id" bson:"_id"`
 	Name    string   `json:"name" bson:"name"`
 	Domains []string `json:"domains" bson:"domains"`
-	Image   string   `json:"image" bson:"image"`
 }
 
 func dbUpdateTenantDomains(uuid string) error {
@@ -71,6 +71,12 @@ func dbUpdateTenantDomains(uuid string) error {
 	return nil
 }
 
+func validateTenant(tenant string) bool {
+	reg, _ := regexp.Compile("([a-z0-9]+)")
+	match := reg.FindStringSubmatch(tenant)
+	return len(match) == 2
+}
+
 // This API will add a new tenant or update a tenant if it already exists.
 // Tenant additions are now not dependent on gateways/clusters. After adding
 // the tenant, we link the tenant to one or more gateways/clusters via the
@@ -79,6 +85,9 @@ func dbUpdateTenantDomains(uuid string) error {
 // cluster.
 func DBAddTenant(data *Tenant) error {
 
+	if !validateTenant(data.ID) {
+		return errors.New("invalid tenant id")
+	}
 	// See if tenant doc exists.
 	tdoc := DBFindTenant(data.ID)
 
@@ -90,11 +99,7 @@ func DBAddTenant(data *Tenant) error {
 		Upsert:         &upsert,
 	}
 
-	if data.Image == "" {
-		data.Image = "registry.gitlab.com/nextensio/cluster/minion:latest"
-	}
-
-	change := bson.M{"name": data.Name, "image": data.Image}
+	change := bson.M{"name": data.Name}
 	err := tenantCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": data.ID},
@@ -206,11 +211,11 @@ func DBDelTenantDocOnly(id string) error {
 // which gives the per-cluster allocation of tenants and used as operational
 // data by the clustermgr.
 type TenantCluster struct {
-	Id      string `json:"id" bson: "_id"` // TenantID:ClusterId
-	Gateway string `json:"gateway" bson:"gateway"`
-	Image   string `json:"image" bson:"image"`
-	Apods   int    `json:"apods" bson:"apods"`
-	Cpods   int    `json:"cpods" bson:"cpods"`
+	Id       string `json:"id" bson: "_id"` // TenantID:ClusterId
+	Gateway  string `json:"gateway" bson:"gateway"`
+	Image    string `json:"image" bson:"image"`
+	ApodRepl int    `json:"apodrepl" bson:"apodrepl"`
+	ApodSets int    `json:"apodsets" bson:"apodsets"`
 }
 
 // This API will add a tenant to a cluster or update one if it already exists
@@ -226,11 +231,23 @@ func DBAddTenantCluster(tenant string, data *TenantCluster) error {
 	if tdoc == nil {
 		return fmt.Errorf("Unknown tenant %s", tenant)
 	}
+	tcl := DBFindTenantCluster(tenant, Cluster)
 	if data.Image == "" {
-		// Default to image specified at tenant level
-		data.Image = tdoc.Image
+		if tcl != nil {
+			// just use the existing image
+			data.Image = tcl.Image
+		} else {
+			// Default to image specified at tenant level
+			data.Image = "registry.gitlab.com/nextensio/cluster/minion:latest"
+		}
 	}
-
+	if data.ApodSets == 0 {
+		if tcl != nil {
+			data.ApodSets = tcl.ApodSets
+		} else {
+			data.ApodSets = 1
+		}
+	}
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
@@ -248,7 +265,7 @@ func DBAddTenantCluster(tenant string, data *TenantCluster) error {
 		bson.M{"_id": id},
 		bson.D{
 			{"$set", bson.M{"tenant": tenant, "gateway": data.Gateway, "cluster": Cluster,
-				"apods": data.Apods, "cpods": data.Cpods, "image": data.Image}},
+				"apodrepl": data.ApodRepl, "apodsets": data.ApodSets, "image": data.Image}},
 		},
 		&opt,
 	)
@@ -697,6 +714,8 @@ func DBDelUserAttrHdr(tenant string) error {
 	return DBDelCollectionHdr(tenant, "NxtUserAttr", "UserAttr")
 }
 
+// The Pod here indicates the "pod set" that this user should
+// connect to, each pod set has its own number of replicas etc..
 type User struct {
 	Uid       string   `json:"uid" bson:"_id"`
 	Username  string   `json:"name" bson:"name"`
@@ -714,6 +733,7 @@ func DBAddUser(uuid string, data *User) error {
 	if tenant == nil {
 		return fmt.Errorf("Unknown tenant")
 	}
+	user := DBFindUser(uuid, data.Uid)
 
 	// In our test setup, we preassign the gateway/cluster and pod.
 	// In a real deployment, the gateway/cluster and pod have to be dynamically
@@ -731,14 +751,14 @@ func DBAddUser(uuid string, data *User) error {
 		gw := "gateway.nextensio.net"
 		cl := "gateway"
 		// If user already has a gateway set then just use that
-		user := DBFindUser(uuid, data.Uid)
 		if user != nil {
 			if user.Gateway != "" {
 				gw = user.Gateway
 				cl = DBGetClusterName(gw)
 			}
 		}
-		// Neither cluster nor gw configured. Let user agent select gw.
+		// Neither cluster nor gw configured. Let user agent select the exact gw
+		// by dns resolving gateway.nextensio.net to gatewayXYZ.nextensio.net
 		data.Gateway = gw
 		Cluster = cl
 	}
@@ -750,35 +770,20 @@ func DBAddUser(uuid string, data *User) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	// TODO: User pod assignments will vanish soon when Ashwin makes pod assigments
-	// to be done by kubernetes in a loadbalanced stateful set. And then we should
-	// get rid of this entire block. For now this is a hack where we just pick the
-	// first gateway for this tenant and calculate the pod based on that, assuming
-	// that all gateways have the same number of apods
-	if Cluster != "gateway" {
-		tcl := DBFindTenantCluster(uuid, Cluster)
-		if tcl == nil {
-			return errors.New("Unknown cluster assigned to user")
-		}
-		if (data.Pod == 0) || (data.Pod > tcl.Apods) {
-			data.Pod = ClusterUserGetNextPod(uuid, Cluster, "agent")
-		}
-	} else {
-		gws := DBFindAllGateways()
-		if len(gws) == 0 {
-			data.Pod = 1
-		} else {
-			Cluster := DBGetClusterName(gws[0].Name)
-			tcl := DBFindTenantCluster(uuid, Cluster)
-			if tcl == nil {
-				data.Pod = 1
-			} else {
-				if (data.Pod == 0) || (data.Pod > tcl.Apods) {
-					data.Pod = ClusterUserGetNextPod(uuid, Cluster, "agent")
-				}
+	// By pod what we mean here is actually the "pod set" - ie of a set of
+	// pods available (each with their own replicas). By default, users/agents
+	// will have just one set with ApodRepl number of replicas
+	if data.Pod == 0 {
+		if user != nil {
+			if user.Pod != 0 {
+				data.Pod = user.Pod
 			}
 		}
 	}
+	if data.Pod == 0 {
+		data.Pod = 1
+	}
+
 	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
 	// not happy with @, minion wants to replace dot with dash, keep everyone happy.
 	// A user will have just one service, based on "tenant-userid"
@@ -789,7 +794,7 @@ func DBAddUser(uuid string, data *User) error {
 	// Same user/uuid can login from multiple devices. The connectid will be based on the
 	// pod assigned to each user device when on-boarding. Here we just initialize it to
 	// any pre-configured pod. It may change during on-boarding.
-	data.Connectid = ClusterGetPodName(data.Pod, "A")
+	data.Connectid = ClusterGetApodSetName(uuid, data.Pod)
 
 	userCltn := dbGetCollection(uuid, "NxtUsers")
 	if userCltn == nil {
@@ -1073,13 +1078,16 @@ func DBDelBundleAttrHdr(tenant string) error {
 	return DBDelCollectionHdr(tenant, "NxtAppAttr", "AppAttr")
 }
 
+// The Pod here indicates the "pod set" that this user should
+// connect to, each pod set has its own number of replicas etc..
 type Bundle struct {
 	Bid        string   `json:"bid" bson:"_id"`
 	Bundlename string   `json:"name" bson:"name"`
 	Gateway    string   `json:"gateway" bson:"gateway"`
-	Pod        int      `json:"pod" bson:"pod"`
+	Pod        string   `json:"pod" bson:"pod"`
 	Connectid  string   `json:"connectid" bson:"connectid"`
 	Services   []string `json:"services" bson:"services"`
+	CpodRepl   int      `json:"cpodrepl" bson:"cpodrepl"`
 }
 
 // This API will add/update a new bundle
@@ -1089,6 +1097,7 @@ func DBAddBundle(uuid string, data *Bundle) error {
 	if tenant == nil {
 		return fmt.Errorf("Unknown tenant")
 	}
+	bundle := DBFindBundle(uuid, data.Bid)
 
 	// We currently preassign the gateway/cluster and pod. This may change to
 	// just the cluster assignment if k8s does the pod assignment from amongst
@@ -1125,8 +1134,16 @@ func DBAddBundle(uuid string, data *Bundle) error {
 	if tcl == nil {
 		return errors.New("Unknown cluster assigned to connector")
 	}
-	if (data.Pod == 0) || (data.Pod > tcl.Cpods) {
-		data.Pod = ClusterUserGetNextPod(uuid, Cluster, "connector")
+	// By pod what we mean here is actually the "pod set" - ie of a set of
+	// pods available (each with their own replicas), which set do we want to
+	// connect to. This is an option for the admin to override the default that
+	// clustermgr decides (the pod set with the name of the bundle)
+	if data.Pod == "" {
+		if bundle != nil {
+			if bundle.Pod != "" {
+				data.Pod = bundle.Pod
+			}
+		}
 	}
 	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
 	// not happy with @, minion wants to replace dot with dash, keep everyone happy
@@ -1147,7 +1164,7 @@ func DBAddBundle(uuid string, data *Bundle) error {
 		bson.D{
 			{"$set", bson.M{"name": data.Bundlename,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
-				"cluster": Cluster, "services": data.Services}},
+				"cluster": Cluster, "services": data.Services, "cpodrepl": data.CpodRepl}},
 		},
 		&opt,
 	)
@@ -1177,6 +1194,32 @@ func DBFindBundle(tenant string, bundleid string) *Bundle {
 		return nil
 	}
 	return &app
+}
+
+func DBFindAllBundlesStruct(tenant string) []Bundle {
+	var tmp []Bundle
+	var bundles []Bundle
+
+	appCltn := dbGetCollection(tenant, "NxtApps")
+	if appCltn == nil {
+		return nil
+	}
+	cursor, err := appCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &tmp)
+	if err != nil {
+		return nil
+	}
+
+	hdockey := DBGetHdrKey("AppInfo")
+	for _, b := range tmp {
+		if b.Bid != hdockey {
+			bundles = append(bundles, b)
+		}
+	}
+	return bundles
 }
 
 func DBFindAllBundles(tenant string) []bson.M {
@@ -1649,8 +1692,6 @@ func DBDelUserExtAttr(tenant string) error {
 type OnboardLog struct {
 	Uid       string `json:"uid" bson:"_id"`
 	Gw        string `json:"gw" bson:"gw"`
-	Pod       int    `json:"pod" bson:"pod"`
-	Podname   string `json:"podname" bson:"podname"`
 	Connectid string `json:"connectid" bson:"connectid"`
 	OnbTime   string `json:"onbtime" bson:"onbtime"` // Time as a RFC3339 format json string
 	Count     int    `json:"count" bson:"count"`
@@ -1682,7 +1723,7 @@ func DBAddOnboardLog(tenant string, data *OnboardLog) error {
 		context.TODO(),
 		bson.M{"_id": data.Uid},
 		bson.D{
-			{"$set", bson.M{"gw": data.Gw, "pod": data.Pod, "podname": data.Podname,
+			{"$set", bson.M{"gw": data.Gw,
 				"connectid": data.Connectid, "onbtime": data.OnbTime,
 				"count": data.Count, "prevtime": data.PrevTime}},
 		},
