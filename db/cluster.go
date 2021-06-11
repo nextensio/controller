@@ -424,9 +424,7 @@ func DBFindAllClustersForTenant(tenant string) []ClusterConfig {
 func DBDelClusterConfig(clid string, tenant string) error {
 	clcfg := DBFindClusterConfig(clid, tenant)
 	if clcfg == nil {
-		msg := fmt.Sprintf("Could not find ClusterConfig to delete for %s:%s", clid, tenant)
-		glog.Errorf(msg)
-		return errors.New(msg)
+		return nil
 	}
 	users := DBFindAllClusterUsersForTenant(clid, tenant)
 	if users != nil {
@@ -740,7 +738,7 @@ func DBFindAllClusterBundlesForTenant(clid string, tenant string) []ClusterBundl
 	return bundles
 }
 
-func DBDelClusterBundle(clid string, tenant string, bundleid string) error {
+func DBDelOneClusterBundle(clid string, tenant string, bundleid string) error {
 	bundle := DBFindClusterBundle(clid, tenant, bundleid)
 	if bundle == nil {
 		error := fmt.Sprintf("Connector %s not found", bundleid)
@@ -765,6 +763,18 @@ func DBDelClusterBundle(clid string, tenant string, bundleid string) error {
 	)
 
 	return err
+}
+
+func DBDelClusterBundle(tenant string, bundleid string) error {
+	gws := DBFindAllGateways()
+	for _, gw := range gws {
+		Cluster := DBGetClusterName(gw.Name)
+		err := DBDelOneClusterBundle(Cluster, tenant, bundleid)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type ClusterService struct {

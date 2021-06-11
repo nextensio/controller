@@ -198,11 +198,24 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	id, tenant, err := IdpGetUser(API, TOKEN, signup.Email)
+	if err == nil && id != "" {
+		if tenant == signup.Tenant {
+			result.Result = "You have already signed up, please check your email, activate the account and login here with your password"
+			utils.WriteResult(w, result)
+			return
+		} else {
+			result.Result = "Userid is already assigned to tenant " + tenant + ". To reassign userid to new tenant, login to the old tenant, delete the userid under Users and signup again for the new tenant"
+			utils.WriteResult(w, result)
+			return
+		}
+	}
 	if db.DBFindTenant(signup.Tenant) != nil {
-		result.Result = "Enterprise ID already taken, please try another variation"
+		result.Result = "Enterprise ID already taken, please signup for another enterprise, or contact admin for the enterprise to get you an account in this enterprise"
 		utils.WriteResult(w, result)
 		return
 	}
+
 	_, err = IdpAddUser(API, TOKEN, signup.Email, signup.Tenant, "admin")
 	if err != nil {
 		result.Result = "Failure adding user, please try again: " + err.Error()
@@ -352,6 +365,16 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 		result.Result = "Tenant still has policies"
 		utils.WriteResult(w, result)
 		return
+	}
+	gws := db.DBFindAllGateways()
+	for _, g := range gws {
+		Cluster := db.DBGetClusterName(g.Name)
+		err := db.DBDelTenantCluster(uuid, Cluster)
+		if err != nil {
+			result.Result = err.Error()
+			utils.WriteResult(w, result)
+			return
+		}
 	}
 	// DBDelTenant() will remove all header docs for tenant collections
 	err := db.DBDelTenant(uuid)
@@ -632,7 +655,9 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 	uuid := r.Context().Value("tenant").(string)
 	_, err = IdpAddUser(API, TOKEN, data.Uid, uuid, "regular")
 	if err != nil {
-		result.Result = "Adding user to IDP fail"
+		msg := "Adding user to IDP fail:" + err.Error()
+		glog.Errorf(msg)
+		result.Result = msg
 		utils.WriteResult(w, result)
 		return
 	}
@@ -696,7 +721,7 @@ func delUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	err := IdpDelUser(API, TOKEN, userid, uuid)
 	if err != nil {
-		result.Result = "Deleting user from IDP fail"
+		result.Result = "Deleting user from IDP fail: " + err.Error()
 		utils.WriteResult(w, result)
 		return
 	}
@@ -910,7 +935,9 @@ func addBundleHandler(w http.ResponseWriter, r *http.Request) {
 	uuid := r.Context().Value("tenant").(string)
 	_, err = IdpAddUser(API, TOKEN, data.Bid, uuid, "regular")
 	if err != nil {
-		result.Result = "Adding bundle to IDP fail"
+		msg := "Adding appGroup to IDP fail:" + err.Error()
+		glog.Errorf(msg)
+		result.Result = msg
 		utils.WriteResult(w, result)
 		return
 	}
@@ -974,7 +1001,7 @@ func delBundleHandler(w http.ResponseWriter, r *http.Request) {
 	uuid := r.Context().Value("tenant").(string)
 	err := IdpDelUser(API, TOKEN, bid, uuid)
 	if err != nil {
-		result.Result = "Deleting bundle from IDP fail"
+		result.Result = "Deleting bundle from IDP fail: " + err.Error()
 		utils.WriteResult(w, result)
 		return
 	}

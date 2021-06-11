@@ -1274,8 +1274,7 @@ func DBDelBundle(tenant string, bundleid string) error {
 		return err
 	}
 
-	Cluster := DBGetClusterName(bun.Gateway)
-	err = DBDelClusterBundle(Cluster, tenant, bundleid)
+	err = DBDelClusterBundle(tenant, bundleid)
 	if err != nil {
 		return err
 	}

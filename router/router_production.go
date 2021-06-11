@@ -27,6 +27,10 @@ func Authenticate(w http.ResponseWriter, r *http.Request) *context.Context {
 	return ctx
 }
 
+func IdpGetUser(API string, TOKEN string, userid string) (string, string, error) {
+	return okta.GetUser(API, TOKEN, userid)
+}
+
 func IdpAddUser(API string, TOKEN string, userid string, tenant string, userType string) (string, error) {
 	return okta.AddUser(API, TOKEN, userid, tenant, userType)
 }
