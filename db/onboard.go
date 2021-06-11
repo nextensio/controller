@@ -1129,11 +1129,6 @@ func DBAddBundle(uuid string, data *Bundle) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	// TODO: rethink pod assignment. For connector, it may be via k8s.
-	tcl := DBFindTenantCluster(uuid, Cluster)
-	if tcl == nil {
-		return errors.New("Unknown cluster assigned to connector")
-	}
 	// By pod what we mean here is actually the "pod set" - ie of a set of
 	// pods available (each with their own replicas), which set do we want to
 	// connect to. This is an option for the admin to override the default that
