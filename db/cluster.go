@@ -35,8 +35,6 @@ var clusterCfgCltn *mongo.Collection
 
 var usersCltn = make(map[string]*mongo.Collection, maxClusters)
 var bundleCltn = make(map[string]*mongo.Collection, maxClusters)
-var userviceCltn = make(map[string]*mongo.Collection, maxClusters)
-var bserviceCltn = make(map[string]*mongo.Collection, maxClusters)
 
 func ClusterDBInit(dbClient *mongo.Client) {
 	mongoClient = dbClient
@@ -73,18 +71,6 @@ func ClusterGetCollection(cluster string, cltn string) *mongo.Collection {
 			bundleCltn[cluster] = ClusterDBs[cluster].Collection("NxtConnectors")
 		}
 		return bundleCltn[cluster]
-	case "NxtUServices":
-		_, cok := userviceCltn[cluster]
-		if cok == false {
-			userviceCltn[cluster] = ClusterDBs[cluster].Collection("NxtUServices")
-		}
-		return userviceCltn[cluster]
-	case "NxtBServices":
-		_, cok := bserviceCltn[cluster]
-		if cok == false {
-			bserviceCltn[cluster] = ClusterDBs[cluster].Collection("NxtBServices")
-		}
-		return bserviceCltn[cluster]
 	}
 	return nil
 }
@@ -102,15 +88,11 @@ func ClusterAddDB(cluster string) {
 func ClusterAddCollections(cluster string, cldb *mongo.Database) {
 	usersCltn[cluster] = cldb.Collection("NxtUsers")
 	bundleCltn[cluster] = cldb.Collection("NxtConnectors")
-	userviceCltn[cluster] = cldb.Collection("NxtUServices")
-	bserviceCltn[cluster] = cldb.Collection("NxtBServices")
 }
 
 func ClusterDelDB(cluster string) {
 	delete(usersCltn, cluster)
 	delete(bundleCltn, cluster)
-	delete(userviceCltn, cluster)
-	delete(bserviceCltn, cluster)
 	ClusterDBs[cluster].Drop(context.TODO())
 	delete(ClusterDBs, cluster)
 }
@@ -434,10 +416,9 @@ func DBDelClusterConfig(clid string, tenant string) error {
 	}
 	bundles := DBFindAllClusterBundlesForTenant(clid, tenant)
 	if bundles != nil {
-		msg := fmt.Sprintf("Cannot delete ClusterConfig for %s:%s - active connectors",
-			clid, tenant)
-		glog.Errorf(msg)
-		return errors.New(msg)
+		for _, b := range bundles {
+			_ = DBDelOneClusterBundle(clid, b.Uid)
+		}
 	}
 	// TODO: removal of pods
 
@@ -488,19 +469,8 @@ func DBAddClusterUser(tenant string, data *User) error {
 	version := 1
 	Cluster := DBGetClusterName(data.Gateway)
 	user := DBFindClusterUser(Cluster, tenant, data.Uid)
-	var addServices []string
-	var delServices []string
 	if user != nil {
-		// If pod changed, all the services also are considered modified
-		if data.Pod != user.Pod {
-			addServices = data.Services
-		} else {
-			addServices = diffSlices(data.Services, user.Services)
-		}
-		delServices = diffSlices(user.Services, data.Services)
 		version = user.Version + 1
-	} else {
-		addServices = data.Services
 	}
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
@@ -527,19 +497,6 @@ func DBAddClusterUser(tenant string, data *User) error {
 	)
 	if result.Err() != nil {
 		return result.Err()
-	}
-
-	for _, s := range addServices {
-		err := DBAddUserClusterSvc(Cluster, tenant, s, data.Uid, data.Pod)
-		if err != nil {
-			return err
-		}
-	}
-	for _, s := range delServices {
-		err := DBDelUserClusterSvc(Cluster, tenant, s, data.Uid)
-		if err != nil {
-			return err
-		}
 	}
 
 	return nil
@@ -588,12 +545,6 @@ func DBDelClusterUser(clid string, tenant string, userid string) error {
 		error := fmt.Sprintf("User %s not found", userid)
 		return errors.New(error)
 	}
-	for _, s := range user.Services {
-		err := DBDelUserClusterSvc(clid, tenant, s, userid)
-		if err != nil {
-			return err
-		}
-	}
 	clusersCltn := ClusterGetCollection(clid, "NxtUsers")
 	if clusersCltn == nil {
 		msg := fmt.Sprintf("Could not find Clusterusers collection for cluster %s", clid)
@@ -624,15 +575,9 @@ type ClusterBundle struct {
 func DBAddOneClusterBundle(tenant string, data *Bundle, Cluster string) error {
 	uid := tenant + ":" + data.Bid
 	version := 1
-	bundle := DBFindClusterBundle(Cluster, tenant, data.Bid)
-	var addServices []string
-	var delServices []string
+	bundle := DBFindClusterBundle(Cluster, uid)
 	if bundle != nil {
-		addServices = diffSlices(data.Services, bundle.Services)
-		delServices = diffSlices(bundle.Services, data.Services)
 		version = bundle.Version + 1
-	} else {
-		addServices = data.Services
 	}
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
@@ -661,19 +606,6 @@ func DBAddOneClusterBundle(tenant string, data *Bundle, Cluster string) error {
 		return result.Err()
 	}
 
-	for _, s := range addServices {
-		err := DBAddBundleClusterSvc(Cluster, tenant, s, data.Bid)
-		if err != nil {
-			return err
-		}
-	}
-	for _, s := range delServices {
-		err := DBDelBundleClusterSvc(Cluster, tenant, s, data.Bid)
-		if err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
@@ -689,10 +621,9 @@ func DBAddOneClusterBundle(tenant string, data *Bundle, Cluster string) error {
 // should get removed from the gateway. Will implement that one day and then we
 // dont need to do this busines of adding configs to all gateways
 func DBAddClusterBundle(tenant string, data *Bundle) error {
-	gws := DBFindAllGateways()
-	for _, gw := range gws {
-		Cluster := DBGetClusterName(gw.Name)
-		err := DBAddOneClusterBundle(tenant, data, Cluster)
+	cls := DBFindAllClustersForTenant(tenant)
+	for _, cl := range cls {
+		err := DBAddOneClusterBundle(tenant, data, cl.Cluster)
 		if err != nil {
 			return err
 		}
@@ -701,8 +632,7 @@ func DBAddClusterBundle(tenant string, data *Bundle) error {
 }
 
 // Find a specific tenant's connector within a cluster
-func DBFindClusterBundle(clid string, tenant string, bundleid string) *ClusterBundle {
-	bid := tenant + ":" + bundleid
+func DBFindClusterBundle(clid string, tidbid string) *ClusterBundle {
 	var bundle ClusterBundle
 	clbundleCltn := ClusterGetCollection(clid, "NxtConnectors")
 	if clbundleCltn == nil {
@@ -710,7 +640,7 @@ func DBFindClusterBundle(clid string, tenant string, bundleid string) *ClusterBu
 	}
 	err := clbundleCltn.FindOne(
 		context.TODO(),
-		bson.M{"_id": bid},
+		bson.M{"_id": tidbid},
 	).Decode(&bundle)
 	if err != nil {
 		return nil
@@ -737,17 +667,11 @@ func DBFindAllClusterBundlesForTenant(clid string, tenant string) []ClusterBundl
 	return bundles
 }
 
-func DBDelOneClusterBundle(clid string, tenant string, bundleid string) error {
-	bundle := DBFindClusterBundle(clid, tenant, bundleid)
+func DBDelOneClusterBundle(clid string, tidbid string) error {
+	bundle := DBFindClusterBundle(clid, tidbid)
 	if bundle == nil {
-		error := fmt.Sprintf("Connector %s not found", bundleid)
+		error := fmt.Sprintf("Connector %s not found", tidbid)
 		return errors.New(error)
-	}
-	for _, s := range bundle.Services {
-		err := DBDelBundleClusterSvc(clid, tenant, s, bundleid)
-		if err != nil {
-			return err
-		}
 	}
 	clbundleCltn := ClusterGetCollection(clid, "NxtConnectors")
 	if clbundleCltn == nil {
@@ -755,322 +679,20 @@ func DBDelOneClusterBundle(clid string, tenant string, bundleid string) error {
 		glog.Error(msg)
 		return errors.New(msg)
 	}
-	bid := tenant + ":" + bundleid
 	_, err := clbundleCltn.DeleteOne(
 		context.TODO(),
-		bson.M{"_id": bid},
+		bson.M{"_id": tidbid},
 	)
 
 	return err
 }
 
 func DBDelClusterBundle(tenant string, bundleid string) error {
-	gws := DBFindAllGateways()
-	for _, gw := range gws {
-		Cluster := DBGetClusterName(gw.Name)
-		err := DBDelOneClusterBundle(Cluster, tenant, bundleid)
+	cls := DBFindAllClustersForTenant(tenant)
+	for _, cl := range cls {
+		err := DBDelOneClusterBundle(cl.Cluster, tenant+":"+bundleid)
 		if err != nil {
 			return err
-		}
-	}
-	return nil
-}
-
-type ClusterService struct {
-	Sid     string   `json:"sid" bson:"_id"` // Tenant-ID:Service-ID
-	Tenant  string   `json:"tenant" bson:"tenant"`
-	Agents  []string `json:"agents" bson:"agents"`
-	Pods    []int    `json:"pods" bson:"pods"`
-	Version int      `json:"version" bson:"version"`
-}
-
-func DBAddUserClusterSvc(clid string, tenant string, service string, agent string, pod int) error {
-	sid := tenant + ":" + service
-	version := 1
-	svc := DBFindUserClusterSvc(clid, tenant, service)
-	var agents []string
-	var pods []int
-	if svc != nil {
-		version = svc.Version + 1
-		agents = svc.Agents
-		pods = svc.Pods
-	}
-	nochange := false
-	found := false
-	for i, v := range agents {
-		if v == agent {
-			found = true
-			if pods[i] == pod {
-				nochange = true
-				break
-			} else {
-				pods[i] = pod
-			}
-		}
-	}
-	if nochange {
-		// no change
-		return nil
-	}
-	if !found {
-		agents = append(agents, agent)
-		pods = append(pods, pod)
-	}
-
-	// The upsert option asks the DB to add if one is not found
-	upsert := true
-	after := options.After
-	opt := options.FindOneAndUpdateOptions{
-		ReturnDocument: &after,
-		Upsert:         &upsert,
-	}
-	cluserviceCltn := ClusterGetCollection(clid, "NxtUServices")
-	if cluserviceCltn == nil {
-		return nil
-	}
-	result := cluserviceCltn.FindOneAndUpdate(
-		context.TODO(),
-		bson.M{"_id": sid},
-		bson.D{
-			{"$set", bson.M{"tenant": tenant, "agents": agents, "pods": pods, "version": version}},
-		},
-		&opt,
-	)
-	if result.Err() != nil {
-		return result.Err()
-	}
-
-	return nil
-}
-
-// Find a specific tenant user service within a cluster
-func DBFindUserClusterSvc(clid string, tenant string, service string) *ClusterService {
-	sid := tenant + ":" + service
-	var svc ClusterService
-	cluserviceCltn := ClusterGetCollection(clid, "NxtUServices")
-	if cluserviceCltn == nil {
-		return nil
-	}
-	err := cluserviceCltn.FindOne(
-		context.TODO(),
-		bson.M{"_id": sid},
-	).Decode(&svc)
-	if err != nil {
-		return nil
-	}
-	return &svc
-}
-
-// Find all user services within a cluster for a specific tenant
-func DBFindAllUserClusterSvcsForTenant(clid string, tenant string) []ClusterService {
-	var svcs []ClusterService
-
-	cluserviceCltn := ClusterGetCollection(clid, "NxtUServices")
-	if cluserviceCltn == nil {
-		return nil
-	}
-	cursor, err := cluserviceCltn.Find(context.TODO(), bson.M{"tenant": tenant})
-	if err != nil {
-		return nil
-	}
-	err = cursor.All(context.TODO(), &svcs)
-	if err != nil {
-		return nil
-	}
-
-	return svcs
-}
-
-func DBDelUserClusterSvc(clid string, tenant string, service string, agent string) error {
-	sid := tenant + ":" + service
-	svc := DBFindUserClusterSvc(clid, tenant, service)
-	if svc == nil {
-		return errors.New("No service")
-	}
-	agents := svc.Agents
-	found := false
-	for i, v := range agents {
-		if v == agent {
-			agents = append(agents[:i], agents[i+1:]...)
-			found = true
-			break
-		}
-	}
-	if !found {
-		// no change
-		return nil
-	}
-	version := svc.Version + 1
-	cluserviceCltn := ClusterGetCollection(clid, "NxtUServices")
-	if cluserviceCltn == nil {
-		return nil // TODO: or return error ?
-	}
-	if len(agents) == 0 {
-		_, err := cluserviceCltn.DeleteOne(
-			context.TODO(),
-			bson.M{"_id": sid},
-		)
-		if err != nil {
-			return err
-		}
-	} else {
-		// The upsert option asks the DB to add if one is not found
-		upsert := true
-		after := options.After
-		opt := options.FindOneAndUpdateOptions{
-			ReturnDocument: &after,
-			Upsert:         &upsert,
-		}
-		result := cluserviceCltn.FindOneAndUpdate(
-			context.TODO(),
-			bson.M{"_id": sid},
-			bson.D{
-				{"$set", bson.M{"tenant": tenant, "agents": agents, "version": version}},
-			},
-			&opt,
-		)
-		if result.Err() != nil {
-			return result.Err()
-		}
-	}
-	return nil
-}
-
-func DBAddBundleClusterSvc(clid string, tenant string, service string, agent string) error {
-	sid := tenant + ":" + service
-	version := 1
-	svc := DBFindBundleClusterSvc(clid, tenant, service)
-	var agents []string
-	if svc != nil {
-		version = svc.Version + 1
-		agents = svc.Agents
-	}
-	found := false
-	for _, v := range agents {
-		if v == agent {
-			found = true
-		}
-	}
-	if found {
-		// no change
-		return nil
-	}
-	agents = append(agents, agent)
-
-	// The upsert option asks the DB to add if one is not found
-	upsert := true
-	after := options.After
-	opt := options.FindOneAndUpdateOptions{
-		ReturnDocument: &after,
-		Upsert:         &upsert,
-	}
-	clbserviceCltn := ClusterGetCollection(clid, "NxtBServices")
-	if clbserviceCltn == nil {
-		return nil
-	}
-	result := clbserviceCltn.FindOneAndUpdate(
-		context.TODO(),
-		bson.M{"_id": sid},
-		bson.D{
-			{"$set", bson.M{"tenant": tenant, "agents": agents, "version": version}},
-		},
-		&opt,
-	)
-	if result.Err() != nil {
-		return result.Err()
-	}
-
-	return nil
-}
-
-// Find a specific tenant connector service within a cluster
-func DBFindBundleClusterSvc(clid string, tenant string, service string) *ClusterService {
-	sid := tenant + ":" + service
-	var svc ClusterService
-	clbserviceCltn := ClusterGetCollection(clid, "NxtBServices")
-	if clbserviceCltn == nil {
-		return nil
-	}
-	err := clbserviceCltn.FindOne(
-		context.TODO(),
-		bson.M{"_id": sid},
-	).Decode(&svc)
-	if err != nil {
-		return nil
-	}
-	return &svc
-}
-
-// Find all connector services within a cluster for a specific tenant
-func DBFindAllBundleClusterSvcsForTenant(clid string, tenant string) []ClusterService {
-	var svcs []ClusterService
-
-	clbserviceCltn := ClusterGetCollection(clid, "NxtBServices")
-	if clbserviceCltn == nil {
-		return nil
-	}
-	cursor, err := clbserviceCltn.Find(context.TODO(), bson.M{"tenant": tenant})
-	if err != nil {
-		return nil
-	}
-	err = cursor.All(context.TODO(), &svcs)
-	if err != nil {
-		return nil
-	}
-
-	return svcs
-}
-
-func DBDelBundleClusterSvc(clid string, tenant string, service string, agent string) error {
-	sid := tenant + ":" + service
-	svc := DBFindBundleClusterSvc(clid, tenant, service)
-	if svc == nil {
-		return errors.New("No service")
-	}
-	agents := svc.Agents
-	found := false
-	for i, v := range agents {
-		if v == agent {
-			agents = append(agents[:i], agents[i+1:]...)
-			found = true
-			break
-		}
-	}
-	if !found {
-		// no change
-		return nil
-	}
-	version := svc.Version + 1
-	clbserviceCltn := ClusterGetCollection(clid, "NxtBServices")
-	if clbserviceCltn == nil {
-		return nil // TODO: or return error ?
-	}
-	if len(agents) == 0 {
-		_, err := clbserviceCltn.DeleteOne(
-			context.TODO(),
-			bson.M{"_id": sid},
-		)
-		if err != nil {
-			return err
-		}
-	} else {
-		// The upsert option asks the DB to add if one is not found
-		upsert := true
-		after := options.After
-		opt := options.FindOneAndUpdateOptions{
-			ReturnDocument: &after,
-			Upsert:         &upsert,
-		}
-		result := clbserviceCltn.FindOneAndUpdate(
-			context.TODO(),
-			bson.M{"_id": sid},
-			bson.D{
-				{"$set", bson.M{"tenant": tenant, "agents": agents, "version": version}},
-			},
-			&opt,
-		)
-		if result.Err() != nil {
-			return result.Err()
 		}
 	}
 	return nil
