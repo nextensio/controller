@@ -465,6 +465,11 @@ func diffSlices(a []string, b []string) []string {
 // Also, same user may connect via multiple devices, to the same or different
 // pods.
 func DBAddClusterUser(tenant string, data *User) error {
+	if data.Gateway == "gateway.nextensio.net" {
+		// We have the generic gw name where user agent selects actual
+		// gw. So do nothing and just return.
+		return nil
+	}
 	uid := tenant + ":" + data.Uid
 	version := 1
 	Cluster := DBGetClusterName(data.Gateway)
