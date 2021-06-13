@@ -126,7 +126,7 @@ func ClusterDBDrop() {
 }
 
 type ClusterGateway struct {
-	Name    string `json:"name" bson:"name"`
+	Name    string `json:"name" bson:"_id"`
 	Cluster string `json:"cluster" bson:"cluster"`
 	Version int    `json:"version" bson:"version"`
 }
@@ -149,10 +149,9 @@ func DBAddClusterGateway(data *Gateway) error {
 	}
 	err := clusterGwCltn.FindOneAndUpdate(
 		context.TODO(),
-		bson.M{"name": data.Name},
+		bson.M{"_id": data.Name},
 		bson.D{
-			{"$set", bson.M{"name": data.Name, "cluster": Cluster,
-				"version": version}},
+			{"$set", bson.M{"cluster": Cluster, "version": version}},
 		},
 		&opt,
 	)
@@ -185,7 +184,7 @@ func DBFindGatewayCluster(gwname string) *ClusterGateway {
 	var gateway ClusterGateway
 	err := clusterGwCltn.FindOne(
 		context.TODO(),
-		bson.M{"name": gwname},
+		bson.M{"_id": gwname},
 	).Decode(&gateway)
 	if err != nil {
 		return nil
@@ -200,7 +199,7 @@ func DBDelClusterGateway(gwname string) error {
 	}
 	_, err := clusterGwCltn.DeleteOne(
 		context.TODO(),
-		bson.M{"name": gwname},
+		bson.M{"_id": gwname},
 	)
 	if err != nil {
 		return err

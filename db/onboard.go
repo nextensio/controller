@@ -423,11 +423,6 @@ type Gateway struct {
 	Provider string `json:"provider" bson:"provider"`
 }
 
-// Derive gateway name for a cluster given the cluster name.
-func DBGetGwName(cluster string) string {
-	return cluster + ".nextensio.net"
-}
-
 func DBGetClusterName(gateway string) string {
 	if len(gateway) <= len(".nextensio.net") {
 		return "unknown"
@@ -450,7 +445,7 @@ func DBAddGateway(data *Gateway) error {
 		context.TODO(),
 		bson.M{"_id": data.Name},
 		bson.D{
-			{"$set", bson.M{"cluster": DBGetClusterName(data.Name), "location": data.Location,
+			{"$set", bson.M{"location": data.Location,
 				"zone": data.Zone, "region": data.Region,
 				"provider": data.Provider}},
 		},
@@ -741,7 +736,6 @@ func DBAddUser(uuid string, data *User) error {
 	// If gateway/cluster is assigned, ensure it is valid, ie., in our configuration.
 	// TODO: handle cluster/pod assignment when user connects via multiple devices.
 	data.Gateway = strings.TrimSpace(data.Gateway)
-	Cluster := DBGetClusterName(data.Gateway)
 	if data.Gateway != "" {
 		// Ensure any gateway specified is valid
 		if DBFindGateway(data.Gateway) == nil {
@@ -749,18 +743,15 @@ func DBAddUser(uuid string, data *User) error {
 		}
 	} else {
 		gw := "gateway.nextensio.net"
-		cl := "gateway"
 		// If user already has a gateway set then just use that
 		if user != nil {
 			if user.Gateway != "" {
 				gw = user.Gateway
-				cl = DBGetClusterName(gw)
 			}
 		}
 		// Neither cluster nor gw configured. Let user agent select the exact gw
 		// by dns resolving gateway.nextensio.net to gatewayXYZ.nextensio.net
 		data.Gateway = gw
-		Cluster = cl
 	}
 
 	// The upsert option asks the DB to add if one is not found
@@ -806,7 +797,7 @@ func DBAddUser(uuid string, data *User) error {
 		bson.D{
 			{"$set", bson.M{"name": data.Username, "email": data.Email,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
-				"cluster": Cluster, "services": data.Services}},
+				"services": data.Services}},
 		},
 		&opt,
 	)
@@ -1105,14 +1096,12 @@ func DBAddBundle(uuid string, data *Bundle) error {
 	// connector signs-in.
 	// If gateway/cluster is preassigned, ensure it is valid (in our config).
 	data.Gateway = strings.TrimSpace(data.Gateway)
-	Cluster := DBGetClusterName(data.Gateway)
 	if data.Gateway == "" {
 		// If bundle already has a gateway set then just use that
 		bundle := DBFindBundle(uuid, data.Bid)
 		if bundle != nil {
 			if bundle.Gateway != "" {
 				data.Gateway = bundle.Gateway
-				Cluster = DBGetClusterName(data.Gateway)
 			}
 		}
 	}
@@ -1159,7 +1148,7 @@ func DBAddBundle(uuid string, data *Bundle) error {
 		bson.D{
 			{"$set", bson.M{"name": data.Bundlename,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
-				"cluster": Cluster, "services": data.Services, "cpodrepl": data.CpodRepl}},
+				"services": data.Services, "cpodrepl": data.CpodRepl}},
 		},
 		&opt,
 	)
