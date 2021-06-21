@@ -1147,7 +1147,15 @@ func DBAddBundle(uuid string, data *Bundle) error {
 	// with Consul.
 	data.Connectid = strings.ReplaceAll(uuid+"-"+data.Bid, "@", "-")
 	data.Connectid = strings.ReplaceAll(data.Connectid, ".", "-")
-	data.Services = append(data.Services, data.Connectid)
+	found := false
+	for _, s := range data.Services {
+		if s == data.Connectid {
+			found = true
+		}
+	}
+	if !found {
+		data.Services = append(data.Services, data.Connectid)
+	}
 
 	appCltn := dbGetCollection(uuid, "NxtApps")
 	if appCltn == nil {
@@ -1188,6 +1196,14 @@ func DBFindBundle(tenant string, bundleid string) *Bundle {
 	if err != nil {
 		return nil
 	}
+	// Dont let UI/apis see the connectid added as a service
+	for i, s := range app.Services {
+		if s == app.Connectid {
+			l := len(app.Services)
+			app.Services[i] = app.Services[l-1]
+			app.Services = app.Services[:l-1]
+		}
+	}
 	return &app
 }
 
@@ -1211,6 +1227,14 @@ func DBFindAllBundlesStruct(tenant string) []Bundle {
 	hdockey := DBGetHdrKey("AppInfo")
 	for _, b := range tmp {
 		if b.Bid != hdockey {
+			// Dont let UI/apis see the connectid added as a service
+			for i, s := range b.Services {
+				if s == b.Connectid {
+					l := len(b.Services)
+					b.Services[i] = b.Services[l-1]
+					b.Services = b.Services[:l-1]
+				}
+			}
 			bundles = append(bundles, b)
 		}
 	}
