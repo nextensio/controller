@@ -17,8 +17,11 @@ const AccessToken string = "contents-dont-matter"
 var client = &http.Client{}
 
 type Gateway_v1 struct {
-	Name    string `json:"name" bson:"_id"`
-	Cluster string `json:"cluster" bson:"cluster"`
+	Name     string `json:"name" bson:"_id"`
+	Location string `json:"location" bson:"location"`
+	Zone     string `json:"zone" bson:"zone"`
+	Region   string `json:"region" bson:"region"`
+	Provider string `json:"provider" bson:"provider"`
 }
 
 func addGateway(gw *Gateway_v1) bool {
@@ -60,7 +63,7 @@ func addGateway(gw *Gateway_v1) bool {
 }
 
 func testGatewayAdd_v1(t *testing.T) {
-	gw := Gateway_v1{Name: "sjc.nextensio.net", Cluster: "sjc"}
+	gw := Gateway_v1{Name: "sjc.nextensio.net", Location: "sjc"}
 	add := addGateway(&gw)
 	if add == false {
 		t.Error()
@@ -114,19 +117,19 @@ func delGateway(gw *Gateway_v1) bool {
 func TestDelGateway_v1(t *testing.T) {
 	db.DBReinit()
 	AddTenant_v1(t)
-	gw := Gateway_v1{Name: "sjc.nextensio.net", Cluster: "sjc"}
+	gw := Gateway_v1{Name: "sjc.nextensio.net", Location: "sjc"}
 	if delGateway(&gw) {
 		// should not be able to delete gateway in use
 		t.Error()
 		return
 	}
-	gw = Gateway_v1{Name: "ric.nextensio.net", Cluster: "ric"}
+	gw = Gateway_v1{Name: "ric.nextensio.net", Location: "ric"}
 	if delGateway(&gw) {
 		// should not be able to delete gateway in use
 		t.Error()
 		return
 	}
-	gw = Gateway_v1{Name: "abc.nextensio.net", Cluster: "abc"}
+	gw = Gateway_v1{Name: "abc.nextensio.net", Location: "abc"}
 	addGateway(&gw)
 	if !delGateway(&gw) {
 		t.Error()
@@ -136,13 +139,13 @@ func TestDelGateway_v1(t *testing.T) {
 
 func TestGetAllGateway_v1(t *testing.T) {
 	db.DBReinit()
-	gw := Gateway_v1{Name: "sjc.nextensio.net", Cluster: "sjc"}
+	gw := Gateway_v1{Name: "sjc.nextensio.net", Location: "sjc"}
 	add := addGateway(&gw)
 	if add == false {
 		t.Error()
 		return
 	}
-	gw = Gateway_v1{Name: "ric.nextensio.net", Cluster: "ric"}
+	gw = Gateway_v1{Name: "ric.nextensio.net", Location: "ric"}
 	add = addGateway(&gw)
 	if add == false {
 		t.Error()
@@ -193,12 +196,11 @@ type Tenant_v1 struct {
 	ID      string   `json:"_id" bson:"_id"`
 	Name    string   `json:"name" bson:"name"`
 	Domains []string `json:"domains"`
-	Image   string   `json:"image" bson:"image"`
 }
 
 type TenantCluster_v1 struct {
-	Tenant  string `json:"tenant" bson:"tenant"`
-	Cluster string `json:"cluster" bson:"cluster"`
+	Id      string `json:"id" bson: "_id"` // TenantID:ClusterId
+	Gateway string `json:"gateway" bson:"gateway"`
 	Image   string `json:"image" bson:"image"`
 	Apods   int    `json:"apods" bson:"apods"`
 	Cpods   int    `json:"cpods" bson:"cpods"`
@@ -256,13 +258,13 @@ func addTenant(tenant *Tenant_v1) bool {
 	return true
 }
 
-func addTenantCluster_v1(tcl *TenantCluster_v1) bool {
+func addTenantCluster_v1(tenant string, tcl *TenantCluster_v1) bool {
 	body, err := json.Marshal(tcl)
 	if err != nil {
 		return false
 	}
-	url := "http://127.0.0.1:8080/api/v1/tenant/"+tcl.Tenant+"/add/tenantcluster"
-	req, _ := http.NewRequest("POST", url, 	bytes.NewBuffer(body))
+	url := "http://127.0.0.1:8080/api/v1/tenant/" + tenant + "/add/tenantcluster"
+	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(body))
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -294,7 +296,7 @@ func testTenantClusterDel(t *testing.T, cluster string) {
 		t.Error()
 		return
 	}
-	url := "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/tenantcluster/"+cluster
+	url := "http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/del/tenantcluster/" + cluster
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
@@ -334,7 +336,6 @@ func AddTenant_v1(t *testing.T) {
 		ID:      "nextensio",
 		Name:    "foobar",
 		Domains: []string{"kismis.org"},
-		Image:   "davigupta/minion:0.80",
 	}
 	add := addTenant(&tenant)
 	if add == false {
@@ -355,53 +356,55 @@ func AddTenant_v1(t *testing.T) {
 	}
 
 	var tcluster1 = TenantCluster_v1{
-		Tenant:  tenant.ID,
-		Cluster: "sjc",
+		Id:      tenant.ID + ":sjc",
+		Gateway: "sjc.nextensio.net",
+		Image:   "",
 		Apods:   1,
 		Cpods:   1,
 	}
 	var tcluster2 = TenantCluster_v1{
-		Tenant:  tenant.ID,
-		Cluster: "ric",
+		Id:      tenant.ID + ":ric",
+		Gateway: "ric.nextensio.net",
+		Image:   "",
 		Apods:   1,
 		Cpods:   1,
 	}
 
 	// Try to assign tenant to sjc cluster. Should fail since we haven't created sjc
-	add = addTenantCluster_v1(&tcluster1)
+	add = addTenantCluster_v1(tenant.ID, &tcluster1)
 	if add == true {
 		t.Error()
 		return
 	}
 
 	// add gateway for sjc
-	gw := Gateway_v1{Name: "sjc.nextensio.net", Cluster: "sjc"}
+	gw := Gateway_v1{Name: "sjc.nextensio.net", Location: "sjc"}
 	add = addGateway(&gw)
 	if add == false {
 		t.Error()
 		return
 	}
-	add = addTenantCluster_v1(&tcluster1)
+	add = addTenantCluster_v1(tenant.ID, &tcluster1)
 	if add == false {
 		// The above add should have succeeded since sjc was added
 		t.Error()
 		return
 	}
 
-	add = addTenantCluster_v1(&tcluster2)
+	add = addTenantCluster_v1(tenant.ID, &tcluster2)
 	if add == true {
 		// The above add should have failed since ric hasn't been created
 		t.Error()
 		return
 	}
 
-	gw = Gateway_v1{Name: "ric.nextensio.net", Cluster: "ric"}
+	gw = Gateway_v1{Name: "ric.nextensio.net", Location: "ric"}
 	add = addGateway(&gw)
 	if add == false {
 		t.Error()
 		return
 	}
-	add = addTenantCluster_v1(&tcluster2)
+	add = addTenantCluster_v1(tenant.ID, &tcluster2)
 	if add == false {
 		// Now that ric is also added, tenant add to ric should succeed
 		t.Error()
@@ -418,13 +421,13 @@ func TestGetAllTenant_v1(t *testing.T) {
 	db.DBReinit()
 
 	// add one gateway, but the tenant add should still fail since only one is added yet
-	gw := Gateway_v1{Name: "sjc.nextensio.net", Cluster: "sjc"}
+	gw := Gateway_v1{Name: "sjc.nextensio.net", Location: "sjc"}
 	add := addGateway(&gw)
 	if add == false {
 		t.Error()
 		return
 	}
-	gw = Gateway_v1{Name: "ric.nextensio.net", Cluster: "ric"}
+	gw = Gateway_v1{Name: "ric.nextensio.net", Location: "ric"}
 	add = addGateway(&gw)
 	if add == false {
 		t.Error()
@@ -560,22 +563,18 @@ func TestTenantDel(t *testing.T) {
 	testBundleDel(t, "youtube")
 	testTenantDel(t, false)
 	PolicyDel_v1(t, "agent-access")
-	testTenantDel(t, false)
-	testTenantClusterDel(t, "ric")
-	testTenantDel(t, false)
-	testTenantClusterDel(t, "sjc")
 	testTenantDel(t, true)
 }
 
 func addGatewayAndTenant(t *testing.T) {
 	// add two gateways, add tenant, then assign tenant to both gateways
-	gw := Gateway_v1{Name: "sjc.nextensio.net", Cluster: "sjc"}
+	gw := Gateway_v1{Name: "sjc.nextensio.net", Location: "sjc"}
 	add := addGateway(&gw)
 	if add == false {
 		t.Error()
 		return
 	}
-	gw = Gateway_v1{Name: "ric.nextensio.net", Cluster: "ric"}
+	gw = Gateway_v1{Name: "ric.nextensio.net", Location: "ric"}
 	add = addGateway(&gw)
 	if add == false {
 		t.Error()
@@ -599,26 +598,26 @@ func addGatewayAndTenant(t *testing.T) {
 		return
 	}
 	var tcluster1 = TenantCluster_v1{
-		Tenant:  tenants[0].ID,
-		Cluster: "sjc",
+		Id:      tenants[0].ID + ":sjc",
+		Gateway: "sjc.nextensio.net",
 		Apods:   1,
 		Cpods:   1,
 	}
 	var tcluster2 = TenantCluster_v1{
-		Tenant:  tenants[0].ID,
-		Cluster: "ric",
+		Id:      tenants[0].ID + ":ric",
+		Gateway: "ric.nextensio.net",
 		Apods:   1,
 		Cpods:   1,
 	}
 
-	add = addTenantCluster_v1(&tcluster1)
+	add = addTenantCluster_v1(tenants[0].ID, &tcluster1)
 	if add == false {
 		// The above add should have succeeded since sjc was added
 		t.Error()
 		return
 	}
 
-	add = addTenantCluster_v1(&tcluster2)
+	add = addTenantCluster_v1(tenants[0].ID, &tcluster2)
 	if add == false {
 		// The above add should have succeeded since ric was added
 		t.Error()
@@ -676,7 +675,6 @@ type User_v1 struct {
 	Uid       string   `json:"uid" bson:"_id"`
 	Name      string   `json:"name" bson:"name"`
 	Email     string   `json:"email" bson:"email"`
-	Cluster   string   `json:"cluster" bson:"cluster"`
 	Gateway   string   `json:"gateway" bson:"gateway"`
 	Pod       int      `json:"pod" bson:"pod"`
 	Connectid string   `json:"connectid" bson:"connectid"`
@@ -696,8 +694,7 @@ func UserAdd_v1(t *testing.T, tenantadd bool, userid string, services []string) 
 		Uid:       userid,
 		Name:      "Gopa Kumar",
 		Email:     "gopa@nextensio.net",
-		Cluster:   "sjc",
-		Gateway:   "",
+		Gateway:   "sjc.nextensio.net",
 		Pod:       1,
 		Connectid: "unused",
 		Services:  services,
@@ -739,7 +736,7 @@ func UserAdd_v1(t *testing.T, tenantadd bool, userid string, services []string) 
 		t.Error()
 		return
 	}
-	clUser := db.DBFindClusterUser(user.Cluster, dbTenants[0].ID, user.Uid)
+	clUser := db.DBFindClusterUser(db.DBGetClusterName(user.Gateway), dbTenants[0].ID, user.Uid)
 	if clUser == nil {
 		t.Error()
 		return
@@ -1801,7 +1798,7 @@ func testUserDel(t *testing.T, user string) {
 	}
 	if db.DBFindUser(dbTenants[0].ID, user) != nil ||
 		db.DBFindUserAttr(dbTenants[0].ID, user) != nil ||
-		db.DBFindClusterUser(udoc.Cluster, dbTenants[0].ID, user) != nil {
+		db.DBFindClusterUser(db.DBGetClusterName(udoc.Gateway), dbTenants[0].ID, user) != nil {
 		t.Error()
 		return
 	}
@@ -1816,9 +1813,8 @@ func TestUserDel(t *testing.T) {
 type Bundle_v1 struct {
 	Bid        string   `json:"bid" bson:"_id"`
 	Bundlename string   `json:"name" bson:"name"`
-	Cluster    string   `json:"cluster" bson:"cluster"`
 	Gateway    string   `json:"gateway" bson:"gateway"`
-	Pod        int      `json:"pod" bson:"pod"`
+	Pod        string   `json:"pod" bson:"pod"`
 	Connectid  string   `json:"connectid" bson:"connectid"`
 	Services   []string `json:"services" bson:"services"`
 }
@@ -1835,9 +1831,8 @@ func testBundleAdd_v1(t *testing.T, tenantadd bool, bid string, services []strin
 	user := Bundle_v1{
 		Bid:        bid,
 		Bundlename: "Google Youtube service",
-		Cluster:    "sjc",
-		Gateway:    "",
-		Pod:        1,
+		Gateway:    "sjc.nextensio.net",
+		Pod:        bid,
 		Connectid:  "unused",
 		Services:   services,
 	}
@@ -1879,7 +1874,7 @@ func testBundleAdd_v1(t *testing.T, tenantadd bool, bid string, services []strin
 		t.Error()
 		return
 	}
-	clUser := db.DBFindClusterBundle(user.Cluster, dbTenants[0].ID, user.Bid)
+	clUser := db.DBFindClusterBundle(db.DBGetClusterName(user.Gateway), dbTenants[0].ID+":"+user.Bid)
 	if clUser == nil {
 		t.Error()
 		return
@@ -2297,7 +2292,7 @@ func testBundleDel(t *testing.T, bundle string) {
 	}
 	if db.DBFindBundle(dbTenants[0].ID, bundle) != nil ||
 		db.DBFindBundleAttr(dbTenants[0].ID, bundle) != nil ||
-		db.DBFindClusterBundle(udoc.Cluster, dbTenants[0].ID, bundle) != nil {
+		db.DBFindClusterBundle(db.DBGetClusterName(udoc.Gateway), dbTenants[0].ID+":"+bundle) != nil {
 		t.Error()
 		return
 	}
@@ -2307,170 +2302,6 @@ func TestBundleDel(t *testing.T) {
 	db.DBReinit()
 	testBundleAttrAdd_v1(t, true, "youtube")
 	testBundleDel(t, "youtube")
-}
-
-func TestAgentServiceAdd_v1(t *testing.T) {
-	db.DBReinit()
-	UserAdd_v1(t, true, "gopa", []string{"a"})
-	dbTenants := db.DBFindAllTenants()
-	svc := db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "a")
-	if svc == nil {
-		t.Error()
-		return
-	}
-	if svc.Agents[0] != "gopa" {
-		t.Error()
-		return
-	}
-	UserAdd_v1(t, false, "gopa", []string{"a", "b"})
-	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "a")
-	if svc.Agents[0] != "gopa" {
-		t.Error()
-		return
-	}
-	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "b")
-	if svc.Agents[0] != "gopa" {
-		t.Error()
-		return
-	}
-	UserAdd_v1(t, false, "gopa", []string{"b", "c"})
-	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "a")
-	if svc != nil {
-		t.Error()
-		return
-	}
-	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "b")
-	if svc.Agents[0] != "gopa" {
-		t.Error()
-		return
-	}
-	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "c")
-	if svc.Agents[0] != "gopa" {
-		t.Error()
-		return
-	}
-	UserAdd_v1(t, false, "gopa", []string{"c"})
-	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "a")
-	if svc != nil {
-		t.Error()
-		return
-	}
-	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "b")
-	if svc != nil {
-		t.Error()
-		return
-	}
-	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "c")
-	if svc.Agents[0] != "gopa" {
-		t.Error()
-		return
-	}
-	UserAdd_v1(t, false, "kumar", []string{"c"})
-	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "c")
-	if len(svc.Agents) != 2 {
-		t.Error()
-		return
-	}
-	if svc.Agents[0] != "gopa" && svc.Agents[1] != "gopa" {
-		t.Error()
-		return
-	}
-	if svc.Agents[0] != "kumar" && svc.Agents[1] != "kumar" {
-		t.Error()
-		return
-	}
-	UserAdd_v1(t, false, "gopa", []string{})
-	svc = db.DBFindUserClusterSvc("sjc", dbTenants[0].ID, "c")
-	if len(svc.Agents) != 1 {
-		t.Error()
-		return
-	}
-	if svc.Agents[0] != "kumar" {
-		t.Error()
-		return
-	}
-}
-
-func TestBundleServiceAdd_v1(t *testing.T) {
-	db.DBReinit()
-	testBundleAdd_v1(t, true, "gopa", []string{"a"})
-	dbTenants := db.DBFindAllTenants()
-	svc := db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "a")
-	if svc == nil {
-		t.Error()
-		return
-	}
-	if svc.Agents[0] != "gopa" {
-		t.Error()
-		return
-	}
-	testBundleAdd_v1(t, false, "gopa", []string{"a", "b"})
-	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "a")
-	if svc.Agents[0] != "gopa" {
-		t.Error()
-		return
-	}
-	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "b")
-	if svc.Agents[0] != "gopa" {
-		t.Error()
-		return
-	}
-	testBundleAdd_v1(t, false, "gopa", []string{"b", "c"})
-	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "a")
-	if svc != nil {
-		t.Error()
-		return
-	}
-	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "b")
-	if svc.Agents[0] != "gopa" {
-		t.Error()
-		return
-	}
-	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "c")
-	if svc.Agents[0] != "gopa" {
-		t.Error()
-		return
-	}
-	testBundleAdd_v1(t, false, "gopa", []string{"c"})
-	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "a")
-	if svc != nil {
-		t.Error()
-		return
-	}
-	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "b")
-	if svc != nil {
-		t.Error()
-		return
-	}
-	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "c")
-	if svc.Agents[0] != "gopa" {
-		t.Error()
-		return
-	}
-	testBundleAdd_v1(t, false, "kumar", []string{"c"})
-	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "c")
-	if len(svc.Agents) != 2 {
-		t.Error()
-		return
-	}
-	if svc.Agents[0] != "gopa" && svc.Agents[1] != "gopa" {
-		t.Error()
-		return
-	}
-	if svc.Agents[0] != "kumar" && svc.Agents[1] != "kumar" {
-		t.Error()
-		return
-	}
-	testBundleAdd_v1(t, false, "gopa", []string{})
-	svc = db.DBFindBundleClusterSvc("sjc", dbTenants[0].ID, "c")
-	if len(svc.Agents) != 1 {
-		t.Error()
-		return
-	}
-	if svc.Agents[0] != "kumar" {
-		t.Error()
-		return
-	}
 }
 
 type Cert_v1 struct {

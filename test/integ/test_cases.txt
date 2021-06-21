@@ -23,8 +23,6 @@ TestBundleAttrAdd_v1
 TestBundleAttrGet_v1
 TestGetAllBundleAttr_v1
 TestBundleDel
-TestAgentServiceAdd_v1
-TestBundleServiceAdd_v1
 TestCertAdd_v1
 TestCertGet_v1
 TestGetAllCerts_v1

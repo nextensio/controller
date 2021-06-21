@@ -366,10 +366,9 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	gws := db.DBFindAllGateways()
-	for _, g := range gws {
-		Cluster := db.DBGetClusterName(g.Name)
-		err := db.DBDelTenantCluster(uuid, Cluster)
+	cls := db.DBFindAllClustersForTenant(uuid)
+	for _, cl := range cls {
+		err := db.DBDelTenantCluster(uuid, cl.Cluster)
 		if err != nil {
 			result.Result = err.Error()
 			utils.WriteResult(w, result)
