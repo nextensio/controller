@@ -537,15 +537,12 @@ func DBFindAllGateways() []Gateway {
 
 //------------------------Attribute set functions-----------------------------
 type AttrSet struct {
-	Name       string `bson:"name" json:"name"`
-	AppliesTo  string `bson:"appliesTo" json:"appliesTo"`
-	Type       string `bson:"type" json:"type"`
-	IsArray    bool   `bson:"isArray" json:"isArray"`
-	NumType    string `bson:"numType" json:"numType"`
-	RangeCheck string `bson:"rangeCheck" json:"rangeCheck"`
+	Name      string `bson:"name" json:"name"`
+	AppliesTo string `bson:"appliesTo" json:"appliesTo"`
+	Type      string `bson:"type" json:"type"`
 }
 
-func DBAddAttrSet(tenant string, set []AttrSet) error {
+func DBAddAttrSet(tenant string, s AttrSet) error {
 	upsert := true
 	after := options.After
 	opt := options.FindOneAndUpdateOptions{
@@ -556,39 +553,35 @@ func DBAddAttrSet(tenant string, set []AttrSet) error {
 	if Cltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
-	for _, s := range set {
-		err := Cltn.FindOneAndUpdate(
-			context.TODO(),
-			bson.M{"_id": s.Name + ":" + s.AppliesTo},
-			bson.D{
-				{"$set", bson.M{"name": s.Name, "appliesTo": s.AppliesTo,
-					"type": s.Type, "isArray": s.IsArray, "numType": s.NumType,
-					"rangeCheck": s.RangeCheck}},
-			},
-			&opt,
-		)
-		if err.Err() != nil {
-			glog.Errorf("AttrSet: Add error - %v", err)
-			return err.Err()
-		}
+	err := Cltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": s.Name + ":" + s.AppliesTo},
+		bson.D{
+			{"$set", bson.M{"name": s.Name, "appliesTo": s.AppliesTo,
+				"type": s.Type}},
+		},
+		&opt,
+	)
+	if err.Err() != nil {
+		glog.Errorf("AttrSet: Add error - %v", err)
+		return err.Err()
 	}
 	return nil
 }
 
-func DBDelAttrSet(tenant string, set []AttrSet) error {
+func DBDelAttrSet(tenant string, set AttrSet) error {
 	Cltn := dbGetCollection(tenant, "NxtAttrSet")
 	if Cltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
-	for _, s := range set {
-		_, err := Cltn.DeleteOne(
-			context.TODO(),
-			bson.M{"_id": s.Name + ":" + s.AppliesTo},
-		)
-		if err != nil {
-			return err
-		}
+	_, err := Cltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": set.Name + ":" + set.AppliesTo},
+	)
+	if err != nil {
+		return err
 	}
+
 	return nil
 }
 

@@ -742,7 +742,7 @@ func delUserHandler(w http.ResponseWriter, r *http.Request) {
 // Add a tenants attribute set
 func addAttrSet(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
-	var data []db.AttrSet
+	var data db.AttrSet
 
 	uuid := r.Context().Value("tenant").(string)
 	body, err := ioutil.ReadAll(r.Body)
@@ -772,7 +772,7 @@ func addAttrSet(w http.ResponseWriter, r *http.Request) {
 // Del a tenants attribute set provided in the api call
 func delAttrSet(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
-	var data []db.AttrSet
+	var data db.AttrSet
 
 	uuid := r.Context().Value("tenant").(string)
 	body, err := ioutil.ReadAll(r.Body)
