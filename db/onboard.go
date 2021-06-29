@@ -800,11 +800,6 @@ func DBAddUser(uuid string, data *User) error {
 		return result.Err()
 	}
 
-	err := DBAddClusterUser(uuid, data)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -878,11 +873,6 @@ func DBDelUser(tenant string, userid string) error {
 		context.TODO(),
 		bson.M{"_id": userid},
 	)
-	if err != nil {
-		return err
-	}
-	Cluster := DBGetClusterName(user.Gateway)
-	err = DBDelClusterUser(Cluster, tenant, userid)
 	if err != nil {
 		return err
 	}

@@ -407,13 +407,6 @@ func DBDelClusterConfig(clid string, tenant string) error {
 	if clcfg == nil {
 		return nil
 	}
-	users := DBFindAllClusterUsersForTenant(clid, tenant)
-	if users != nil {
-		msg := fmt.Sprintf("Cannot delete ClusterConfig for %s:%s - active users",
-			clid, tenant)
-		glog.Errorf(msg)
-		return errors.New(msg)
-	}
 	bundles := DBFindAllClusterBundlesForTenant(clid, tenant)
 	if bundles != nil {
 		for _, b := range bundles {
@@ -427,17 +420,6 @@ func DBDelClusterConfig(clid string, tenant string) error {
 	glog.Infof("ClusterConfig deleted for %s", id)
 
 	return err
-}
-
-// The Pod here indicates the "pod set" that this user should
-// connect to, each pod set has its own number of replicas etc..
-type ClusterUser struct {
-	Uid       string   `json:"uid" bson:"_id"` // Tenant-ID:[User-ID | Bundle-ID]
-	Tenant    string   `json:"tenant" bson:"tenant"`
-	Pod       int      `json:"pod" bson:"pod"`
-	Connectid string   `json:"connectid" bson:"connectid"`
-	Services  []string `json:"services" bson:"services"`
-	Version   int      `json:"version" bson:"version"`
 }
 
 func diffSlices(a []string, b []string) []string {
@@ -457,112 +439,6 @@ func diffSlices(a []string, b []string) []string {
 	}
 
 	return new
-}
-
-// Today, this function is called when a new user is added to the system.
-// At that time, we are also assigning the user to a cluster and pod.
-// In future, the cluster/pod assignment will be dynamic when user signs-in.
-// Also, same user may connect via multiple devices, to the same or different
-// pods.
-func DBAddClusterUser(tenant string, data *User) error {
-	if data.Gateway == "gateway.nextensio.net" {
-		// We have the generic gw name where user agent selects actual
-		// gw. So do nothing and just return.
-		return nil
-	}
-	uid := tenant + ":" + data.Uid
-	version := 1
-	Cluster := DBGetClusterName(data.Gateway)
-	user := DBFindClusterUser(Cluster, tenant, data.Uid)
-	if user != nil {
-		version = user.Version + 1
-	}
-	// The upsert option asks the DB to add if one is not found
-	upsert := true
-	after := options.After
-	opt := options.FindOneAndUpdateOptions{
-		ReturnDocument: &after,
-		Upsert:         &upsert,
-	}
-	clusersCltn := ClusterGetCollection(Cluster, "NxtUsers")
-	if clusersCltn == nil {
-		msg := fmt.Sprintf("Could not find users collection for cluster %s",
-			Cluster)
-		glog.Error(msg)
-		return errors.New(msg)
-	}
-	result := clusersCltn.FindOneAndUpdate(
-		context.TODO(),
-		bson.M{"_id": uid},
-		bson.D{
-			{"$set", bson.M{"tenant": tenant, "version": version, "pod": data.Pod,
-				"connectid": data.Connectid, "services": data.Services}},
-		},
-		&opt,
-	)
-	if result.Err() != nil {
-		return result.Err()
-	}
-
-	return nil
-}
-
-// Find a specific tenant's user within a cluster
-func DBFindClusterUser(clid string, tenant string, userid string) *ClusterUser {
-	uid := tenant + ":" + userid
-	var user ClusterUser
-	clusersCltn := ClusterGetCollection(clid, "NxtUsers")
-	if clusersCltn == nil {
-		return nil
-	}
-	err := clusersCltn.FindOne(
-		context.TODO(),
-		bson.M{"_id": uid},
-	).Decode(&user)
-	if err != nil {
-		return nil
-	}
-	return &user
-}
-
-func DBFindAllClusterUsersForTenant(clid string, tenant string) []ClusterUser {
-	var users []ClusterUser
-
-	clusersCltn := ClusterGetCollection(clid, "NxtUsers")
-	if clusersCltn == nil {
-		return nil
-	}
-	cursor, err := clusersCltn.Find(context.TODO(), bson.M{"tenant": tenant})
-	if err != nil {
-		return nil
-	}
-	err = cursor.All(context.TODO(), &users)
-	if err != nil {
-		return nil
-	}
-
-	return users
-}
-
-func DBDelClusterUser(clid string, tenant string, userid string) error {
-	user := DBFindClusterUser(clid, tenant, userid)
-	if user == nil {
-		error := fmt.Sprintf("User %s not found", userid)
-		return errors.New(error)
-	}
-	clusersCltn := ClusterGetCollection(clid, "NxtUsers")
-	if clusersCltn == nil {
-		msg := fmt.Sprintf("Could not find Clusterusers collection for cluster %s", clid)
-		glog.Error(msg)
-		return errors.New(msg)
-	}
-	uid := tenant + ":" + userid
-	_, err := clusersCltn.DeleteOne(
-		context.TODO(),
-		bson.M{"_id": uid},
-	)
-
-	return err
 }
 
 // The Pod here indicates the "pod set" that this user should
