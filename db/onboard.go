@@ -540,6 +540,7 @@ type AttrSet struct {
 	Name      string `bson:"name" json:"name"`
 	AppliesTo string `bson:"appliesTo" json:"appliesTo"`
 	Type      string `bson:"type" json:"type"`
+	IsArray   string `bson:"isArray" json:"isArray"`
 }
 
 func DBAddAttrSet(tenant string, s AttrSet) error {
@@ -558,7 +559,7 @@ func DBAddAttrSet(tenant string, s AttrSet) error {
 		bson.M{"_id": s.Name + ":" + s.AppliesTo},
 		bson.D{
 			{"$set", bson.M{"name": s.Name, "appliesTo": s.AppliesTo,
-				"type": s.Type}},
+				"type": s.Type, "isArray": s.IsArray}},
 		},
 		&opt,
 	)
