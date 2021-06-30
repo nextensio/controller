@@ -736,11 +736,6 @@ func UserAdd_v1(t *testing.T, tenantadd bool, userid string, services []string) 
 		t.Error()
 		return
 	}
-	clUser := db.DBFindClusterUser(db.DBGetClusterName(user.Gateway), dbTenants[0].ID, user.Uid)
-	if clUser == nil {
-		t.Error()
-		return
-	}
 }
 
 func TestUserAdd_v1(t *testing.T) {
@@ -1120,17 +1115,18 @@ func TestGetAllUserAttr_v1(t *testing.T) {
 	}
 }
 
-func testAttrSetAdd_v1(t *testing.T, tenant bool, user string, name string, total int) {
-	UserAdd_v1(t, tenant, user, []string{})
+func testAttrSetAdd_v1(t *testing.T, tenant bool, name string, total int) {
+	if tenant {
+		AddTenant_v1(t)
+	}
 	dbTenants := db.DBFindAllTenants()
 
-	attr := []db.AttrSet{
-		{
-			Name:      name,
-			AppliesTo: "user",
-			Type:      "string",
-		},
+	attr := db.AttrSet{
+		Name:      name,
+		AppliesTo: "Users",
+		Type:      "string",
 	}
+
 	body, err := json.Marshal(attr)
 	if err != nil {
 		t.Error()
@@ -1175,7 +1171,7 @@ func testAttrSetAdd_v1(t *testing.T, tenant bool, user string, name string, tota
 	}
 	found := false
 	for i := 0; i < total; i++ {
-		if dbAttr[i].Name == "foobar" {
+		if dbAttr[i].Name == name {
 			found = true
 			break
 		}
@@ -1188,12 +1184,12 @@ func testAttrSetAdd_v1(t *testing.T, tenant bool, user string, name string, tota
 
 func TestAttrSetAdd_v1(t *testing.T) {
 	db.DBReinit()
-	testAttrSetAdd_v1(t, true, "gopa", "foobar", 1)
+	testAttrSetAdd_v1(t, true, "foobar", 1)
 }
 
 func TestAttrSetGet_v1(t *testing.T) {
 	db.DBReinit()
-	testAttrSetAdd_v1(t, true, "gopa", "foobar", 1)
+	testAttrSetAdd_v1(t, true, "foobar", 1)
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allattrset", nil)
@@ -1229,16 +1225,14 @@ type AttrDelResult struct {
 
 func TestAttrSetDel_v1(t *testing.T) {
 	db.DBReinit()
-	testAttrSetAdd_v1(t, true, "gopa", "foobar", 1)
-	testAttrSetAdd_v1(t, false, "gopa1", "abcd", 2)
+	testAttrSetAdd_v1(t, true, "foobar", 1)
+	testAttrSetAdd_v1(t, false, "abcd", 2)
 	dbTenants := db.DBFindAllTenants()
 
-	attr := []db.AttrSet{
-		{
-			Name:      "foobar",
-			AppliesTo: "user",
-			Type:      "string",
-		},
+	attr := db.AttrSet{
+		Name:      "foobar",
+		AppliesTo: "Users",
+		Type:      "string",
 	}
 	body, err := json.Marshal(attr)
 	if err != nil {
@@ -1442,32 +1436,22 @@ func TestUserExtAttrDel_v1(t *testing.T) {
 }
 
 type HostAttrs_v1 struct {
-	User     string
-	Location string
-}
-
-type HostAttrTag_v1 struct {
-	Tag   string
-	Attrs []HostAttrs_v1
+	Tag      string `bson:"tag" json:"tag"`
+	Location string `bson:"location" json:"location"`
 }
 
 type HostAttr_v1 struct {
-	Host string `bson:"host" json:"host"`
-	Tags []HostAttrTag_v1
+	Host       string         `bson:"host" json:"host"`
+	Routeattrs []HostAttrs_v1 `bson:"routeattrs" json:"routeattrs"`
 }
 
-func testHostAttrAdd_v1(t *testing.T, tenantadd bool, userid string, host string) {
-	UserAdd_v1(t, tenantadd, userid, []string{})
+func testHostAttrAdd_v1(t *testing.T, tenantadd bool, host string) {
+	testAttrSetAdd_v1(t, tenantadd, "location", 1)
 	dbTenants := db.DBFindAllTenants()
 
 	attr := HostAttr_v1{
-		Host: host,
-		Tags: []HostAttrTag_v1{
-			{
-				Tag:   "v1",
-				Attrs: []HostAttrs_v1{{User: "gopa", Location: "boston"}},
-			},
-		},
+		Host:       host,
+		Routeattrs: []HostAttrs_v1{{Tag: "v1", Location: "boston"}},
 	}
 	body, err := json.Marshal(attr)
 	if err != nil {
@@ -1518,7 +1502,7 @@ func testHostAttrAdd_v1(t *testing.T, tenantadd bool, userid string, host string
 		t.Error()
 		return
 	}
-	if dbAttr.Host != "google.com" || len(dbAttr.Tags) != 1 {
+	if dbAttr.Host != "google.com" || len(dbAttr.Routeattrs) != 1 {
 		t.Error()
 		return
 	}
@@ -1526,12 +1510,12 @@ func testHostAttrAdd_v1(t *testing.T, tenantadd bool, userid string, host string
 
 func TestHostAttrAdd_v1(t *testing.T) {
 	db.DBReinit()
-	testHostAttrAdd_v1(t, true, "gopa", "google.com")
+	testHostAttrAdd_v1(t, true, "google.com")
 }
 
 func TestHostAttrGet_v1(t *testing.T) {
 	db.DBReinit()
-	testHostAttrAdd_v1(t, true, "gopa", "google.com")
+	testHostAttrAdd_v1(t, true, "google.com")
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/hostattr/google.com", nil)
@@ -1571,7 +1555,7 @@ func TestHostAttrGet_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	if dbAttr.Host != "google.com" || len(dbAttr.Tags) != 1 {
+	if dbAttr.Host != "google.com" || len(dbAttr.Routeattrs) != 1 {
 		t.Error()
 		return
 	}
@@ -1579,7 +1563,7 @@ func TestHostAttrGet_v1(t *testing.T) {
 
 func TestHostAttrDel_v1(t *testing.T) {
 	db.DBReinit()
-	testHostAttrAdd_v1(t, true, "gopa", "google.com")
+	testHostAttrAdd_v1(t, true, "google.com")
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/hostattr/google.com", nil)
@@ -1616,8 +1600,8 @@ func TestHostAttrDel_v1(t *testing.T) {
 
 func TestHostAttrGetAll_v1(t *testing.T) {
 	db.DBReinit()
-	testHostAttrAdd_v1(t, true, "gopa", "google.com")
-	testHostAttrAdd_v1(t, false, "gopa1", "yahoo.com")
+	testHostAttrAdd_v1(t, true, "google.com")
+	testHostAttrAdd_v1(t, false, "yahoo.com")
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allhostattr", nil)
@@ -1666,7 +1650,7 @@ type HostAttrHdr_v1 struct {
 }
 
 func testHostAttrHdrAdd_v1(t *testing.T) {
-	testHostAttrAdd_v1(t, true, "gopa", "google.com")
+	testHostAttrAdd_v1(t, true, "google.com")
 	dbTenants := db.DBFindAllTenants()
 	attr := BundleAttrHdr_v1{
 		Majver: 2,
@@ -1797,8 +1781,7 @@ func testUserDel(t *testing.T, user string) {
 		return
 	}
 	if db.DBFindUser(dbTenants[0].ID, user) != nil ||
-		db.DBFindUserAttr(dbTenants[0].ID, user) != nil ||
-		db.DBFindClusterUser(db.DBGetClusterName(udoc.Gateway), dbTenants[0].ID, user) != nil {
+		db.DBFindUserAttr(dbTenants[0].ID, user) != nil {
 		t.Error()
 		return
 	}
