@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/golang/glog"
 	"github.com/okta/okta-sdk-golang/okta"
 	"github.com/okta/okta-sdk-golang/okta/query"
 )
@@ -74,6 +75,7 @@ func DelUser(API string, TOKEN string, userid string, tenant string) error {
 		return e
 	}
 	if oktaTenant != tenant {
+		glog.Errorf("user %s is part of tenant [%s], I am part of tenant[%s]", userid, oktaTenant, tenant)
 		return errors.New("Cannot delete user belonging to another tenant")
 	}
 	_, err = client.User.DeactivateUser(oktaId, nil)
