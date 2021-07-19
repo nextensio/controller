@@ -198,7 +198,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, tenant, err := IdpGetUser(API, TOKEN, signup.Email)
+	id, tenant, _, err := IdpGetUser(API, TOKEN, signup.Email)
 	if err == nil && id != "" {
 		if tenant == signup.Tenant {
 			result.Result = "You have already signed up, please check your email, activate the account and login here with your password"

@@ -14,21 +14,21 @@ func makeUserId(userid string) string {
 	return userid
 }
 
-func GetUser(API string, TOKEN string, userid string) (string, string, error) {
+func GetUser(API string, TOKEN string, userid string) (string, string, string, error) {
 	search := fmt.Sprintf("profile.login eq \"%s\"", makeUserId(userid))
 	client, err := okta.NewClient(context.TODO(), okta.WithOrgUrl(API), okta.WithToken(TOKEN))
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	filter := query.NewQueryParams(query.WithFilter(search))
 	users, _, err := client.User.ListUsers(filter)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if len(users) != 1 {
-		return "", "", err
+		return "", "", "", err
 	}
-	return users[0].Id, (*users[0].Profile)["organization"].(string), nil
+	return users[0].Id, (*users[0].Profile)["organization"].(string), (*users[0].Profile)["userType"].(string), nil
 }
 
 func AddUser(API string, TOKEN string, userid string, tenant string, userType string) (string, error) {
@@ -36,12 +36,12 @@ func AddUser(API string, TOKEN string, userid string, tenant string, userType st
 	if err != nil {
 		return "", err
 	}
-	oktaId, oktaTenant, e := GetUser(API, TOKEN, userid)
+	oktaId, oktaTenant, oktaUsertype, e := GetUser(API, TOKEN, userid)
 	if e == nil && oktaId != "" {
 		if oktaTenant != tenant {
 			return "", errors.New("User already assigned to another tenant")
 		}
-		e = UpdateUser(API, TOKEN, userid, tenant, userType)
+		e = UpdateUser(API, TOKEN, userid, tenant, oktaUsertype)
 		if e != nil {
 			return "", e
 		}
@@ -70,7 +70,7 @@ func DelUser(API string, TOKEN string, userid string, tenant string) error {
 	if err != nil {
 		return err
 	}
-	oktaId, oktaTenant, e := GetUser(API, TOKEN, userid)
+	oktaId, oktaTenant, _, e := GetUser(API, TOKEN, userid)
 	if e != nil {
 		return e
 	}
@@ -123,7 +123,7 @@ func UpdateUser(API string, TOKEN string, userid string, tenant string, userType
 	if err != nil {
 		return err
 	}
-	oktaId, oktaTenant, err := GetUser(API, TOKEN, userid)
+	oktaId, oktaTenant, _, err := GetUser(API, TOKEN, userid)
 	if err != nil {
 		return err
 	}
