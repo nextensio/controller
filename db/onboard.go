@@ -567,6 +567,21 @@ func DBAddAttrSet(tenant string, s AttrSet) error {
 		glog.Errorf("AttrSet: Add error - %v", err)
 		return err.Err()
 	}
+	if s.AppliesTo == "Hosts" {
+		if err := DBAddAllHostsOneAttr(tenant, s); err != nil {
+			return err
+		}
+	}
+	if s.AppliesTo == "Users" {
+		if err := DBAddAllUsersOneAttr(tenant, s); err != nil {
+			return err
+		}
+	}
+	if s.AppliesTo == "Bundles" {
+		if err := DBAddAllBundlesOneAttr(tenant, s); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -971,7 +986,7 @@ func DBAddUserAttr(uuid string, user string, Uattr bson.M) error {
 					}
 				}
 				if !found {
-					return fmt.Errorf("Cannot find attribute in attribute set", a.Name)
+					return fmt.Errorf("All attributes defined in AttributeEditor needs to have some valid value provided", a.Name)
 				}
 			}
 		}
@@ -1087,6 +1102,33 @@ func DBDelAllUsersOneAttr(tenant string, todel string) error {
 			return err
 		}
 		delete(attr, todel)
+		if err := dbAddUserAttr(tenant, attr["_id"].(string), attr, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func DBAddAllUsersOneAttr(tenant string, set AttrSet) error {
+	var attr bson.M
+
+	userAttrCltn := dbGetCollection(tenant, "NxtUserAttr")
+	if userAttrCltn == nil {
+		return fmt.Errorf("Cant find user collection")
+	}
+	cursor, err := userAttrCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return err
+	}
+
+	value := defaultType(set)
+
+	defer cursor.Close(context.TODO())
+	for cursor.Next(context.TODO()) {
+		if err = cursor.Decode(&attr); err != nil {
+			return err
+		}
+		attr[set.Name] = value
 		if err := dbAddUserAttr(tenant, attr["_id"].(string), attr, true); err != nil {
 			return err
 		}
@@ -1424,7 +1466,7 @@ func DBAddBundleAttr(uuid string, bid string, Battr bson.M) error {
 					}
 				}
 				if !found {
-					return fmt.Errorf("Cannot find attribute in attribute set", a.Name)
+					return fmt.Errorf("All attributes defined in AttributeEditor needs to have some valid value provided", a.Name)
 				}
 			}
 		}
@@ -1539,6 +1581,33 @@ func DBDelAllBundlesOneAttr(tenant string, todel string) error {
 			return err
 		}
 		delete(attr, todel)
+		if err := dbAddBundleAttr(tenant, attr["_id"].(string), attr, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func DBAddAllBundlesOneAttr(tenant string, set AttrSet) error {
+	var attr bson.M
+
+	appAttrCltn := dbGetCollection(tenant, "NxtAppAttr")
+	if appAttrCltn == nil {
+		return fmt.Errorf("Cant find user collection")
+	}
+	cursor, err := appAttrCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return err
+	}
+
+	value := defaultType(set)
+
+	defer cursor.Close(context.TODO())
+	for cursor.Next(context.TODO()) {
+		if err = cursor.Decode(&attr); err != nil {
+			return err
+		}
+		attr[set.Name] = value
 		if err := dbAddBundleAttr(tenant, attr["_id"].(string), attr, true); err != nil {
 			return err
 		}
@@ -1724,7 +1793,7 @@ func DBAddHostAttr(uuid string, data []byte) error {
 					}
 				}
 				if !found {
-					return fmt.Errorf("Cannot find attribute in attribute set", a.Name)
+					return fmt.Errorf("All attributes defined in AttributeEditor needs to have some valid value provided", a.Name)
 				}
 			}
 		}
@@ -1784,6 +1853,71 @@ func DBDelAllHostsOneAttr(tenant string, todel string) error {
 			for _, r := range attrs {
 				route := r.(primitive.M)
 				delete(route, todel)
+			}
+			if err := dbAddHostAttr(tenant, attr["_id"].(string), attr, true); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func defaultType(set AttrSet) interface{} {
+	if set.Type == "String" {
+		if set.IsArray == "true" {
+			return []string{""}
+		} else {
+			return ""
+		}
+	}
+	if set.Type == "Number" {
+		if set.IsArray == "true" {
+			return []int{0}
+		} else {
+			return 0
+		}
+	}
+	if set.Type == "Boolean" {
+		if set.IsArray == "true" {
+			return []bool{false}
+		} else {
+			return false
+		}
+	}
+	if set.Type == "Date" {
+		if set.IsArray == "true" {
+			return []int{0}
+		} else {
+			return 0
+		}
+	}
+	return 0
+}
+
+func DBAddAllHostsOneAttr(tenant string, set AttrSet) error {
+	var attr bson.M
+
+	hostAttrCltn := dbGetCollection(tenant, "NxtHostAttr")
+	if hostAttrCltn == nil {
+		return fmt.Errorf("Cant find user collection")
+	}
+	cursor, err := hostAttrCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return err
+	}
+
+	value := defaultType(set)
+
+	defer cursor.Close(context.TODO())
+	for cursor.Next(context.TODO()) {
+		if err = cursor.Decode(&attr); err != nil {
+			return err
+		}
+		if attr["_id"].(string) != "Header" {
+			attrs := attr["routeattrs"].(primitive.A)
+			for _, r := range attrs {
+				route := r.(primitive.M)
+				route[set.Name] = value
 			}
 			if err := dbAddHostAttr(tenant, attr["_id"].(string), attr, true); err != nil {
 				return err
