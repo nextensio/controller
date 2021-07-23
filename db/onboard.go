@@ -182,7 +182,7 @@ func DBFindAllTenants() []Tenant {
 // might not have all gateways given to it, it might have a subset of all
 // gateways. When that support comes in later, modify this to ensure it returns
 // on the gateways assigned to this tenant
-func DBFindAllClustersForTenant(tenant string) (error, []Gateway) {
+func DBFindAllGatewaysForTenant(tenant string) (error, []Gateway) {
 	err, gws := DBFindAllGateways()
 	if err != nil {
 		return err, nil
@@ -191,11 +191,11 @@ func DBFindAllClustersForTenant(tenant string) (error, []Gateway) {
 }
 
 func DBDelTenant(id string) error {
-	err, cls := DBFindAllClustersForTenant(id)
+	err, gws := DBFindAllGatewaysForTenant(id)
 	if err != nil {
 		return err
 	}
-	if cls != nil {
+	if gws != nil {
 		return errors.New("Tenant assigned to clusters - cannot delete")
 	}
 	err = DBDelTenantDocOnly(id)
@@ -242,6 +242,9 @@ func DBAddTenantCluster(tenant string, data *TenantCluster) error {
 	Cluster := DBGetClusterName(data.Gateway)
 
 	err, gw := DBFindGateway(data.Gateway)
+	if err != nil {
+		return err
+	}
 	if gw == nil {
 		return fmt.Errorf("Cannot find Gateway config for gateway %s", data.Gateway)
 	}

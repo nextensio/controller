@@ -308,7 +308,6 @@ func DBAddClusterConfig(tenant string, data *TenantCluster) error {
 		// If ClusterConfig exists, use following fields
 		version = clc.Version + 1
 	}
-	id := Cluster + ":" + tenant
 
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
@@ -326,9 +325,9 @@ func DBAddClusterConfig(tenant string, data *TenantCluster) error {
 	}
 	result := cltenantCltn.FindOneAndUpdate(
 		context.TODO(),
-		bson.M{"_id": id},
+		bson.M{"_id": tenant},
 		bson.D{
-			{"$set", bson.M{"_id": id,
+			{"$set", bson.M{"_id": tenant,
 				"apodsets": data.ApodSets, "apodrepl": data.ApodRepl,
 				"image":   data.Image,
 				"cluster": Cluster, "tenant": tenant, "version": version}},
@@ -385,20 +384,19 @@ func DBAnyTenantsInCluster(clid string) (error, bool) {
 		glog.Error(msg)
 		return errors.New(msg), false
 	}
-
-	count, err := cltenantCltn.CountDocuments()
+	cursor, err := cltenantCltn.Find(context.TODO(), bson.M{})
 	if err != nil {
 		return err, false
 	}
+	defer cursor.Close(context.TODO())
+	for cursor.Next(context.TODO()) {
+		return nil, true
+	}
 
-	return nil, count > 0
+	return nil, false
 }
 
 // Delete the ClusterConfig doc for a tenant within a cluster.
-// For now, check if there are any active users or connectors.
-// If none, then delete the ClusterConfig.
-// Need a way to ensure that new users are blocked from connecting
-// to any of the tenant's pods that are to be removed.
 func DBDelClusterConfig(clid string, tenant string) error {
 	err, clcfg := DBFindClusterConfig(clid, tenant)
 	if err != nil {
@@ -413,7 +411,6 @@ func DBDelClusterConfig(clid string, tenant string) error {
 			_ = DBDelOneClusterBundle(clid, b.Uid)
 		}
 	}
-	// TODO: removal of pods
 
 	cltenantCltn := ClusterGetCollection(clid, "NxtTenants")
 	if cltenantCltn == nil {
@@ -497,12 +494,12 @@ func DBAddOneClusterBundle(tenant string, data *Bundle, Cluster string) error {
 }
 
 func DBAddClusterBundle(tenant string, data *Bundle) error {
-	err, cls := DBFindAllClustersForTenant(tenant)
+	err, gws := DBFindAllGatewaysForTenant(tenant)
 	if err != nil {
 		return err
 	}
-	for _, cl := range cls {
-		err := DBAddOneClusterBundle(tenant, data, cl.Name)
+	for _, gw := range gws {
+		err := DBAddOneClusterBundle(tenant, data, DBGetClusterName(gw.Name))
 		if err != nil {
 			return err
 		}
@@ -567,12 +564,12 @@ func DBDelOneClusterBundle(clid string, tidbid string) error {
 }
 
 func DBDelClusterBundle(tenant string, bundleid string) error {
-	err, cls := DBFindAllClustersForTenant(tenant)
+	err, gws := DBFindAllGatewaysForTenant(tenant)
 	if err != nil {
 		return err
 	}
-	for _, cl := range cls {
-		err := DBDelOneClusterBundle(cl.Name, tenant+":"+bundleid)
+	for _, gw := range gws {
+		err := DBDelOneClusterBundle(DBGetClusterName(gw.Name), tenant+":"+bundleid)
 		if err != nil {
 			return err
 		}

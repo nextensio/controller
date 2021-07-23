@@ -371,14 +371,14 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err, cls := db.DBFindAllClustersForTenant(uuid)
+	err, gws := db.DBFindAllGatewaysForTenant(uuid)
 	if err != nil {
 		result.Result = "Error fetching gateways: " + err.Error()
 		utils.WriteResult(w, result)
 		return
 	}
-	for _, cl := range cls {
-		err := db.DBDelTenantCluster(uuid, cl.Name)
+	for _, gw := range gws {
+		err := db.DBDelTenantCluster(uuid, db.DBGetClusterName(gw.Name))
 		if err != nil {
 			result.Result = err.Error()
 			utils.WriteResult(w, result)
@@ -435,25 +435,24 @@ type DelgatewayResult struct {
 // Delete a Nextensio gateway
 func delgatewayHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
-	var inuse int
 
 	v := mux.Vars(r)
 	name := v["name"]
 
-	inuse = db.DBGatewayInUse(name)
-	if inuse {
-		result.Result = "Gateway not found"
+	err, inuse := db.DBGatewayInUse(name)
+	if err != nil {
+		result.Result = "Cant find gateway:" + err.Error()
 		utils.WriteResult(w, result)
 		return
 	}
 
-	if inuse > 0 {
+	if inuse {
 		result.Result = "Gateway still in use by tenants"
 		utils.WriteResult(w, result)
 		return
 	}
 
-	err := db.DBDelGateway(name)
+	err = db.DBDelGateway(name)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
