@@ -439,20 +439,7 @@ func delgatewayHandler(w http.ResponseWriter, r *http.Request) {
 	v := mux.Vars(r)
 	name := v["name"]
 
-	err, inuse := db.DBGatewayInUse(name)
-	if err != nil {
-		result.Result = "Cant find gateway:" + err.Error()
-		utils.WriteResult(w, result)
-		return
-	}
-
-	if inuse {
-		result.Result = "Gateway still in use by tenants"
-		utils.WriteResult(w, result)
-		return
-	}
-
-	err = db.DBDelGateway(name)
+	err := db.DBDelGateway(name)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)

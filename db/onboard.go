@@ -486,18 +486,6 @@ func DBAddGateway(data *Gateway) error {
 	return nil
 }
 
-func DBGatewayInUse(gwname string) (error, bool) {
-	err, gw := DBFindGateway(gwname)
-	if err != nil {
-		return err, false
-	}
-	if gw == nil {
-		return nil, false
-	}
-	Cluster := DBGetClusterName(gw.Name)
-	return DBAnyTenantsInCluster(Cluster)
-}
-
 // This API will delete a gateway if its not in use by any tenants
 func DBDelGateway(name string) error {
 
