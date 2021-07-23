@@ -190,12 +190,34 @@ func DBFindAllGatewaysForTenant(tenant string) (error, []Gateway) {
 	return nil, gws
 }
 
+func DBTenantInAnyCluster(tenant string) (error, bool) {
+	err, gws := DBFindAllGatewaysForTenant(tenant)
+	if err != nil {
+		return err, false
+	}
+	for _, gw := range gws {
+		cltenantClnt := ClusterGetCollection(DBGetClusterName(gw.Name), "NxtTenants")
+		var result bson.M
+		err := cltenantClnt.FindOne(
+			context.TODO(),
+			bson.M{"_id": tenant},
+		).Decode(&result)
+		if err == nil {
+			return nil, true
+		}
+		if err != mongo.ErrNoDocuments {
+			return err, false
+		}
+	}
+	return nil, false
+}
+
 func DBDelTenant(id string) error {
-	err, gws := DBFindAllGatewaysForTenant(id)
+	err, inuse := DBTenantInAnyCluster(id)
 	if err != nil {
 		return err
 	}
-	if gws != nil {
+	if inuse {
 		return errors.New("Tenant assigned to clusters - cannot delete")
 	}
 	err = DBDelTenantDocOnly(id)
