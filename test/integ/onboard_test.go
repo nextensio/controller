@@ -525,13 +525,14 @@ func testTenantDel(t *testing.T, expect_delete bool) {
 			t.Error()
 			return
 		}
+		errCl, cls := db.DBFindAllClustersForTenant(dbTenants[0].ID)
 		if db.DBFindAllUsers(dbTenants[0].ID) != nil ||
 			db.DBFindAllUserAttrs(dbTenants[0].ID) != nil ||
 			db.DBFindAllBundles(dbTenants[0].ID) != nil ||
 			db.DBFindAllBundleAttrs(dbTenants[0].ID) != nil ||
 			db.DBFindAllPolicies(dbTenants[0].ID) != nil ||
 			db.DBFindNamespace(dbTenants[0].ID) != nil ||
-			db.DBFindAllClustersForTenant(dbTenants[0].ID) != nil {
+			errCl != nil || cls != nil {
 			t.Error()
 			return
 		}
@@ -540,12 +541,13 @@ func testTenantDel(t *testing.T, expect_delete bool) {
 			t.Error()
 			return
 		}
+		errCl, cls := db.DBFindAllClustersForTenant(dbTenants[0].ID)
 		if db.DBFindAllUsers(dbTenants[0].ID) == nil &&
 			db.DBFindAllUserAttrs(dbTenants[0].ID) == nil &&
 			db.DBFindAllBundles(dbTenants[0].ID) == nil &&
 			db.DBFindAllBundleAttrs(dbTenants[0].ID) == nil &&
 			db.DBFindAllPolicies(dbTenants[0].ID) == nil &&
-			db.DBFindAllClustersForTenant(dbTenants[0].ID) == nil {
+			errCl != nil || cls == nil {
 			t.Error()
 			return
 		}

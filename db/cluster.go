@@ -31,7 +31,6 @@ var ClusterDBs = make(map[string]*mongo.Database, maxClusters)
 
 var clusterGwCltn *mongo.Collection
 var namespaceCltn *mongo.Collection
-var clusterCfgCltn *mongo.Collection
 
 var usersCltn = make(map[string]*mongo.Collection, maxClusters)
 var bundleCltn = make(map[string]*mongo.Collection, maxClusters)
@@ -41,7 +40,6 @@ func ClusterDBInit(dbClient *mongo.Client) {
 	globalClusterDB = dbClient.Database("NxtClusterDB")
 	clusterGwCltn = globalClusterDB.Collection("NxtGateways")
 	namespaceCltn = globalClusterDB.Collection("NxtNamespaces")
-	clusterCfgCltn = globalClusterDB.Collection("NxtClusters")
 }
 
 func ClusterGetDBName(cl string) string {
@@ -59,7 +57,7 @@ func ClusterGetCollection(cluster string, cltn string) *mongo.Collection {
 		ClusterDBs[cluster] = mongoClient.Database(ClusterGetDBName(cluster))
 	}
 	switch cltn {
-	case "NxtUsers":
+	case "NxtTenants":
 		_, cok := usersCltn[cluster]
 		if cok == false {
 			usersCltn[cluster] = ClusterDBs[cluster].Collection("NxtUsers")
@@ -97,14 +95,19 @@ func ClusterDelDB(cluster string) {
 	delete(ClusterDBs, cluster)
 }
 
-func ClusterDBDrop() {
-	allGws := DBFindAllGateways()
+func ClusterDBDrop() error {
+	err, allGws := DBFindAllGateways()
+	if err != nil {
+		return err
+	}
 	for i := 0; i < len(allGws); i++ {
 		Cluster := DBGetClusterName(allGws[i].Name)
 		cldb := mongoClient.Database(ClusterGetDBName(Cluster))
 		cldb.Drop(context.TODO())
 	}
 	globalClusterDB.Drop(context.TODO())
+
+	return nil
 }
 
 type ClusterGateway struct {
@@ -297,7 +300,10 @@ type ClusterConfig struct {
 func DBAddClusterConfig(tenant string, data *TenantCluster) error {
 	version := 1
 	Cluster := DBGetClusterName(data.Gateway)
-	clc := DBFindClusterConfig(Cluster, tenant)
+	err, clc := DBFindClusterConfig(Cluster, tenant)
+	if err != nil {
+		return err
+	}
 	if clc != nil {
 		// If ClusterConfig exists, use following fields
 		version = clc.Version + 1
@@ -311,7 +317,14 @@ func DBAddClusterConfig(tenant string, data *TenantCluster) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	err := clusterCfgCltn.FindOneAndUpdate(
+	cltenantCltn := ClusterGetCollection(Cluster, "NxtTenants")
+	if cltenantCltn == nil {
+		msg := fmt.Sprintf("Could not find tenant collection for cluster %s",
+			Cluster)
+		glog.Error(msg)
+		return errors.New(msg)
+	}
+	result := cltenantCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": id},
 		bson.D{
@@ -322,9 +335,9 @@ func DBAddClusterConfig(tenant string, data *TenantCluster) error {
 		},
 		&opt,
 	)
-	if err.Err() != nil {
-		glog.Errorf("Add ClusterConfig failed - %v", err.Err())
-		return err.Err()
+	if result.Err() != nil {
+		glog.Errorf("Add ClusterConfig failed - %v", result.Err())
+		return err
 	}
 
 	// The very first time we are associating a gateway with a tenant,
@@ -343,58 +356,42 @@ func DBAddClusterConfig(tenant string, data *TenantCluster) error {
 }
 
 // Find the ClusterConfig doc for a tenant within a cluster
-func DBFindClusterConfig(clid string, tenant string) *ClusterConfig {
+func DBFindClusterConfig(clid string, tenant string) (error, *ClusterConfig) {
 	var clcfg ClusterConfig
-	id := clid + ":" + tenant
-	err := clusterCfgCltn.FindOne(context.TODO(), bson.M{"_id": id}).Decode(&clcfg)
-	if err != nil {
-		return nil
+	cltenantCltn := ClusterGetCollection(clid, "NxtTenants")
+	if cltenantCltn == nil {
+		msg := fmt.Sprintf("Could not find tenant collection for cluster %s",
+			clid)
+		glog.Error(msg)
+		return errors.New(msg), nil
 	}
-	return &clcfg
+	err := cltenantCltn.FindOne(context.TODO(), bson.M{"_id": tenant}).Decode(&clcfg)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	if err != nil {
+		return err, nil
+	}
+	return nil, &clcfg
 }
 
 // Check if any tenants are present in a cluster - return tenant count
 // 0 == no tenants; > 0 indicates tenants present
-func DBAnyTenantsInCluster(clid string) int {
-	clcfg := DBFindAllTenantsInCluster(clid)
-	if clcfg == nil {
-		return 0
+func DBAnyTenantsInCluster(clid string) (error, bool) {
+	cltenantCltn := ClusterGetCollection(clid, "NxtTenants")
+	if cltenantCltn == nil {
+		msg := fmt.Sprintf("Could not find tenant collection for cluster %s",
+			clid)
+		glog.Error(msg)
+		return errors.New(msg), false
 	}
-	return len(clcfg)
-}
 
-// Find and return docs for all tenants present in a cluster
-func DBFindAllTenantsInCluster(clid string) []ClusterConfig {
-	var clcfg []ClusterConfig
-	cursor, err := clusterCfgCltn.Find(context.TODO(), bson.M{"cluster": clid})
+	count, err := cltenantCltn.CountDocuments()
 	if err != nil {
-		return nil
+		return err, false
 	}
-	err = cursor.All(context.TODO(), &clcfg)
-	if err != nil {
-		return nil
-	}
-	if len(clcfg) > 0 {
-		return clcfg
-	}
-	return nil
-}
 
-// Find and return docs for all clusters for specified tenant
-func DBFindAllClustersForTenant(tenant string) []ClusterConfig {
-	var clcfg []ClusterConfig
-	cursor, err := clusterCfgCltn.Find(context.TODO(), bson.M{"tenant": tenant})
-	if err != nil {
-		return nil
-	}
-	err = cursor.All(context.TODO(), &clcfg)
-	if err != nil {
-		return nil
-	}
-	if len(clcfg) > 0 {
-		return clcfg
-	}
-	return nil
+	return nil, count > 0
 }
 
 // Delete the ClusterConfig doc for a tenant within a cluster.
@@ -403,7 +400,10 @@ func DBFindAllClustersForTenant(tenant string) []ClusterConfig {
 // Need a way to ensure that new users are blocked from connecting
 // to any of the tenant's pods that are to be removed.
 func DBDelClusterConfig(clid string, tenant string) error {
-	clcfg := DBFindClusterConfig(clid, tenant)
+	err, clcfg := DBFindClusterConfig(clid, tenant)
+	if err != nil {
+		return err
+	}
 	if clcfg == nil {
 		return nil
 	}
@@ -415,9 +415,15 @@ func DBDelClusterConfig(clid string, tenant string) error {
 	}
 	// TODO: removal of pods
 
-	id := clid + ":" + tenant
-	_, err := clusterCfgCltn.DeleteOne(context.TODO(), bson.M{"_id": id})
-	glog.Infof("ClusterConfig deleted for %s", id)
+	cltenantCltn := ClusterGetCollection(clid, "NxtTenants")
+	if cltenantCltn == nil {
+		msg := fmt.Sprintf("Could not find tenant collection for cluster %s",
+			clid)
+		glog.Error(msg)
+		return errors.New(msg)
+	}
+	_, err = cltenantCltn.DeleteOne(context.TODO(), bson.M{"_id": tenant})
+	glog.Infof("ClusterConfig deleted for %s", clid, tenant)
 
 	return err
 }
@@ -490,21 +496,13 @@ func DBAddOneClusterBundle(tenant string, data *Bundle, Cluster string) error {
 	return nil
 }
 
-// TODO: This API adds the bundle to ALL gateways as of now, but a tenant
-// might not have all gateways given to it, it might have a subset of all
-// gateways. When that support comes in later, modify this to ensure the bundle
-// is added only to the tenant's subset. And even in the tenant's gateway subset,
-// all gateways might not need this bundle pre-configured. We will eventually move
-// to a model where when the bundle onboards with controller before connecting to
-// a gateway, the controller will tell the gateway to add the configs for the
-// bundle. Which also means that when the gateway has no connections from the
-// bundle for a long period of time (idle time), "somehow" the bundle yamls
-// should get removed from the gateway. Will implement that one day and then we
-// dont need to do this busines of adding configs to all gateways
 func DBAddClusterBundle(tenant string, data *Bundle) error {
-	cls := DBFindAllClustersForTenant(tenant)
+	err, cls := DBFindAllClustersForTenant(tenant)
+	if err != nil {
+		return err
+	}
 	for _, cl := range cls {
-		err := DBAddOneClusterBundle(tenant, data, cl.Cluster)
+		err := DBAddOneClusterBundle(tenant, data, cl.Name)
 		if err != nil {
 			return err
 		}
@@ -569,9 +567,12 @@ func DBDelOneClusterBundle(clid string, tidbid string) error {
 }
 
 func DBDelClusterBundle(tenant string, bundleid string) error {
-	cls := DBFindAllClustersForTenant(tenant)
+	err, cls := DBFindAllClustersForTenant(tenant)
+	if err != nil {
+		return err
+	}
 	for _, cl := range cls {
-		err := DBDelOneClusterBundle(cl.Cluster, tenant+":"+bundleid)
+		err := DBDelOneClusterBundle(cl.Name, tenant+":"+bundleid)
 		if err != nil {
 			return err
 		}

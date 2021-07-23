@@ -188,7 +188,12 @@ func dbDelTenantDB(tnt string) {
 func dbDrop() {
 	// Purge the cluster related operational data first before removing
 	// gateway/cluster configuration
-	ClusterDBDrop()
+	for {
+		err := ClusterDBDrop()
+		if err == nil {
+			break
+		}
+	}
 	dbTenants := DBFindAllTenants()
 	for i := 0; i < len(dbTenants); i++ {
 		tdb := dbClient.Database(dbGetTenantDBName(dbTenants[i].ID))
