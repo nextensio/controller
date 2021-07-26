@@ -509,7 +509,7 @@ func DBAddGateway(data *Gateway) error {
 	remotes := []string{}
 	for _, gw := range gws {
 		if gw.Name != data.Name {
-			remotes = append(remotes, gw.Name)
+			remotes = append(remotes, DBGetClusterName(gw.Name))
 		}
 	}
 	e = DBAddClusterGateway(data, remotes)
