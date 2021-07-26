@@ -30,8 +30,6 @@ var globalClusterDB *mongo.Database
 var ClusterDBs = make(map[string]*mongo.Database, maxClusters)
 
 var clusterGwCltn *mongo.Collection
-var namespaceCltn *mongo.Collection
-
 var usersCltn = make(map[string]*mongo.Collection, maxClusters)
 var bundleCltn = make(map[string]*mongo.Collection, maxClusters)
 
@@ -39,7 +37,6 @@ func ClusterDBInit(dbClient *mongo.Client) {
 	mongoClient = dbClient
 	globalClusterDB = dbClient.Database("NxtClusterDB")
 	clusterGwCltn = globalClusterDB.Collection("NxtGateways")
-	namespaceCltn = globalClusterDB.Collection("NxtNamespaces")
 }
 
 func ClusterGetDBName(cl string) string {
@@ -238,81 +235,6 @@ func DBAddDelClusterGatewayRemote(thisGw string, remoteGw string, add bool) erro
 	}
 
 	return nil
-}
-
-// NOTE: The bson decoder will not work if the structure field names dont start with upper case
-// Tenant info
-type Namespace struct {
-	ID      string `json:"_id" bson:"_id"` // Tenant id
-	Name    string `json:"name" bson:"name"`
-	Version int    `json:"version" bson:"version"`
-}
-
-// This API will add a new namespace or update an existing one
-func DBAddNamespace(data *Tenant) error {
-
-	version := 1
-	nspc := DBFindNamespace(data.ID)
-	if nspc != nil {
-		version = nspc.Version + 1
-	}
-	// The upsert option asks the DB to add if one is not found
-	upsert := true
-	after := options.After
-	opt := options.FindOneAndUpdateOptions{
-		ReturnDocument: &after,
-		Upsert:         &upsert,
-	}
-	err := namespaceCltn.FindOneAndUpdate(
-		context.TODO(),
-		bson.M{"_id": data.ID},
-		bson.D{
-			{"$set", bson.M{"name": data.Name,
-				"version": version}},
-		},
-		&opt,
-	)
-	if err.Err() != nil {
-		return err.Err()
-	}
-
-	return nil
-}
-
-func DBFindNamespace(id string) *Namespace {
-	var namespace Namespace
-	err := namespaceCltn.FindOne(
-		context.TODO(),
-		bson.M{"_id": id},
-	).Decode(&namespace)
-	if err != nil {
-		return nil
-	}
-	return &namespace
-}
-
-func DBFindAllNamespaces() []Namespace {
-	var namespaces []Namespace
-
-	cursor, err := namespaceCltn.Find(context.TODO(), bson.M{})
-	if err != nil {
-		return nil
-	}
-	err = cursor.All(context.TODO(), &namespaces)
-	if err != nil {
-		return nil
-	}
-
-	return namespaces
-}
-
-func DBDelNamespace(id string) error {
-	_, err := namespaceCltn.DeleteOne(
-		context.TODO(),
-		bson.M{"_id": id},
-	)
-
-	return err
 }
 
 // Each cluster will have one or more tenants, and for each tenant, we will configure

@@ -244,17 +244,6 @@ func addTenant(tenant *Tenant_v1) bool {
 		return false
 	}
 
-	found = false
-	dbNamespaces := db.DBFindAllNamespaces()
-	for i := 0; i < len(dbNamespaces); i++ {
-		if dbNamespaces[i].Name == tenant.Name {
-			found = true
-		}
-	}
-	if !found {
-		return false
-	}
-
 	return true
 }
 
@@ -533,7 +522,6 @@ func testTenantDel(t *testing.T, expect_delete bool) {
 			db.DBFindAllBundles(dbTenants[0].ID) != nil ||
 			db.DBFindAllBundleAttrs(dbTenants[0].ID) != nil ||
 			db.DBFindAllPolicies(dbTenants[0].ID) != nil ||
-			db.DBFindNamespace(dbTenants[0].ID) != nil ||
 			errCl != nil || gws {
 			t.Error()
 			return
