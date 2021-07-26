@@ -162,6 +162,9 @@ func DBFindGatewayCluster(gwname string) (error, *ClusterGateway) {
 		context.TODO(),
 		bson.M{"_id": gwname},
 	).Decode(&gateway)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
 	if err != nil {
 		return err, nil
 	}
