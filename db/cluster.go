@@ -21,7 +21,7 @@ const maxClusters = 100 // A swag
 // The NxtClusters and NxtNamespaces collections will be in a single
 // DB called NxtClusterDB since we need a global view of all clusters
 // and tenants.
-// The NxtUsers and NxtServices collections will be in per-cluster DBs
+// The NxtTenants and NxtConnector collections will be in per-cluster DBs
 // so that the nextensio manager in each cluster can work with the
 // operational data relevant to just that cluster.
 
@@ -60,7 +60,7 @@ func ClusterGetCollection(cluster string, cltn string) *mongo.Collection {
 	case "NxtTenants":
 		_, cok := usersCltn[cluster]
 		if cok == false {
-			usersCltn[cluster] = ClusterDBs[cluster].Collection("NxtUsers")
+			usersCltn[cluster] = ClusterDBs[cluster].Collection("NxtTenants")
 		}
 		return usersCltn[cluster]
 	case "NxtConnectors":
@@ -84,7 +84,7 @@ func ClusterAddDB(cluster string) {
 }
 
 func ClusterAddCollections(cluster string, cldb *mongo.Database) {
-	usersCltn[cluster] = cldb.Collection("NxtUsers")
+	usersCltn[cluster] = cldb.Collection("NxtTenants")
 	bundleCltn[cluster] = cldb.Collection("NxtConnectors")
 }
 
@@ -111,16 +111,20 @@ func ClusterDBDrop() error {
 }
 
 type ClusterGateway struct {
-	Name    string `json:"name" bson:"_id"`
-	Cluster string `json:"cluster" bson:"cluster"`
-	Version int    `json:"version" bson:"version"`
+	Name    string   `json:"name" bson:"_id"`
+	Cluster string   `json:"cluster" bson:"cluster"`
+	Version int      `json:"version" bson:"version"`
+	Remotes []string `json:"remotes" bson:"remotes"`
 }
 
 // This API will add a new gateway/cluster
-func DBAddClusterGateway(data *Gateway) error {
+func DBAddClusterGateway(data *Gateway, remotes []string) error {
 	version := 1
 	// Get the gateway/cluster doc using the gateway name
-	gw := DBFindGatewayCluster(data.Name)
+	e, gw := DBFindGatewayCluster(data.Name)
+	if e != nil {
+		return e
+	}
 	if gw != nil {
 		version = gw.Version + 1
 	}
@@ -136,7 +140,7 @@ func DBAddClusterGateway(data *Gateway) error {
 		context.TODO(),
 		bson.M{"_id": data.Name},
 		bson.D{
-			{"$set", bson.M{"cluster": Cluster, "version": version}},
+			{"$set", bson.M{"cluster": Cluster, "version": version, "remotes": remotes}},
 		},
 		&opt,
 	)
@@ -151,34 +155,24 @@ func DBAddClusterGateway(data *Gateway) error {
 	return nil
 }
 
-// Find gateway/cluster doc given the cluster name
-func DBFindClusterGateway(clname string) *ClusterGateway {
-	var gateway ClusterGateway
-	err := clusterGwCltn.FindOne(
-		context.TODO(),
-		bson.M{"cluster": clname},
-	).Decode(&gateway)
-	if err != nil {
-		return nil
-	}
-	return &gateway
-}
-
 // Find gateway/cluster doc given the gateway name
-func DBFindGatewayCluster(gwname string) *ClusterGateway {
+func DBFindGatewayCluster(gwname string) (error, *ClusterGateway) {
 	var gateway ClusterGateway
 	err := clusterGwCltn.FindOne(
 		context.TODO(),
 		bson.M{"_id": gwname},
 	).Decode(&gateway)
 	if err != nil {
-		return nil
+		return err, nil
 	}
-	return &gateway
+	return nil, &gateway
 }
 
 func DBDelClusterGateway(gwname string) error {
-	clgw := DBFindGatewayCluster(gwname)
+	e, clgw := DBFindGatewayCluster(gwname)
+	if e != nil {
+		return e
+	}
 	if clgw == nil {
 		return errors.New("Cluster gateway not found - cannot delete")
 	}
@@ -192,6 +186,54 @@ func DBDelClusterGateway(gwname string) error {
 
 	// Remove the logical DB for per-cluster collections
 	ClusterDelDB(clgw.Cluster)
+	return nil
+}
+
+// This API will add/del a new remote cluster to/from the one with "thisGw"
+func DBAddDelClusterGatewayRemote(thisGw string, remoteGw string, add bool) error {
+	remote := DBGetClusterName(remoteGw)
+	// Get the gateway/cluster doc using the gateway name
+	e, gw := DBFindGatewayCluster(thisGw)
+	if e != nil {
+		return e
+	}
+	if gw == nil {
+		return errors.New("Cant find gateway")
+	}
+	version := gw.Version + 1
+	for i, r := range gw.Remotes {
+		if remote == r {
+			if add {
+				return nil
+			}
+			if !add {
+				gw.Remotes = append(gw.Remotes[:i], gw.Remotes[i+1:]...)
+				break
+			}
+		}
+	}
+	if add {
+		gw.Remotes = append(gw.Remotes, remote)
+	}
+	// The upsert option asks the DB to add if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	err := clusterGwCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": gw.Name},
+		bson.D{
+			{"$set", bson.M{"cluster": gw.Cluster, "version": version, "remotes": gw.Remotes}},
+		},
+		&opt,
+	)
+	if err.Err() != nil {
+		return err.Err()
+	}
+
 	return nil
 }
 
@@ -336,7 +378,7 @@ func DBAddClusterConfig(tenant string, data *TenantCluster) error {
 	)
 	if result.Err() != nil {
 		glog.Errorf("Add ClusterConfig failed - %v", result.Err())
-		return err
+		return result.Err()
 	}
 
 	// The very first time we are associating a gateway with a tenant,

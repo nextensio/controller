@@ -477,6 +477,10 @@ func DBGetClusterName(gateway string) string {
 // This API will add a new gateway or update a gateway if it already exists
 func DBAddGateway(data *Gateway) error {
 
+	e, gws := DBFindAllGateways()
+	if e != nil {
+		return e
+	}
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
@@ -499,10 +503,26 @@ func DBAddGateway(data *Gateway) error {
 		return err.Err()
 	}
 
-	e := DBAddClusterGateway(data)
+	// TODO: Right now we say every gateway talks to every other gateway, but eventually
+	// that might not be the case. Like gateways in US might not talk to the ones in europe
+	// etc.., we will need some way to figure that out and then modify this code
+	remotes := []string{}
+	for _, gw := range gws {
+		if gw.Name != data.Name {
+			remotes = append(remotes, gw.Name)
+		}
+	}
+	e = DBAddClusterGateway(data, remotes)
 	if e != nil {
-		_ = DBDelGateway(data.Name)
 		return e
+	}
+	for _, gw := range gws {
+		if gw.Name != data.Name {
+			e = DBAddDelClusterGatewayRemote(gw.Name, data.Name, true)
+			if e != nil {
+				return e
+			}
+		}
 	}
 
 	return nil
@@ -510,6 +530,11 @@ func DBAddGateway(data *Gateway) error {
 
 // This API will delete a gateway if its not in use by any tenants
 func DBDelGateway(name string) error {
+
+	e, all := DBFindAllGateways()
+	if e != nil {
+		return e
+	}
 
 	err, gw := DBFindGateway(name)
 	if err != nil {
@@ -537,11 +562,18 @@ func DBDelGateway(name string) error {
 		return err
 	}
 
-	e := DBDelClusterGateway(name)
+	e = DBDelClusterGateway(name)
 	if e != nil {
 		return e
 	}
-
+	for _, a := range all {
+		if a.Name != gw.Name {
+			e = DBAddDelClusterGatewayRemote(a.Name, gw.Name, false)
+			if e != nil {
+				return e
+			}
+		}
+	}
 	return nil
 }
 
