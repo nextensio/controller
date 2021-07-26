@@ -26,24 +26,18 @@ const maxClusters = 100 // A swag
 // operational data relevant to just that cluster.
 
 var mongoClient *mongo.Client
-var globalClusterDB *mongo.Database
 var ClusterDBs = make(map[string]*mongo.Database, maxClusters)
 
-var clusterGwCltn *mongo.Collection
-var namespaceCltn *mongo.Collection
-
-var usersCltn = make(map[string]*mongo.Collection, maxClusters)
+var tenantsCltn = make(map[string]*mongo.Collection, maxClusters)
 var bundleCltn = make(map[string]*mongo.Collection, maxClusters)
+var gatewaysCltn = make(map[string]*mongo.Collection, maxClusters)
 
 func ClusterDBInit(dbClient *mongo.Client) {
 	mongoClient = dbClient
-	globalClusterDB = dbClient.Database("NxtClusterDB")
-	clusterGwCltn = globalClusterDB.Collection("NxtGateways")
-	namespaceCltn = globalClusterDB.Collection("NxtNamespaces")
 }
 
 func ClusterGetDBName(cl string) string {
-	return ("Nxt-" + cl + "-DB")
+	return ("Cluster-" + cl + "-DB")
 }
 
 func ClusterGetApodSetName(tenant string, pod int) string {
@@ -58,11 +52,17 @@ func ClusterGetCollection(cluster string, cltn string) *mongo.Collection {
 	}
 	switch cltn {
 	case "NxtTenants":
-		_, cok := usersCltn[cluster]
+		_, cok := tenantsCltn[cluster]
 		if cok == false {
-			usersCltn[cluster] = ClusterDBs[cluster].Collection("NxtTenants")
+			tenantsCltn[cluster] = ClusterDBs[cluster].Collection("NxtTenants")
 		}
-		return usersCltn[cluster]
+		return tenantsCltn[cluster]
+	case "NxtGateways":
+		_, cok := gatewaysCltn[cluster]
+		if cok == false {
+			gatewaysCltn[cluster] = ClusterDBs[cluster].Collection("NxtGateways")
+		}
+		return gatewaysCltn[cluster]
 	case "NxtConnectors":
 		_, cok := bundleCltn[cluster]
 		if cok == false {
@@ -84,12 +84,13 @@ func ClusterAddDB(cluster string) {
 }
 
 func ClusterAddCollections(cluster string, cldb *mongo.Database) {
-	usersCltn[cluster] = cldb.Collection("NxtTenants")
+	tenantsCltn[cluster] = cldb.Collection("NxtTenants")
 	bundleCltn[cluster] = cldb.Collection("NxtConnectors")
+	gatewaysCltn[cluster] = cldb.Collection("NxtGateways")
 }
 
 func ClusterDelDB(cluster string) {
-	delete(usersCltn, cluster)
+	delete(tenantsCltn, cluster)
 	delete(bundleCltn, cluster)
 	ClusterDBs[cluster].Drop(context.TODO())
 	delete(ClusterDBs, cluster)
@@ -105,7 +106,6 @@ func ClusterDBDrop() error {
 		cldb := mongoClient.Database(ClusterGetDBName(Cluster))
 		cldb.Drop(context.TODO())
 	}
-	globalClusterDB.Drop(context.TODO())
 
 	return nil
 }
@@ -136,6 +136,13 @@ func DBAddClusterGateway(data *Gateway, remotes []string) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
+	clusterGwCltn := ClusterGetCollection(Cluster, "NxtGateways")
+	if clusterGwCltn == nil {
+		msg := fmt.Sprintf("Could not find gw collection for cluster %s",
+			Cluster)
+		glog.Error(msg)
+		return errors.New(msg)
+	}
 	err := clusterGwCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": data.Name},
@@ -158,6 +165,14 @@ func DBAddClusterGateway(data *Gateway, remotes []string) error {
 // Find gateway/cluster doc given the gateway name
 func DBFindGatewayCluster(gwname string) (error, *ClusterGateway) {
 	var gateway ClusterGateway
+	Cluster := DBGetClusterName(gwname)
+	clusterGwCltn := ClusterGetCollection(Cluster, "NxtGateways")
+	if clusterGwCltn == nil {
+		msg := fmt.Sprintf("Could not find gw collection for cluster %s",
+			Cluster)
+		glog.Error(msg)
+		return errors.New(msg), nil
+	}
 	err := clusterGwCltn.FindOne(
 		context.TODO(),
 		bson.M{"_id": gwname},
@@ -178,6 +193,14 @@ func DBDelClusterGateway(gwname string) error {
 	}
 	if clgw == nil {
 		return errors.New("Cluster gateway not found - cannot delete")
+	}
+	Cluster := DBGetClusterName(gwname)
+	clusterGwCltn := ClusterGetCollection(Cluster, "NxtGateways")
+	if clusterGwCltn == nil {
+		msg := fmt.Sprintf("Could not find gw collection for cluster %s",
+			Cluster)
+		glog.Error(msg)
+		return errors.New(msg)
 	}
 	_, err := clusterGwCltn.DeleteOne(
 		context.TODO(),
@@ -225,6 +248,13 @@ func DBAddDelClusterGatewayRemote(thisGw string, remoteGw string, add bool) erro
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
+	clusterGwCltn := ClusterGetCollection(gw.Cluster, "NxtGateways")
+	if clusterGwCltn == nil {
+		msg := fmt.Sprintf("Could not find gw collection for cluster %s",
+			gw.Cluster)
+		glog.Error(msg)
+		return errors.New(msg)
+	}
 	err := clusterGwCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": gw.Name},
@@ -238,81 +268,6 @@ func DBAddDelClusterGatewayRemote(thisGw string, remoteGw string, add bool) erro
 	}
 
 	return nil
-}
-
-// NOTE: The bson decoder will not work if the structure field names dont start with upper case
-// Tenant info
-type Namespace struct {
-	ID      string `json:"_id" bson:"_id"` // Tenant id
-	Name    string `json:"name" bson:"name"`
-	Version int    `json:"version" bson:"version"`
-}
-
-// This API will add a new namespace or update an existing one
-func DBAddNamespace(data *Tenant) error {
-
-	version := 1
-	nspc := DBFindNamespace(data.ID)
-	if nspc != nil {
-		version = nspc.Version + 1
-	}
-	// The upsert option asks the DB to add if one is not found
-	upsert := true
-	after := options.After
-	opt := options.FindOneAndUpdateOptions{
-		ReturnDocument: &after,
-		Upsert:         &upsert,
-	}
-	err := namespaceCltn.FindOneAndUpdate(
-		context.TODO(),
-		bson.M{"_id": data.ID},
-		bson.D{
-			{"$set", bson.M{"name": data.Name,
-				"version": version}},
-		},
-		&opt,
-	)
-	if err.Err() != nil {
-		return err.Err()
-	}
-
-	return nil
-}
-
-func DBFindNamespace(id string) *Namespace {
-	var namespace Namespace
-	err := namespaceCltn.FindOne(
-		context.TODO(),
-		bson.M{"_id": id},
-	).Decode(&namespace)
-	if err != nil {
-		return nil
-	}
-	return &namespace
-}
-
-func DBFindAllNamespaces() []Namespace {
-	var namespaces []Namespace
-
-	cursor, err := namespaceCltn.Find(context.TODO(), bson.M{})
-	if err != nil {
-		return nil
-	}
-	err = cursor.All(context.TODO(), &namespaces)
-	if err != nil {
-		return nil
-	}
-
-	return namespaces
-}
-
-func DBDelNamespace(id string) error {
-	_, err := namespaceCltn.DeleteOne(
-		context.TODO(),
-		bson.M{"_id": id},
-	)
-
-	return err
 }
 
 // Each cluster will have one or more tenants, and for each tenant, we will configure

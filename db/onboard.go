@@ -114,12 +114,6 @@ func DBAddTenant(data *Tenant) error {
 		return err.Err()
 	}
 
-	e := DBAddNamespace(data)
-	if e != nil {
-		_ = DBDelTenantDocOnly(data.ID)
-		return e
-	}
-
 	if tdoc == nil {
 		// New tenant being added, so create logical DB for tenant
 		// and add header docs for all attribute collections of tenant
@@ -224,7 +218,6 @@ func DBDelTenant(id string) error {
 	if err != nil {
 		return err
 	}
-	_ = DBDelNamespace(id)
 
 	// Delete header docs of all attribute collections
 	DBDelTenantCollectionHdrs(id)
