@@ -11,6 +11,7 @@ import (
 	"github.com/golang/glog"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
@@ -177,11 +178,49 @@ func DBFindAllTenants() []Tenant {
 	return tenants
 }
 
+// TODO: This API returns ALL gateways as of now, but a tenant
+// might not have all gateways given to it, it might have a subset of all
+// gateways. When that support comes in later, modify this to ensure it returns
+// on the gateways assigned to this tenant
+func DBFindAllGatewaysForTenant(tenant string) (error, []Gateway) {
+	err, gws := DBFindAllGateways()
+	if err != nil {
+		return err, nil
+	}
+	return nil, gws
+}
+
+func DBTenantInAnyCluster(tenant string) (error, bool) {
+	err, gws := DBFindAllGatewaysForTenant(tenant)
+	if err != nil {
+		return err, false
+	}
+	for _, gw := range gws {
+		cltenantClnt := ClusterGetCollection(DBGetClusterName(gw.Name), "NxtTenants")
+		var result bson.M
+		err := cltenantClnt.FindOne(
+			context.TODO(),
+			bson.M{"_id": tenant},
+		).Decode(&result)
+		if err == nil {
+			return nil, true
+		}
+		if err != mongo.ErrNoDocuments {
+			return err, false
+		}
+	}
+	return nil, false
+}
+
 func DBDelTenant(id string) error {
-	if DBFindAllClustersForTenant(id) != nil {
+	err, inuse := DBTenantInAnyCluster(id)
+	if err != nil {
+		return err
+	}
+	if inuse {
 		return errors.New("Tenant assigned to clusters - cannot delete")
 	}
-	err := DBDelTenantDocOnly(id)
+	err = DBDelTenantDocOnly(id)
 	if err != nil {
 		return err
 	}
@@ -224,7 +263,10 @@ func DBAddTenantCluster(tenant string, data *TenantCluster) error {
 
 	Cluster := DBGetClusterName(data.Gateway)
 
-	gw := DBFindGateway(data.Gateway)
+	err, gw := DBFindGateway(data.Gateway)
+	if err != nil {
+		return err
+	}
 	if gw == nil {
 		return fmt.Errorf("Cannot find Gateway config for gateway %s", data.Gateway)
 	}
@@ -261,7 +303,7 @@ func DBAddTenantCluster(tenant string, data *TenantCluster) error {
 		return fmt.Errorf("Unknown TenantClusters Collection")
 	}
 	id := tenant + ":" + Cluster
-	err := tenantClusCltn.FindOneAndUpdate(
+	result := tenantClusCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": id},
 		bson.D{
@@ -270,8 +312,8 @@ func DBAddTenantCluster(tenant string, data *TenantCluster) error {
 		},
 		&opt,
 	)
-	if err.Err() != nil {
-		return err.Err()
+	if result.Err() != nil {
+		return result.Err()
 	}
 	// Add the cluster assignment config into the ClusterConfig collection that
 	// maintains the configuration of each cluster for the cluster manager.
@@ -435,6 +477,10 @@ func DBGetClusterName(gateway string) string {
 // This API will add a new gateway or update a gateway if it already exists
 func DBAddGateway(data *Gateway) error {
 
+	e, gws := DBFindAllGateways()
+	if e != nil {
+		return e
+	}
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
@@ -457,41 +503,57 @@ func DBAddGateway(data *Gateway) error {
 		return err.Err()
 	}
 
-	e := DBAddClusterGateway(data)
+	// TODO: Right now we say every gateway talks to every other gateway, but eventually
+	// that might not be the case. Like gateways in US might not talk to the ones in europe
+	// etc.., we will need some way to figure that out and then modify this code
+	remotes := []string{}
+	for _, gw := range gws {
+		if gw.Name != data.Name {
+			remotes = append(remotes, DBGetClusterName(gw.Name))
+		}
+	}
+	e = DBAddClusterGateway(data, remotes)
 	if e != nil {
-		_ = DBDelGateway(data.Name)
 		return e
+	}
+	for _, gw := range gws {
+		if gw.Name != data.Name {
+			e = DBAddDelClusterGatewayRemote(gw.Name, data.Name, true)
+			if e != nil {
+				return e
+			}
+		}
 	}
 
 	return nil
 }
 
-// Return < 0 if gateway/cluster not found
-//          0 if no tenants assigned to cluster/gateway
-//        > 0 if tenants currently assigned to cluster/gateway
-func DBGatewayInUse(gwname string) int {
-	gw := DBFindGateway(gwname)
-	if gw == nil {
-		return -1
-	}
-	Cluster := DBGetClusterName(gw.Name)
-	return DBAnyTenantsInCluster(Cluster)
-}
-
 // This API will delete a gateway if its not in use by any tenants
 func DBDelGateway(name string) error {
 
-	gw := DBFindGateway(name)
+	e, all := DBFindAllGateways()
+	if e != nil {
+		return e
+	}
+
+	err, gw := DBFindGateway(name)
+	if err != nil {
+		return err
+	}
 	if gw == nil {
 		// Gateway doesn't exist. Return silently
 		return nil
 	}
 	Cluster := DBGetClusterName(gw.Name)
-	if DBAnyTenantsInCluster(Cluster) > 0 {
+	err, inuse := DBAnyTenantsInCluster(Cluster)
+	if err != nil {
+		return err
+	}
+	if inuse {
 		// Gateway has tenants allocated.
 		return errors.New("Gateway in use - cannot delete")
 	}
-	_, err := gatewayCltn.DeleteOne(
+	_, err = gatewayCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": name},
 	)
@@ -500,39 +562,52 @@ func DBDelGateway(name string) error {
 		return err
 	}
 
-	e := DBDelClusterGateway(name)
+	e = DBDelClusterGateway(name)
 	if e != nil {
 		return e
 	}
-
+	for _, a := range all {
+		if a.Name != gw.Name {
+			e = DBAddDelClusterGatewayRemote(a.Name, gw.Name, false)
+			if e != nil {
+				return e
+			}
+		}
+	}
 	return nil
 }
 
-func DBFindGateway(name string) *Gateway {
+func DBFindGateway(name string) (error, *Gateway) {
 	var gateway Gateway
 	err := gatewayCltn.FindOne(
 		context.TODO(),
 		bson.M{"_id": name},
 	).Decode(&gateway)
-	if err != nil {
-		return nil
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
 	}
-	return &gateway
+	if err != nil {
+		return err, nil
+	}
+	return nil, &gateway
 }
 
-func DBFindAllGateways() []Gateway {
+func DBFindAllGateways() (error, []Gateway) {
 	var gateways []Gateway
 
 	cursor, err := gatewayCltn.Find(context.TODO(), bson.M{})
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return err, nil
 	}
 	err = cursor.All(context.TODO(), &gateways)
 	if err != nil {
-		return nil
+		return err, nil
 	}
 
-	return gateways
+	return nil, gateways
 }
 
 //------------------------Attribute set functions-----------------------------
@@ -763,7 +838,11 @@ func DBAddUser(uuid string, data *User) error {
 	data.Gateway = strings.TrimSpace(data.Gateway)
 	if data.Gateway != "" {
 		// Ensure any gateway specified is valid
-		if DBFindGateway(data.Gateway) == nil {
+		err, gw := DBFindGateway(data.Gateway)
+		if err != nil {
+			return err
+		}
+		if gw == nil {
 			return fmt.Errorf("Gateway %s not configured", data.Gateway)
 		}
 	} else {
@@ -1204,8 +1283,14 @@ func DBAddBundle(uuid string, data *Bundle) error {
 			}
 		}
 	}
-	if data.Gateway != "" && DBFindGateway(data.Gateway) == nil {
-		return fmt.Errorf("Gateway %s not configured", data.Gateway)
+	if data.Gateway != "" {
+		err, gw := DBFindGateway(data.Gateway)
+		if err != nil {
+			return err
+		}
+		if gw == nil {
+			return fmt.Errorf("Gateway %s not configured", data.Gateway)
+		}
 	}
 
 	data.Services = delEmpty(data.Services)
@@ -1886,7 +1971,7 @@ func defaultType(set AttrSet) interface{} {
 	}
 	if set.Type == "Date" {
 		if set.IsArray == "true" {
-			return []int{0}
+			return []string{""}
 		} else {
 			return 0
 		}

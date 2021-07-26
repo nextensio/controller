@@ -54,7 +54,7 @@ func addGateway(gw *Gateway_v1) bool {
 		return false
 	}
 
-	dbGw := db.DBFindGateway(gw.Name)
+	_, dbGw := db.DBFindGateway(gw.Name)
 	if dbGw == nil {
 		return false
 	}
@@ -106,7 +106,7 @@ func delGateway(gw *Gateway_v1) bool {
 		return false
 	}
 
-	dbGw := db.DBFindGateway(gw.Name)
+	_, dbGw := db.DBFindGateway(gw.Name)
 	if dbGw != nil {
 		return false
 	}
@@ -322,8 +322,9 @@ func testTenantClusterDel(t *testing.T, cluster string) {
 		t.Error()
 		return
 	}
+	_, cl := db.DBFindClusterConfig(cluster, dbTenants[0].ID)
 	if db.DBFindTenantCluster(dbTenants[0].ID, cluster) != nil ||
-		db.DBFindClusterConfig(cluster, dbTenants[0].ID) != nil {
+		cl != nil {
 		t.Error()
 		return
 	}
@@ -522,16 +523,18 @@ func testTenantDel(t *testing.T, expect_delete bool) {
 	}
 	if expect_delete {
 		if data.Result != "ok" {
+			t.Log(data.Result)
 			t.Error()
 			return
 		}
+		errCl, gws := db.DBTenantInAnyCluster(dbTenants[0].ID)
 		if db.DBFindAllUsers(dbTenants[0].ID) != nil ||
 			db.DBFindAllUserAttrs(dbTenants[0].ID) != nil ||
 			db.DBFindAllBundles(dbTenants[0].ID) != nil ||
 			db.DBFindAllBundleAttrs(dbTenants[0].ID) != nil ||
 			db.DBFindAllPolicies(dbTenants[0].ID) != nil ||
 			db.DBFindNamespace(dbTenants[0].ID) != nil ||
-			db.DBFindAllClustersForTenant(dbTenants[0].ID) != nil {
+			errCl != nil || gws {
 			t.Error()
 			return
 		}
@@ -540,12 +543,13 @@ func testTenantDel(t *testing.T, expect_delete bool) {
 			t.Error()
 			return
 		}
+		errCl, gws := db.DBTenantInAnyCluster(dbTenants[0].ID)
 		if db.DBFindAllUsers(dbTenants[0].ID) == nil &&
 			db.DBFindAllUserAttrs(dbTenants[0].ID) == nil &&
 			db.DBFindAllBundles(dbTenants[0].ID) == nil &&
 			db.DBFindAllBundleAttrs(dbTenants[0].ID) == nil &&
 			db.DBFindAllPolicies(dbTenants[0].ID) == nil &&
-			db.DBFindAllClustersForTenant(dbTenants[0].ID) == nil {
+			errCl != nil || !gws {
 			t.Error()
 			return
 		}

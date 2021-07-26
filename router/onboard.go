@@ -232,7 +232,12 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	gws := db.DBFindAllGateways()
+	err, gws := db.DBFindAllGateways()
+	if err != nil {
+		result.Result = "Failure fetching gateways, please try again: " + err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
 	for _, g := range gws {
 		tcl := db.TenantCluster{Gateway: g.Name, Image: "", ApodSets: 1, ApodRepl: 1}
 		err = db.DBAddTenantCluster(data.ID, &tcl)
@@ -366,9 +371,14 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	cls := db.DBFindAllClustersForTenant(uuid)
-	for _, cl := range cls {
-		err := db.DBDelTenantCluster(uuid, cl.Cluster)
+	err, gws := db.DBFindAllGatewaysForTenant(uuid)
+	if err != nil {
+		result.Result = "Error fetching gateways: " + err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+	for _, gw := range gws {
+		err := db.DBDelTenantCluster(uuid, db.DBGetClusterName(gw.Name))
 		if err != nil {
 			result.Result = err.Error()
 			utils.WriteResult(w, result)
@@ -376,7 +386,7 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// DBDelTenant() will remove all header docs for tenant collections
-	err := db.DBDelTenant(uuid)
+	err = db.DBDelTenant(uuid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {
@@ -425,23 +435,9 @@ type DelgatewayResult struct {
 // Delete a Nextensio gateway
 func delgatewayHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
-	var inuse int
 
 	v := mux.Vars(r)
 	name := v["name"]
-
-	inuse = db.DBGatewayInUse(name)
-	if inuse < 0 {
-		result.Result = "Gateway not found"
-		utils.WriteResult(w, result)
-		return
-	}
-
-	if inuse > 0 {
-		result.Result = "Gateway still in use by tenants"
-		utils.WriteResult(w, result)
-		return
-	}
 
 	err := db.DBDelGateway(name)
 	if err != nil {
@@ -456,12 +452,11 @@ func delgatewayHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get all gateways
 func getAllGatewaysHandler(w http.ResponseWriter, r *http.Request) {
-	gws := db.DBFindAllGateways()
+	_, gws := db.DBFindAllGateways()
 	if gws == nil {
 		gws = make([]db.Gateway, 0)
 	}
 	utils.WriteResult(w, gws)
-
 }
 
 type AddcertResult struct {
@@ -1461,10 +1456,9 @@ func delOnboardLogHandler(w http.ResponseWriter, r *http.Request) {
 // in nextensio. This will change in future where each tenant might have a subset of the
 // total gateways
 func getAllTenantGatewaysHandler(w http.ResponseWriter, r *http.Request) {
-	gws := db.DBFindAllGateways()
+	_, gws := db.DBFindAllGateways()
 	if gws == nil {
 		gws = make([]db.Gateway, 0)
 	}
 	utils.WriteResult(w, gws)
-
 }
