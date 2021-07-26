@@ -138,6 +138,7 @@ func DBAddTenantCollectionHdrs(tenant string) {
 	_ = DBAddBundleInfoHdr(tenant, &hdr)
 	_ = DBAddBundleAttrHdr(tenant, &hdr)
 	_ = DBAddHostAttrHdr(tenant, &hdr)
+	_ = DBAddTraceRequestsHdr(tenant, &hdr)
 	// TenantCluster collection does not have a header doc for now
 }
 
@@ -148,6 +149,7 @@ func DBDelTenantCollectionHdrs(tenant string) {
 	_ = DBDelBundleInfoHdr(tenant)
 	_ = DBDelBundleAttrHdr(tenant)
 	_ = DBDelHostAttrHdr(tenant)
+	_ = DBDelTraceRequestsHdr(tenant)
 	// TenantCluster collection does not have a header doc for now
 }
 
@@ -2092,6 +2094,177 @@ func DBDelUserExtAttr(tenant string) error {
 	)
 
 	return err
+}
+
+//-------------------------------Trace Attributes -------------------------
+
+// This API will add/update a Trace Requests Header
+func DBAddTraceRequestsHdr(uuid string, data *DataHdr) error {
+
+	return DBAddCollectionHdr(uuid, data, "NxtTraceRequests", "TraceReqs")
+
+}
+
+func DBFindTraceRequestsHdr(tenant string) *DataHdr {
+
+	return DBFindCollectionHdr(tenant, "NxtTraceRequests", "TraceReqs")
+}
+
+func DBDelTraceRequestsHdr(tenant string) error {
+
+	return DBDelCollectionHdr(tenant, "NxtTraceRequests", "TraceReqs")
+}
+
+func dbAddTraceReq(uuid string, traceid string, Uattr bson.M, replace bool) error {
+	hdr := DBFindTraceRequestsHdr(uuid)
+	if hdr == nil {
+		dhdr := DataHdr{Majver: 1, Minver: 0}
+		hdr = &dhdr
+	} else {
+		minver := hdr.Minver
+		hdr.Minver = minver + 1
+	}
+	// The upsert option asks the DB to add if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	traceReqCltn := dbGetCollection(uuid, "NxtTraceRequests")
+	if traceReqCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	if !replace {
+		result := traceReqCltn.FindOneAndUpdate(
+			context.TODO(),
+			bson.M{"_id": traceid},
+			bson.D{
+				{"$set", Uattr},
+			},
+			&opt,
+		)
+		if result.Err() != nil {
+			return result.Err()
+		}
+	} else {
+		result, err := traceReqCltn.ReplaceOne(
+			context.TODO(),
+			bson.M{"_id": traceid},
+			Uattr,
+		)
+		if err != nil {
+			return err
+		}
+		if result.MatchedCount == 0 {
+			return fmt.Errorf("Did not update any trace request")
+		}
+	}
+
+	return DBAddTraceRequestsHdr(uuid, hdr)
+}
+
+// This API will add a new trace requests doc or update existing one
+func DBAddTraceReq(uuid string, traceid string, Uattr bson.M) error {
+
+	return dbAddTraceReq(uuid, traceid, Uattr, false)
+}
+
+// Find a specific trace request
+func DBFindTraceReq(tenant string, traceid string) *bson.M {
+	var tracereq bson.M
+	traceReqCltn := dbGetCollection(tenant, "NxtTraceRequests")
+	if traceReqCltn == nil {
+		return nil
+	}
+	err := traceReqCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": traceid},
+	).Decode(&tracereq)
+	if err != nil {
+		return nil
+	}
+	tracereq["traceid"] = tracereq["_id"]
+	delete(tracereq, "_id")
+	return &tracereq
+}
+
+// Get all trace requests
+func DBFindAllTraceReqs(tenant string) []bson.M {
+	var tracereqs []bson.M
+
+	traceReqCltn := dbGetCollection(tenant, "NxtTraceRequests")
+	if traceReqCltn == nil {
+		return nil
+	}
+	cursor, err := traceReqCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &tracereqs)
+	if err != nil {
+		return nil
+	}
+
+	if len(tracereqs) == 0 {
+		return nil
+	}
+	hdockey := DBGetHdrKey("TraceReqs")
+	ntracereqs := make([]bson.M, len(tracereqs))
+	j := 0
+	for i := 0; i < len(tracereqs); i++ {
+		// Need to skip header doc
+		trcid := fmt.Sprintf("%s", tracereqs[i]["_id"])
+		if trcid != hdockey {
+			ntracereqs[j] = tracereqs[i]
+			ntracereqs[j]["traceid"] = tracereqs[i]["_id"]
+			delete(ntracereqs[j], "_id")
+			j++
+		}
+	}
+	if len(ntracereqs[:j]) == 0 {
+		return nil
+	}
+	return ntracereqs[:j]
+}
+
+// Delete a trace request
+func DBDelTraceReq(tenant string, traceid string) error {
+	traceReqCltn := dbGetCollection(tenant, "NxtTraceRequests")
+	if traceReqCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	_, err := traceReqCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": traceid},
+	)
+
+	return err
+}
+
+// Remove one attribute from all trace requests
+func DBDelAllTraceReqsOneAttr(tenant string, attrtodel string) error {
+	var tracereq bson.M
+
+	traceReqCltn := dbGetCollection(tenant, "NxtTraceRequests")
+	if traceReqCltn == nil {
+		return fmt.Errorf("Cant find trace request collection")
+	}
+	cursor, err := traceReqCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return err
+	}
+	defer cursor.Close(context.TODO())
+	for cursor.Next(context.TODO()) {
+		if err = cursor.Decode(&tracereq); err != nil {
+			return err
+		}
+		delete(tracereq, attrtodel)
+		if err := dbAddTraceReq(tenant, tracereq["_id"].(string), tracereq, true); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 //--------------------------------Agent Onboarding Log-------------------------------------

@@ -94,6 +94,12 @@ func rdonlyOnboard() {
 
 	// This route is used to get a specific user onboard log entry
 	getTenantRoute("/allgateways", "GET", getAllTenantGatewaysHandler)
+
+	// This route is used to get a specific trace request for a tenant
+	getTenantRoute("/tracereq/{traceid}", "GET", getTraceReqHandler)
+
+	// This route is used to get all trace requests for a tenant
+	getTenantRoute("/alltracereq", "GET", getAllTraceReqHandler)
 }
 
 func rdwrOnboard() {
@@ -178,6 +184,15 @@ func rdwrOnboard() {
 
 	// This route is used to delete an onboarding log entry for a user
 	delTenantRoute("/onboardlog/{userid}", "GET", delOnboardLogHandler)
+
+	// This route is used to add a new trace requests header
+	addTenantRoute("/tracereqhdr", "POST", addTraceRequestsHdrHandler)
+
+	// This route is used to add a trace request
+	addTenantRoute("/tracereq", "POST", addTraceReqHandler)
+
+	// This route is used to delete a trace request
+	delTenantRoute("/tracereq/{traceid}", "GET", delTraceReqHandler)
 }
 
 func signupHandler(w http.ResponseWriter, r *http.Request) {
@@ -267,6 +282,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 
 	accessPolicy := "package app.access\n\nallow = true\n"
 	routePolicy := "package user.routing\n\ndefault route_tag = \"\"\n"
+	tracePolicy := "package user.tracing\n\ndefault request = \"no\"\n"
 	policy := db.Policy{PolicyId: "AccessPolicy", Rego: []rune(accessPolicy)}
 	err = db.DBAddPolicy(signup.Tenant, &policy)
 	if err != nil {
@@ -275,6 +291,13 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	policy = db.Policy{PolicyId: "RoutePolicy", Rego: []rune(routePolicy)}
+	err = db.DBAddPolicy(signup.Tenant, &policy)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+	policy = db.Policy{PolicyId: "TracePolicy", Rego: []rune(tracePolicy)}
 	err = db.DBAddPolicy(signup.Tenant, &policy)
 	if err != nil {
 		result.Result = err.Error()
@@ -1461,4 +1484,122 @@ func getAllTenantGatewaysHandler(w http.ResponseWriter, r *http.Request) {
 		gws = make([]db.Gateway, 0)
 	}
 	utils.WriteResult(w, gws)
+}
+
+type GetTraceReqResult struct {
+	Result string `json:"Result"`
+	TrReq  bson.M
+}
+
+// Get a trace request
+func getTraceReqHandler(w http.ResponseWriter, r *http.Request) {
+	var result GetTraceReqResult
+
+	v := mux.Vars(r)
+	traceid := v["traceid"]
+	uuid := r.Context().Value("tenant").(string)
+	treq := db.DBFindUserAttr(uuid, traceid)
+	if treq == nil {
+		result.Result = "Cannot find trace request"
+	} else {
+		result = GetTraceReqResult{Result: "ok", TrReq: *treq}
+	}
+	utils.WriteResult(w, result)
+}
+
+// Get all trace request docs
+func getAllTraceReqHandler(w http.ResponseWriter, r *http.Request) {
+	uuid := r.Context().Value("tenant").(string)
+	treqs := db.DBFindAllTraceReqs(uuid)
+	if treqs == nil {
+		treqs = make([]bson.M, 0)
+	}
+	utils.WriteResult(w, treqs)
+
+}
+
+// Add a trace requests collection header
+func addTraceRequestsHdrHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+	var data db.DataHdr
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Add trace request header - HTTP Req Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		result.Result = "Add trace request header - Error parsing json"
+		utils.WriteResult(w, result)
+		return
+	}
+	uuid := r.Context().Value("tenant").(string)
+	err = db.DBAddTraceRequestsHdr(uuid, &data)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+// Add a trace request
+func addTraceReqHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Add trace request - HTTP Req Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	var Treq bson.M
+	var traceid string
+	err = json.Unmarshal(body, &Treq)
+	if err != nil {
+		result.Result = "Trace request json decode fail"
+		utils.WriteResult(w, result)
+		return
+	}
+	if v, found := Treq["traceid"]; found {
+		traceid = fmt.Sprintf("%s", v)
+		delete(Treq, "traceid")
+	} else {
+		result.Result = "Missing trace id"
+		utils.WriteResult(w, result)
+		return
+	}
+	uuid := r.Context().Value("tenant").(string)
+	err = db.DBAddTraceReq(uuid, traceid, Treq)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+// Delete a trace request
+func delTraceReqHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+
+	v := mux.Vars(r)
+	traceid := v["traceid"]
+	uuid := r.Context().Value("tenant").(string)
+
+	err := db.DBDelTraceReq(uuid, traceid)
+	if err != nil {
+		result.Result = err.Error()
+	} else {
+		result.Result = "ok"
+	}
+	utils.WriteResult(w, result)
 }
