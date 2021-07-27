@@ -1315,15 +1315,6 @@ func DBAddBundle(uuid string, data *Bundle) error {
 	// with Consul.
 	data.Connectid = strings.ReplaceAll(uuid+"-"+data.Bid, "@", "-")
 	data.Connectid = strings.ReplaceAll(data.Connectid, ".", "-")
-	found := false
-	for _, s := range data.Services {
-		if s == data.Connectid {
-			found = true
-		}
-	}
-	if !found {
-		data.Services = append(data.Services, data.Connectid)
-	}
 
 	appCltn := dbGetCollection(uuid, "NxtApps")
 	if appCltn == nil {
@@ -1420,17 +1411,7 @@ func DBFindAllBundles(tenant string) []bson.M {
 		// Need to skip header doc
 		bid := fmt.Sprintf("%s", bundles[i]["_id"])
 		if bid != hdockey {
-			// Dont let UI/apis see the connectid added as a service
 			svcs := bundles[i]["services"].(primitive.A)
-			for k, s := range svcs {
-				s = s.(string)
-				if s == bundles[i]["connectid"] {
-					l := len(svcs)
-					svcs[k] = svcs[l-1]
-					svcs = svcs[:l-1]
-					break
-				}
-			}
 			bundles[i]["services"] = svcs
 			nbundles[j] = bundles[i]
 			nbundles[j]["bid"] = bundles[i]["_id"]
