@@ -29,8 +29,8 @@ type Signup struct {
 func delEmpty(s []string) []string {
 	var r []string
 	for _, str := range s {
-		if str != "" {
-			r = append(r, str)
+		if strings.TrimSpace(str) != "" {
+			r = append(r, strings.TrimSpace(str))
 		}
 	}
 	return r
@@ -874,12 +874,7 @@ func DBAddUser(uuid string, data *User) error {
 		data.Pod = 1
 	}
 
-	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
-	// not happy with @, minion wants to replace dot with dash, keep everyone happy.
-	// A user will have just one service, based on "tenant-userid"
-	service := strings.ReplaceAll(uuid+"-"+data.Uid, "@", "-")
-	service = strings.ReplaceAll(service, ".", "-")
-	data.Services = []string{service}
+	data.Services = []string{}
 
 	// Same user/uuid can login from multiple devices. The connectid will be based on the
 	// pod assigned to each user device when on-boarding. Here we just initialize it to
@@ -1072,20 +1067,13 @@ func DBAddUserAttr(uuid string, user string, Uattr bson.M) error {
 			delete(Uattr, "uid")
 		} else {
 			Uattr = make(bson.M)
+			Uattr["uid"] = user
 		}
 	}
 	dbUser := DBFindUser(uuid, user)
 	if dbUser == nil {
 		return fmt.Errorf("Cannot find user")
 	}
-
-	// Add the "base" attributes here which are like user email, pod etc..
-	// These attributes will start with an underscore just to indicate that
-	// these are not customer defined attributes. We will let customer know
-	// about some attributes like _email which they can use in their policies
-	Uattr["_email"] = dbUser.Email
-	Uattr["_pod"] = fmt.Sprintf("apod%d", dbUser.Pod)
-	Uattr["_gateway"] = dbUser.Gateway
 
 	return dbAddUserAttr(uuid, user, Uattr, false)
 }
@@ -1411,8 +1399,10 @@ func DBFindAllBundles(tenant string) []bson.M {
 		// Need to skip header doc
 		bid := fmt.Sprintf("%s", bundles[i]["_id"])
 		if bid != hdockey {
-			svcs := bundles[i]["services"].(primitive.A)
-			bundles[i]["services"] = svcs
+			if bundles[i]["services"] != nil {
+				svcs := bundles[i]["services"].(primitive.A)
+				bundles[i]["services"] = svcs
+			}
 			nbundles[j] = bundles[i]
 			nbundles[j]["bid"] = bundles[i]["_id"]
 			delete(nbundles[j], "_id")
@@ -1539,19 +1529,13 @@ func DBAddBundleAttr(uuid string, bid string, Battr bson.M) error {
 			delete(Battr, "bid")
 		} else {
 			Battr = make(bson.M)
+			Battr["bid"] = bid
 		}
 	}
 	dbBundle := DBFindBundle(uuid, bid)
 	if dbBundle == nil {
 		return fmt.Errorf("Cannot find bundle")
 	}
-	// Add the "base" attributes here which are like bundle name, pod etc..
-	// These attributes will start with an underscore just to indicate that
-	// these are not customer defined attributes. We will let customer know
-	// about some attributes like _name which they can use in their policies
-	Battr["_name"] = dbBundle.Bundlename
-	Battr["_pod"] = fmt.Sprintf("cpod%d", dbBundle.Pod)
-	Battr["_gateway"] = dbBundle.Gateway
 
 	return dbAddBundleAttr(uuid, bid, Battr, false)
 }
