@@ -89,6 +89,9 @@ func rdonlyOnboard() {
 	getTenantRoute("/tenantcluster/{gateway}", "GET", getTenantClusterHandler)
 
 	// This route is used to get a specific user onboard log entry
+	getTenantRoute("/onboardlog/{userid}", "GET", getOnboardLogHandler)
+
+	// This route is used to get a specific user onboard log entry
 	getTenantRoute("/allgateways", "GET", getAllTenantGatewaysHandler)
 
 	// This route is used to get a specific trace request for a tenant
@@ -177,6 +180,9 @@ func rdwrOnboard() {
 
 	// This route is used to delete a cluster assignment for a tenant
 	delTenantRoute("/tenantcluster/{gateway}", "GET", delTenantClusterHandler)
+
+	// This route is used to delete an onboarding log entry for a user
+	delTenantRoute("/onboardlog/{userid}", "GET", delOnboardLogHandler)
 
 	// This route is used to add a new trace requests header
 	addTenantRoute("/tracereqhdr", "POST", addTraceRequestsHdrHandler)
@@ -1424,6 +1430,44 @@ type GetOnboardLogResult struct {
 	OnbTime   string `json:"onbtime"`
 	Count     int    `json:"count"`
 	PrevTime  string `json:"prevtime"`
+}
+
+// Get a user's onboarding log entry. Only the last onboarding log is kept for now.
+func getOnboardLogHandler(w http.ResponseWriter, r *http.Request) {
+	var result GetOnboardLogResult
+
+	v := mux.Vars(r)
+	tid := r.Context().Value("tenant").(string)
+	uid := v["userid"]
+
+	onblog := db.DBFindOnboardLog(tid, uid)
+	if onblog == nil {
+		result.Result = "Cannot find user onboarding log"
+	} else {
+		result = GetOnboardLogResult{Result: "ok",
+			Gw:        onblog.Gw,
+			Connectid: onblog.Connectid,
+			OnbTime:   onblog.OnbTime,
+			Count:     onblog.Count,
+			PrevTime:  onblog.PrevTime}
+	}
+	utils.WriteResult(w, result)
+}
+
+func delOnboardLogHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+
+	v := mux.Vars(r)
+	tid := r.Context().Value("tenant").(string)
+	uid := v["userid"]
+
+	err := db.DBDelOnboardLog(tid, uid)
+	if err != nil {
+		result.Result = err.Error()
+	} else {
+		result.Result = "ok"
+	}
+	utils.WriteResult(w, result)
 }
 
 // Get all gateways assigned to a tenant. Well as of today the tenant has all the gateways
