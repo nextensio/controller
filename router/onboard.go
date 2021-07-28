@@ -622,6 +622,9 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	if result.Services == nil {
 		result.Services = make([]string, 0)
 	}
+	if result.Domains == nil {
+		result.Domains = make([]string, 0)
+	}
 	result.Result = "ok"
 	result.Userid = data.Userid
 	result.Tenant = data.Tenant
