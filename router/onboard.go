@@ -8,6 +8,7 @@ import (
 	"nextensio/controller/db"
 	"nextensio/controller/utils"
 	"strings"
+	"time"
 
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
@@ -638,6 +639,16 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	result.Domains = tenant.Domains
 	utils.WriteResult(w, result)
 
+	var onbl db.OnboardLog
+	onbl.Uid = result.Userid
+	onbl.Gw = result.Gateway
+	onbl.Connectid = result.Connectid
+	tbytes, _ := time.Now().MarshalJSON()
+	onbl.OnbTime = string(tbytes)
+	err := db.DBAddOnboardLog(result.Tenant, &onbl)
+	if err != nil {
+		glog.Errorf("Onboarding log add error %v (for %v)", err, onbl)
+	}
 	glog.Infof("User %s of tenant %s with connectid %s signed in. Gateway %s assigned",
 		data.Userid, data.Tenant, result.Connectid, result.Gateway)
 }
