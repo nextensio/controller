@@ -136,7 +136,9 @@ func GlobalMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 		return
 	}
 	allowed := (match[1] == "get" && match[2] == "onboard")
-
+	if !allowed {
+		allowed = (match[1] == "get" && strings.HasPrefix(match[2], "keepalive"))
+	}
 	usertype := (*ctx).Value("usertype").(string)
 	if usertype != "superadmin" && !allowed {
 		w.WriteHeader(http.StatusUnauthorized)

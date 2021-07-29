@@ -20,6 +20,12 @@ func rdonlyOnboard() {
 	// tenant-id and expects to get information like the gateway in response
 	getGlobalRoute("/onboard", "GET", onboardHandler)
 
+	// This route is used by agent post onboarding, for keepalives. This is kept as a global
+	// route and not a per-tenant route (which it can be) because agents coming to us with
+	// keepalives will have the lowest of all privileges and might not be able to access
+	// the tenant API space
+	getGlobalRoute("/keepalive/{version}/{uuid}", "GET", keepaliveHandler)
+
 	//*******************************************************************/
 	//            In Nextensio DB
 	//*******************************************************************/
@@ -572,17 +578,20 @@ type onboardData struct {
 	Userid string `json:"email"`
 	Tenant string `json:"tenant"`
 }
+
 type OnboardResult struct {
-	Result    string   `json:"Result"`
-	Userid    string   `json:"userid"`
-	Tenant    string   `json:"tenant"`
-	Gateway   string   `json:"gateway"`
-	Domains   []string `json:"domains"`
-	Connectid string   `json:"connectid"`
-	Cluster   string   `json:"cluster"`
-	Podname   string   `json:"podname"`
-	Cacert    []rune   `json:"cacert"`
-	Services  []string `json:"services"`
+	Result    string      `json:"Result"`
+	Userid    string      `json:"userid"`
+	Tenant    string      `json:"tenant"`
+	Gateway   string      `json:"gateway"`
+	Domains   []db.Domain `json:"domains"`
+	Connectid string      `json:"connectid"`
+	Cluster   string      `json:"cluster"`
+	Podname   string      `json:"podname"`
+	Cacert    []rune      `json:"cacert"`
+	Services  []string    `json:"services"`
+	Version   uint64      `json:"version"`
+	Keepalive uint        `json:"keepalive"`
 }
 
 func onboardHandler(w http.ResponseWriter, r *http.Request) {
@@ -591,6 +600,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 
 	data.Userid = r.Context().Value("userid").(string)
 	data.Tenant = r.Context().Value("user-tenant").(string)
+	glog.Error("User/Tenant onboarding", data.Userid, data.Tenant)
 
 	tenant := db.DBFindTenant(data.Tenant)
 	if tenant == nil {
@@ -604,6 +614,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 		result.Services = user.Services
 		result.Gateway = user.Gateway
 		result.Cluster = db.DBGetClusterName(user.Gateway)
+		result.Version = user.ConfigVersion
 	} else {
 		bundle := db.DBFindBundle(data.Tenant, data.Userid)
 		if bundle != nil {
@@ -614,6 +625,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 			result.Services = bundle.Services
 			result.Gateway = bundle.Gateway
 			result.Cluster = db.DBGetClusterName(bundle.Gateway)
+			result.Version = bundle.ConfigVersion
 		} else {
 			result.Result = "IDP user/bundle not found on controller"
 			utils.WriteResult(w, result)
@@ -629,14 +641,16 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	if result.Services == nil {
 		result.Services = make([]string, 0)
 	}
-	if result.Domains == nil {
-		result.Domains = make([]string, 0)
-	}
 	result.Result = "ok"
 	result.Userid = data.Userid
 	result.Tenant = data.Tenant
 	result.Cacert = cert.Cert
 	result.Domains = tenant.Domains
+	if result.Domains == nil {
+		result.Domains = make([]db.Domain, 0)
+	}
+	result.Keepalive = 30 /* 30 seconds */
+
 	utils.WriteResult(w, result)
 
 	var onbl db.OnboardLog
@@ -651,6 +665,44 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	glog.Infof("User %s of tenant %s with connectid %s signed in. Gateway %s assigned",
 		data.Userid, data.Tenant, result.Connectid, result.Gateway)
+}
+
+type KeepaliveResponse struct {
+	Result  string `json:"Result"`
+	Version uint64 `json:"version"`
+}
+
+func keepaliveHandler(w http.ResponseWriter, r *http.Request) {
+	var result KeepaliveResponse
+
+	v := mux.Vars(r)
+	version := v["version"]
+	uuid := v["uuid"]
+	userid := r.Context().Value("userid").(string)
+	tenant := r.Context().Value("user-tenant").(string)
+	glog.Error("USer/Tenant keepalive", userid, uuid, tenant, version)
+
+	t := db.DBFindTenant(tenant)
+	if t == nil {
+		result.Result = "Tenant not found"
+		utils.WriteResult(w, result)
+		return
+	}
+	user := db.DBFindUser(tenant, userid)
+	if user != nil {
+		result.Version = user.ConfigVersion
+	} else {
+		bundle := db.DBFindBundle(tenant, userid)
+		if bundle != nil {
+			result.Version = bundle.ConfigVersion
+		} else {
+			result.Result = "IDP user/bundle not found on controller"
+			utils.WriteResult(w, result)
+			return
+		}
+	}
+	result.Result = "ok"
+	utils.WriteResult(w, result)
 }
 
 type OpResult struct {
@@ -1245,7 +1297,7 @@ func addHostAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-// Add a bundle's attribute, used to decide what policies are applied to the bundle etc.
+// Add a host's attribute, used to decide what policies are applied to host routing
 func addHostAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 

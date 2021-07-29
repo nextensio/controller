@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/golang/glog"
 	"go.mongodb.org/mongo-driver/bson"
@@ -40,16 +42,24 @@ func delEmpty(s []string) []string {
 type Tenant struct {
 	ID      string   `json:"_id" bson:"_id"`
 	Name    string   `json:"name" bson:"name"`
-	Domains []string `json:"domains" bson:"domains"`
+	Domains []Domain `json:"domains" bson:"domains"`
 }
 
-func dbUpdateTenantDomains(uuid string) error {
+type Domain struct {
+	Name    string `json:"name" bson:"name"`
+	NeedDns bool   `json:"needdns" bson:"needdns"`
+	DnsIP   string `json:"dnsip" bson:"dnsip"`
+}
+
+func dbaddTenantDomain(uuid string, host string, needdns bool, dnsip string) error {
 	tenant := DBFindTenant(uuid)
 	if tenant == nil {
 		return errors.New("Cant find tenant")
 	}
-	hosts := DBFindAllHosts(uuid)
-
+	domain := Domain{
+		Name: host, NeedDns: needdns, DnsIP: dnsip,
+	}
+	tenant.Domains = append(tenant.Domains, domain)
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
@@ -58,12 +68,44 @@ func dbUpdateTenantDomains(uuid string) error {
 		Upsert:         &upsert,
 	}
 
-	change := bson.M{"domains": hosts}
 	err := tenantCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": tenant.ID},
 		bson.D{
-			{"$set", change},
+			{"$set", tenant},
+		},
+		&opt,
+	)
+	if err.Err() != nil {
+		return err.Err()
+	}
+	return nil
+}
+
+func dbdelTenantDomain(uuid string, host string) error {
+	tenant := DBFindTenant(uuid)
+	if tenant == nil {
+		return errors.New("Cant find tenant")
+	}
+	for i, d := range tenant.Domains {
+		if d.Name == host {
+			tenant.Domains = append(tenant.Domains[:i], tenant.Domains[i+1:]...)
+			break
+		}
+	}
+	// The upsert option asks the DB to add if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+
+	err := tenantCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": tenant.ID},
+		bson.D{
+			{"$set", tenant},
 		},
 		&opt,
 	)
@@ -100,8 +142,11 @@ func DBAddTenant(data *Tenant) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-
-	change := bson.M{"name": data.Name}
+	domains := []Domain{}
+	if tdoc != nil {
+		domains = tdoc.Domains
+	}
+	change := bson.M{"name": data.Name, "domains": domains}
 	err := tenantCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": data.ID},
@@ -807,13 +852,14 @@ func DBDelUserAttrHdr(tenant string) error {
 // The Pod here indicates the "pod set" that this user should
 // connect to, each pod set has its own number of replicas etc..
 type User struct {
-	Uid       string   `json:"uid" bson:"_id"`
-	Username  string   `json:"name" bson:"name"`
-	Email     string   `json:"email" bson:"email"`
-	Gateway   string   `json:"gateway" bson:"gateway"`
-	Pod       int      `json:"pod" bson:"pod"`
-	Connectid string   `json:"connectid" bson:"connectid"`
-	Services  []string `json:"services" bson:"services"`
+	Uid           string   `json:"uid" bson:"_id"`
+	Username      string   `json:"name" bson:"name"`
+	Email         string   `json:"email" bson:"email"`
+	Gateway       string   `json:"gateway" bson:"gateway"`
+	Pod           int      `json:"pod" bson:"pod"`
+	Connectid     string   `json:"connectid" bson:"connectid"`
+	Services      []string `json:"services" bson:"services"`
+	ConfigVersion uint64   `json:"cfgvn" bson:"cfgvn"`
 }
 
 // This API will add/update a new user
@@ -873,7 +919,10 @@ func DBAddUser(uuid string, data *User) error {
 	if data.Pod == 0 {
 		data.Pod = 1
 	}
-
+	var cfgvn uint64
+	if user != nil {
+		cfgvn = user.ConfigVersion
+	}
 	data.Services = []string{}
 
 	// Same user/uuid can login from multiple devices. The connectid will be based on the
@@ -891,7 +940,7 @@ func DBAddUser(uuid string, data *User) error {
 		bson.D{
 			{"$set", bson.M{"name": data.Username, "email": data.Email,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
-				"services": data.Services}},
+				"services": data.Services, "cfgvn": cfgvn}},
 		},
 		&opt,
 	)
@@ -955,6 +1004,46 @@ func DBFindAllUsers(tenant string) []bson.M {
 		return nil
 	}
 	return nusers[:j]
+}
+
+func DBUpdateAllUsersCfgvn(tenant string, cfgvn uint64) error {
+	userCltn := dbGetCollection(tenant, "NxtUsers")
+	if userCltn == nil {
+		return fmt.Errorf("Cant find tenant")
+	}
+	cursor, err := userCltn.Find(context.TODO(), bson.M{})
+	if err == mongo.ErrNoDocuments {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	upsert := false
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+
+	defer cursor.Close(context.TODO())
+	for cursor.Next(context.TODO()) {
+		var user User
+		if err = cursor.Decode(&user); err != nil {
+			return err
+		}
+		result := userCltn.FindOneAndUpdate(
+			context.TODO(),
+			bson.M{"_id": user.Uid},
+			bson.D{
+				{"$set", bson.M{"cfgvn": cfgvn}},
+			},
+			&opt,
+		)
+		if result.Err() != nil {
+			return result.Err()
+		}
+	}
+	return nil
 }
 
 func DBDelUser(tenant string, userid string) error {
@@ -1235,13 +1324,14 @@ func DBDelBundleAttrHdr(tenant string) error {
 // The Pod here indicates the "pod set" that this user should
 // connect to, each pod set has its own number of replicas etc..
 type Bundle struct {
-	Bid        string   `json:"bid" bson:"_id"`
-	Bundlename string   `json:"name" bson:"name"`
-	Gateway    string   `json:"gateway" bson:"gateway"`
-	Pod        string   `json:"pod" bson:"pod"`
-	Connectid  string   `json:"connectid" bson:"connectid"`
-	Services   []string `json:"services" bson:"services"`
-	CpodRepl   int      `json:"cpodrepl" bson:"cpodrepl"`
+	Bid           string   `json:"bid" bson:"_id"`
+	Bundlename    string   `json:"name" bson:"name"`
+	Gateway       string   `json:"gateway" bson:"gateway"`
+	Pod           string   `json:"pod" bson:"pod"`
+	Connectid     string   `json:"connectid" bson:"connectid"`
+	Services      []string `json:"services" bson:"services"`
+	CpodRepl      int      `json:"cpodrepl" bson:"cpodrepl"`
+	ConfigVersion uint64   `json:"cfgvn" bson:"cfgvn"`
 }
 
 // This API will add/update a new bundle
@@ -1296,6 +1386,8 @@ func DBAddBundle(uuid string, data *Bundle) error {
 			}
 		}
 	}
+	var cfgvn = uint64(time.Now().Unix())
+
 	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
 	// not happy with @, minion wants to replace dot with dash, keep everyone happy
 	// A Connector can login from same device to multiple pods. Currently, the connectid
@@ -1314,7 +1406,7 @@ func DBAddBundle(uuid string, data *Bundle) error {
 		bson.D{
 			{"$set", bson.M{"name": data.Bundlename,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
-				"services": data.Services, "cpodrepl": data.CpodRepl}},
+				"services": data.Services, "cpodrepl": data.CpodRepl, "cfgvn": cfgvn}},
 		},
 		&opt,
 	)
@@ -1413,6 +1505,46 @@ func DBFindAllBundles(tenant string) []bson.M {
 		return nil
 	}
 	return nbundles[:j]
+}
+
+func DBUpdateAllBundlesCfgvn(tenant string, cfgvn uint64) error {
+	appCltn := dbGetCollection(tenant, "NxtApps")
+	if appCltn == nil {
+		return fmt.Errorf("Cant find tenant")
+	}
+	cursor, err := appCltn.Find(context.TODO(), bson.M{})
+	if err == mongo.ErrNoDocuments {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	upsert := false
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+
+	defer cursor.Close(context.TODO())
+	for cursor.Next(context.TODO()) {
+		var app Bundle
+		if err = cursor.Decode(&app); err != nil {
+			return err
+		}
+		result := appCltn.FindOneAndUpdate(
+			context.TODO(),
+			bson.M{"_id": app.Bid},
+			bson.D{
+				{"$set", bson.M{"cfgvn": cfgvn}},
+			},
+			&opt,
+		)
+		if result.Err() != nil {
+			return result.Err()
+		}
+	}
+	return nil
 }
 
 func DBDelBundle(tenant string, bundleid string) error {
@@ -1823,6 +1955,31 @@ func DBAddHostAttr(uuid string, data []byte) error {
 	}
 	host := fmt.Sprintf("%s", Hattr["host"])
 	delete(Hattr, "host")
+
+	hosts := DBFindAllHosts(uuid)
+	found := false
+	for _, h := range hosts {
+		if h == host {
+			found = true
+			break
+		}
+	}
+	// If we are adding a new host, then the agents need to know about
+	// it because the new host gets added to the list of "private domains"
+	// for which agent sends traffic to nextensio gateways.
+	// Bundles also need the update for connector to connector traffic
+	if !found {
+		now := time.Now().Unix()
+		err := DBUpdateAllUsersCfgvn(uuid, uint64(now))
+		if err != nil {
+			return err
+		}
+		err = DBUpdateAllBundlesCfgvn(uuid, uint64(now))
+		if err != nil {
+			return err
+		}
+	}
+
 	attrs := Hattr["routeattrs"].([]interface{})
 	attrset := DBFindAllAttrSet(uuid)
 	nattrs := 0
@@ -1849,9 +2006,16 @@ func DBAddHostAttr(uuid string, data []byte) error {
 		return err
 	}
 
-	err = dbUpdateTenantDomains(uuid)
-	if err != nil {
-		return err
+	if !found {
+		// TODO: Later we can make this configurable where we
+		// provide customer with an option to configure the IP address
+		// in the hosts/hostattr page in the UI. For now we generate
+		// an IP in the CGNAT range which is not used by anyone
+		dnsip := fmt.Sprintf("100.64.%d.%d", rand.Intn(250)+1, rand.Intn(250)+1)
+		err = dbaddTenantDomain(uuid, host, true, dnsip)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -1862,14 +2026,28 @@ func DBDelHostAttr(tenant string, hostid string) error {
 	if hostAttrCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
-	_, err := hostAttrCltn.DeleteOne(
+
+	// If we are deleting a  host, then the agents need to know about
+	// it because the deleted host should be removed from the list of
+	// "private domains" for which agent sends traffic to nextensio gateways
+	// Bundles also need the update for connector to connector traffic
+	now := time.Now().Unix()
+	err := DBUpdateAllUsersCfgvn(tenant, uint64(now))
+	if err != nil {
+		return err
+	}
+	err = DBUpdateAllBundlesCfgvn(tenant, uint64(now))
+	if err != nil {
+		return err
+	}
+	_, err = hostAttrCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": hostid},
 	)
 	if err != nil {
 		return err
 	}
-	err = dbUpdateTenantDomains(tenant)
+	err = dbdelTenantDomain(tenant, hostid)
 	if err != nil {
 		return err
 	}
