@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -859,7 +860,7 @@ type User struct {
 	Pod           int      `json:"pod" bson:"pod"`
 	Connectid     string   `json:"connectid" bson:"connectid"`
 	Services      []string `json:"services" bson:"services"`
-	ConfigVersion uint64   `json:"cfgvn" bson:"cfgvn"`
+	ConfigVersion string   `json:"cfgvn" bson:"cfgvn"`
 }
 
 // This API will add/update a new user
@@ -919,7 +920,7 @@ func DBAddUser(uuid string, data *User) error {
 	if data.Pod == 0 {
 		data.Pod = 1
 	}
-	var cfgvn uint64
+	var cfgvn string
 	if user != nil {
 		cfgvn = user.ConfigVersion
 	}
@@ -1035,7 +1036,7 @@ func DBUpdateAllUsersCfgvn(tenant string, cfgvn uint64) error {
 			context.TODO(),
 			bson.M{"_id": user.Uid},
 			bson.D{
-				{"$set", bson.M{"cfgvn": cfgvn}},
+				{"$set", bson.M{"cfgvn": strconv.FormatUint(cfgvn, 10)}},
 			},
 			&opt,
 		)
@@ -1340,7 +1341,7 @@ type Bundle struct {
 	Connectid     string   `json:"connectid" bson:"connectid"`
 	Services      []string `json:"services" bson:"services"`
 	CpodRepl      int      `json:"cpodrepl" bson:"cpodrepl"`
-	ConfigVersion uint64   `json:"cfgvn" bson:"cfgvn"`
+	ConfigVersion string   `json:"cfgvn" bson:"cfgvn"`
 }
 
 // This API will add/update a new bundle
@@ -1395,7 +1396,7 @@ func DBAddBundle(uuid string, data *Bundle) error {
 			}
 		}
 	}
-	var cfgvn = uint64(time.Now().Unix())
+	var cfgvn = strconv.FormatUint(uint64(time.Now().Unix()), 10)
 
 	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
 	// not happy with @, minion wants to replace dot with dash, keep everyone happy
@@ -1545,7 +1546,7 @@ func DBUpdateAllBundlesCfgvn(tenant string, cfgvn uint64) error {
 			context.TODO(),
 			bson.M{"_id": app.Bid},
 			bson.D{
-				{"$set", bson.M{"cfgvn": cfgvn}},
+				{"$set", bson.M{"cfgvn": strconv.FormatUint(cfgvn, 10)}},
 			},
 			&opt,
 		)

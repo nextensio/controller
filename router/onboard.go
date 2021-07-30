@@ -590,7 +590,7 @@ type OnboardResult struct {
 	Podname   string      `json:"podname"`
 	Cacert    []rune      `json:"cacert"`
 	Services  []string    `json:"services"`
-	Version   uint64      `json:"version"`
+	Version   string      `json:"version"`
 	Keepalive uint        `json:"keepalive"`
 }
 
@@ -669,7 +669,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 
 type KeepaliveResponse struct {
 	Result  string `json:"Result"`
-	Version uint64 `json:"version"`
+	Version string `json:"version"`
 }
 
 func keepaliveHandler(w http.ResponseWriter, r *http.Request) {
