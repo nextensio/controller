@@ -1070,6 +1070,14 @@ func DBDelUser(tenant string, userid string) error {
 }
 
 func dbAddUserAttr(uuid string, user string, Uattr bson.M, replace bool) error {
+	if Uattr == nil || len(Uattr) == 0 {
+		attr := DBFindUserAttr(uuid, user)
+		if attr != nil {
+			// Well there is already some attributes, and we are not
+			// having anything new / changing here, so just return
+			return nil
+		}
+	}
 	hdr := DBFindUserAttrHdr(uuid)
 	if hdr == nil {
 		dhdr := DataHdr{Majver: 1, Minver: 0}
@@ -1090,16 +1098,26 @@ func dbAddUserAttr(uuid string, user string, Uattr bson.M, replace bool) error {
 		return fmt.Errorf("Unknown Collection")
 	}
 	if !replace {
-		result := userAttrCltn.FindOneAndUpdate(
-			context.TODO(),
-			bson.M{"_id": user},
-			bson.D{
-				{"$set", Uattr},
-			},
-			&opt,
-		)
-		if result.Err() != nil {
-			return result.Err()
+		if Uattr == nil || len(Uattr) == 0 {
+			_, err := userAttrCltn.InsertOne(
+				context.TODO(),
+				bson.M{"_id": user},
+			)
+			if err != nil {
+				return err
+			}
+		} else {
+			result := userAttrCltn.FindOneAndUpdate(
+				context.TODO(),
+				bson.M{"_id": user},
+				bson.D{
+					{"$set", Uattr},
+				},
+				&opt,
+			)
+			if result.Err() != nil {
+				return result.Err()
+			}
 		}
 	} else {
 		result, err := userAttrCltn.ReplaceOne(
@@ -1149,16 +1167,7 @@ func DBAddUserAttr(uuid string, user string, Uattr bson.M) error {
 			}
 		}
 	}
-	if Uattr == nil {
-		attr := DBFindUserAttr(uuid, user)
-		if attr != nil {
-			Uattr = *attr
-			delete(Uattr, "uid")
-		} else {
-			Uattr = make(bson.M)
-			Uattr["uid"] = user
-		}
-	}
+
 	dbUser := DBFindUser(uuid, user)
 	if dbUser == nil {
 		return fmt.Errorf("Cannot find user")
@@ -1575,6 +1584,14 @@ func DBDelBundle(tenant string, bundleid string) error {
 }
 
 func dbAddBundleAttr(uuid string, bid string, Battr bson.M, replace bool) error {
+	if Battr == nil || len(Battr) == 0 {
+		attr := DBFindBundleAttr(uuid, bid)
+		if attr != nil {
+			// Well there is already some attributes, and we are not
+			// having anything new / changing here, so just return
+			return nil
+		}
+	}
 	hdr := DBFindBundleAttrHdr(uuid)
 	if hdr == nil {
 		dhdr := DataHdr{Majver: 1, Minver: 0}
@@ -1596,14 +1613,24 @@ func dbAddBundleAttr(uuid string, bid string, Battr bson.M, replace bool) error 
 		return fmt.Errorf("Unknown Collection")
 	}
 	if !replace {
-		result := appAttrCltn.FindOneAndUpdate(
-			context.TODO(),
-			bson.M{"_id": bid},
-			bson.D{{"$set", Battr}},
-			&opt,
-		)
-		if result.Err() != nil {
-			return result.Err()
+		if Battr == nil || len(Battr) == 0 {
+			_, err := appAttrCltn.InsertOne(
+				context.TODO(),
+				bson.M{"_id": bid},
+			)
+			if err != nil {
+				return err
+			}
+		} else {
+			result := appAttrCltn.FindOneAndUpdate(
+				context.TODO(),
+				bson.M{"_id": bid},
+				bson.D{{"$set", Battr}},
+				&opt,
+			)
+			if result.Err() != nil {
+				return result.Err()
+			}
 		}
 	} else {
 		result, err := appAttrCltn.ReplaceOne(
@@ -1654,16 +1681,7 @@ func DBAddBundleAttr(uuid string, bid string, Battr bson.M) error {
 			}
 		}
 	}
-	if Battr == nil {
-		attr := DBFindBundleAttr(uuid, bid)
-		if attr != nil {
-			Battr = *attr
-			delete(Battr, "bid")
-		} else {
-			Battr = make(bson.M)
-			Battr["bid"] = bid
-		}
-	}
+
 	dbBundle := DBFindBundle(uuid, bid)
 	if dbBundle == nil {
 		return fmt.Errorf("Cannot find bundle")
