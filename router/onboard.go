@@ -56,9 +56,6 @@ func rdonlyOnboard() {
 	// This route is used to get user attributes header for a tenant
 	getTenantRoute("/userattrhdr", "GET", getUserAttrHdrHandler)
 
-	// This route is used to get user extended attributes for a tenant
-	getTenantRoute("/userextattr", "GET", getUserExtAttrHandler)
-
 	// This route is used to get all user attributes for a tenant
 	getTenantRoute("/alluserattr", "GET", getAllUserAttrHandler)
 
@@ -151,9 +148,6 @@ func rdwrOnboard() {
 	// This route is used to add new user attributes header
 	addTenantRoute("/userattrhdr", "POST", addUserAttrHdrHandler)
 
-	// This route is used to add new user extended attributes
-	addTenantRoute("/userextattr", "POST", addUserExtAttrHandler)
-
 	// This route is used to add bundle attributes header
 	addTenantRoute("/bundleattrhdr", "POST", addBundleAttrHdrHandler)
 
@@ -175,9 +169,6 @@ func rdwrOnboard() {
 	// This route is used to delete a specific app-bundle
 	// Both app-bundle info and app-bundle attribute docs will be deleted
 	delTenantRoute("/bundle/{bid}", "GET", delBundleHandler)
-
-	// This route is used to delete user extended attributes
-	delTenantRoute("/userextattr", "GET", delUserExtAttrHandler)
 
 	// This route is used to get attributes for a specific host
 	delTenantRoute("/hostattr/{host}", "GET", delHostAttrHandler)
@@ -1329,63 +1320,6 @@ func delHostAttrHandler(w http.ResponseWriter, r *http.Request) {
 	host = strings.ReplaceAll(host, "_", "/")
 	uuid := r.Context().Value("tenant").(string)
 	err := db.DBDelHostAttr(uuid, host)
-	if err != nil {
-		result.Result = err.Error()
-	} else {
-		result.Result = "ok"
-	}
-	utils.WriteResult(w, result)
-}
-
-type GetUserExtAttrResult struct {
-	Result string `json:"Result"`
-	UEAttr bson.M
-}
-
-// Get user extended attributes for a tenant
-func getUserExtAttrHandler(w http.ResponseWriter, r *http.Request) {
-	var result GetUserExtAttrResult
-
-	uuid := r.Context().Value("tenant").(string)
-	attr := db.DBFindUserExtAttr(uuid)
-	if attr == nil {
-		result.Result = "Cannot find user extended attributes"
-		utils.WriteResult(w, result)
-	} else {
-		result = GetUserExtAttrResult{Result: "ok", UEAttr: *attr}
-	}
-	utils.WriteResult(w, result)
-}
-
-// Add a user extended attribute doc
-func addUserExtAttrHandler(w http.ResponseWriter, r *http.Request) {
-	var result OpResult
-
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		result.Result = "Add user extended attribute - HTTP Req Read fail"
-		utils.WriteResult(w, result)
-		return
-	}
-
-	uuid := r.Context().Value("tenant").(string)
-	err = db.DBAddUserExtAttr(uuid, body)
-	if err != nil {
-		result.Result = err.Error()
-		utils.WriteResult(w, result)
-		return
-	}
-
-	result.Result = "ok"
-	utils.WriteResult(w, result)
-}
-
-// Delete user extended attributes
-func delUserExtAttrHandler(w http.ResponseWriter, r *http.Request) {
-	var result OpResult
-
-	uuid := r.Context().Value("tenant").(string)
-	err := db.DBDelUserExtAttr(uuid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {

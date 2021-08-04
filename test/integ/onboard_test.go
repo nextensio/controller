@@ -193,9 +193,9 @@ func TestGetAllGateway_v1(t *testing.T) {
 }
 
 type Tenant_v1 struct {
-	ID      string   `json:"_id" bson:"_id"`
-	Name    string   `json:"name" bson:"name"`
-	Domains []string `json:"domains"`
+	ID      string      `json:"_id" bson:"_id"`
+	Name    string      `json:"name" bson:"name"`
+	Domains []db.Domain `json:"domains"`
 }
 
 type TenantCluster_v1 struct {
@@ -325,7 +325,7 @@ func AddTenant_v1(t *testing.T) {
 	var tenant = Tenant_v1{
 		ID:      "nextensio",
 		Name:    "foobar",
-		Domains: []string{"kismis.org"},
+		Domains: []db.Domain{{Name: "kismis.org"}},
 	}
 	add := addTenant(&tenant)
 	if add == false {
@@ -426,7 +426,7 @@ func TestGetAllTenant_v1(t *testing.T) {
 	var tenant1 = Tenant_v1{
 		ID:      "nextensio1",
 		Name:    "foobar",
-		Domains: []string{"kismis.org"},
+		Domains: []db.Domain{{Name: "kismis.org"}},
 	}
 	add = addTenant(&tenant1)
 	if add == false {
@@ -437,7 +437,7 @@ func TestGetAllTenant_v1(t *testing.T) {
 	var tenant2 = Tenant_v1{
 		ID:      "nextensio2",
 		Name:    "gloobar",
-		Domains: []string{"kismis.org"},
+		Domains: []db.Domain{{Name: "kismis.org"}},
 	}
 	add = addTenant(&tenant2)
 	if add == false {
@@ -575,7 +575,7 @@ func addGatewayAndTenant(t *testing.T) {
 	var tenant = Tenant_v1{
 		ID:      "nextensio",
 		Name:    "foobar",
-		Domains: []string{"kismis.org"},
+		Domains: []db.Domain{{Name: "kismis.org"}},
 	}
 	add = addTenant(&tenant)
 	if add == false {
@@ -653,7 +653,7 @@ func TestOnboard_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	if data.Domains[0] != "kismis.org" {
+	if data.Domains[0].Name != "kismis.org" {
 		t.Error()
 		return
 	}
@@ -1269,164 +1269,6 @@ func TestAttrSetDel_v1(t *testing.T) {
 	}
 }
 
-type UserExtAttr_v1 struct {
-	Hdr1 string
-	Hdr2 string
-}
-
-func testUserExtAttrAdd_v1(t *testing.T, tenantadd bool, userid string) {
-	db.DBReinit()
-	UserAdd_v1(t, tenantadd, userid, []string{})
-	dbTenants := db.DBFindAllTenants()
-
-	attr := UserExtAttr_v1{
-		Hdr1: "foobar",
-		Hdr2: "abcd",
-	}
-	body, err := json.Marshal(attr)
-	if err != nil {
-		t.Error()
-		return
-	}
-
-	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/userextattr", bytes.NewBuffer(body))
-	req.Header.Add("Accept", "application/json")
-	req.Header.Add("Authorization", "Bearer "+AccessToken)
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Error()
-		return
-	}
-
-	defer resp.Body.Close()
-
-	body, err = ioutil.ReadAll(resp.Body)
-	if err != nil {
-		t.Error()
-		return
-	}
-	var data router.OpResult
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		t.Error()
-		return
-	}
-	if data.Result != "ok" {
-		t.Error()
-		return
-	}
-
-	dbBson := db.DBFindUserExtAttr(dbTenants[0].ID)
-	if dbBson == nil {
-		t.Error()
-		return
-	}
-	dbJson, jerr := json.Marshal(&dbBson)
-	if jerr != nil {
-		t.Error()
-		return
-	}
-	var dbAttr UserExtAttr_v1
-	err = json.Unmarshal(dbJson, &dbAttr)
-	if err != nil {
-		t.Error()
-		return
-	}
-	if dbAttr.Hdr1 != "foobar" || dbAttr.Hdr2 != "abcd" {
-		t.Error()
-		return
-	}
-}
-
-func TestUserExtAttrAdd_v1(t *testing.T) {
-	db.DBReinit()
-	testUserExtAttrAdd_v1(t, true, "gopa")
-}
-
-func TestUserExtAttrGet_v1(t *testing.T) {
-	db.DBReinit()
-	testUserExtAttrAdd_v1(t, true, "gopa")
-	dbTenants := db.DBFindAllTenants()
-
-	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/userextattr", nil)
-	req.Header.Add("Accept", "application/json")
-	req.Header.Add("Authorization", "Bearer "+AccessToken)
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Error()
-		return
-	}
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		t.Error()
-		return
-	}
-	var data router.GetUserExtAttrResult
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		t.Error()
-		return
-	}
-	if data.Result != "ok" {
-		t.Error()
-		return
-	}
-	dbJson, jerr := json.Marshal(&data.UEAttr)
-	if jerr != nil {
-		t.Error()
-		return
-	}
-	var dbAttr UserExtAttr_v1
-	err = json.Unmarshal(dbJson, &dbAttr)
-	if err != nil {
-		t.Error()
-		return
-	}
-	if dbAttr.Hdr1 != "foobar" || dbAttr.Hdr2 != "abcd" {
-		t.Error()
-		return
-	}
-}
-
-func TestUserExtAttrDel_v1(t *testing.T) {
-	db.DBReinit()
-	testUserExtAttrAdd_v1(t, true, "gopa")
-	dbTenants := db.DBFindAllTenants()
-
-	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/userextattr", nil)
-	req.Header.Add("Accept", "application/json")
-	req.Header.Add("Authorization", "Bearer "+AccessToken)
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Error()
-		return
-	}
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		t.Error()
-		return
-	}
-	var data router.GetUserExtAttrResult
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		t.Error()
-		return
-	}
-	if data.Result != "ok" {
-		t.Error()
-		return
-	}
-	dbBson := db.DBFindUserExtAttr(dbTenants[0].ID)
-	if dbBson != nil {
-		t.Error()
-		return
-	}
-}
-
 type HostAttrs_v1 struct {
 	Tag      string `bson:"tag" json:"tag"`
 	Location string `bson:"location" json:"location"`
@@ -1573,7 +1415,7 @@ func TestHostAttrDel_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	var data router.GetUserExtAttrResult
+	var data router.GethostResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		t.Error()

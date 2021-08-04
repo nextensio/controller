@@ -35,9 +35,6 @@ TestRouteAdd_v1
 TestRouteGet_v1
 TestGetAllRoutes_v1
 TestRouteDel_v1
-TestUserExtAttrAdd_v1
-TestUserExtAttrGet_v1
-TestUserExtAttrDel_v1
 TestHostAttrAdd_v1
 TestHostAttrGet_v1
 TestHostAttrDel_v1

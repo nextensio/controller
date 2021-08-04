@@ -846,7 +846,6 @@ func DBFindUserAttrHdr(tenant string) *DataHdr {
 }
 
 func DBDelUserAttrHdr(tenant string) error {
-	_ = DBDelUserExtAttr(tenant)
 	return DBDelCollectionHdr(tenant, "NxtUserAttr", "UserAttr")
 }
 
@@ -1220,7 +1219,7 @@ func DBFindAllUserAttrs(tenant string) []bson.M {
 	for i := 0; i < len(userAttrs); i++ {
 		// Need to skip header doc
 		uid := fmt.Sprintf("%s", userAttrs[i]["_id"])
-		if (uid != hdockey) && (uid != "UserExtAttr") {
+		if uid != hdockey {
 			nuserAttrs[j] = userAttrs[i]
 			nuserAttrs[j]["uid"] = userAttrs[i]["_id"]
 			delete(nuserAttrs[j], "_id")
@@ -2167,88 +2166,6 @@ func DBAddAllHostsOneAttr(tenant string, set AttrSet) error {
 		}
 	}
 	return nil
-}
-
-//----------------------------User extended attributes------------------------------
-
-// User extended attributes are dynamic attributes, ie, atrributes that can
-// change frequently, such as user location, user device o/s version, etc.
-// These attributes are obtained from nextensio headers and combined with
-// attributes read from mongoDB.
-// The spec here gives a json string of key value pairs where the key is the
-// attribute key as used in a OPA Rego query, and the value is the Nextensio
-// header name. The Nextensio OPA library replaces the header
-// name with the header value.
-//type UserExtAttr struct {
-//	ID       string             `bson:"_id" json:"ID"`
-//	Tenant   string             `bson:"tenant" json:"tenant"`
-//	Attrlist string             `bson:"attrlist" json:"attrlist"`
-//}
-
-func DBFindUserExtAttr(tenant string) *bson.M {
-	var attr bson.M
-	userAttrCltn := dbGetCollection(tenant, "NxtUserAttr")
-	if userAttrCltn == nil {
-		return nil
-	}
-	err := userAttrCltn.FindOne(
-		context.TODO(),
-		bson.M{"_id": "UserExtAttr"},
-	).Decode(&attr)
-	if err != nil {
-		return nil
-	}
-	return &attr
-}
-
-// This API will add/update a user extended Attribute doc
-func DBAddUserExtAttr(tenant string, data []byte) error {
-	var UEAttr bson.M
-
-	err := json.Unmarshal(data, &UEAttr)
-	if err != nil {
-		return err
-	}
-
-	// The upsert option asks the DB to add  if one is not found
-	upsert := true
-	after := options.After
-	opt := options.FindOneAndUpdateOptions{
-		ReturnDocument: &after,
-		Upsert:         &upsert,
-	}
-	userAttrCltn := dbGetCollection(tenant, "NxtUserAttr")
-	if userAttrCltn == nil {
-		return fmt.Errorf("Unknown Collection")
-	}
-	rerr := userAttrCltn.FindOneAndUpdate(
-		context.TODO(),
-		bson.M{"_id": "UserExtAttr"},
-		bson.D{
-			{"$set", UEAttr},
-		},
-		&opt,
-	)
-
-	if rerr.Err() != nil {
-		return rerr.Err()
-
-	}
-
-	return nil
-}
-
-func DBDelUserExtAttr(tenant string) error {
-	userAttrCltn := dbGetCollection(tenant, "NxtUserAttr")
-	if userAttrCltn == nil {
-		return fmt.Errorf("Unknown Collection")
-	}
-	_, err := userAttrCltn.DeleteOne(
-		context.TODO(),
-		bson.M{"_id": "UserExtAttr"},
-	)
-
-	return err
 }
 
 //-------------------------------Trace Attributes -------------------------
