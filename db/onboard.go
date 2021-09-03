@@ -41,9 +41,10 @@ func delEmpty(s []string) []string {
 
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type Tenant struct {
-	ID      string   `json:"_id" bson:"_id"`
-	Name    string   `json:"name" bson:"name"`
-	Domains []Domain `json:"domains" bson:"domains"`
+	ID              string   `json:"_id" bson:"_id"`
+	Name            string   `json:"name" bson:"name"`
+	JaegerCollector string   `json:"jaegerCollector" bson:"jaegerCollector"`
+	Domains         []Domain `json:"domains" bson:"domains"`
 }
 
 type Domain struct {
@@ -147,7 +148,7 @@ func DBAddTenant(data *Tenant) error {
 	if tdoc != nil {
 		domains = tdoc.Domains
 	}
-	change := bson.M{"name": data.Name, "domains": domains}
+	change := bson.M{"name": data.Name, "domains": domains, "jaegerCollector": data.JaegerCollector}
 	err := tenantCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": data.ID},

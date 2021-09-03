@@ -571,18 +571,20 @@ type onboardData struct {
 }
 
 type OnboardResult struct {
-	Result    string      `json:"Result"`
-	Userid    string      `json:"userid"`
-	Tenant    string      `json:"tenant"`
-	Gateway   string      `json:"gateway"`
-	Domains   []db.Domain `json:"domains"`
-	Connectid string      `json:"connectid"`
-	Cluster   string      `json:"cluster"`
-	Podname   string      `json:"podname"`
-	Cacert    []rune      `json:"cacert"`
-	Services  []string    `json:"services"`
-	Version   string      `json:"version"`
-	Keepalive uint        `json:"keepalive"`
+	Result          string      `json:"Result"`
+	Userid          string      `json:"userid"`
+	Tenant          string      `json:"tenant"`
+	Gateway         string      `json:"gateway"`
+	Domains         []db.Domain `json:"domains"`
+	Connectid       string      `json:"connectid"`
+	Cluster         string      `json:"cluster"`
+	Podname         string      `json:"podname"`
+	Cacert          []rune      `json:"cacert"`
+	Services        []string    `json:"services"`
+	Version         string      `json:"version"`
+	Keepalive       uint        `json:"keepalive"`
+	JaegerCollector string      `json:"jaegerCollector"`
+	TraceUsers      string      `json:"traceusers"`
 }
 
 func onboardHandler(w http.ResponseWriter, r *http.Request) {
@@ -598,6 +600,11 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 		result.Result = "Tenant not found"
 		utils.WriteResult(w, result)
 		return
+	}
+	result.TraceUsers = ""
+	result.JaegerCollector = tenant.JaegerCollector
+	if result.JaegerCollector == "" {
+		result.JaegerCollector = "https://nxt-nextensio.nxt-kc1.do-sf.nextensio.net/jaegerthrift14268/api/traces"
 	}
 	user := db.DBFindUser(data.Tenant, data.Userid)
 	if user != nil {

@@ -339,15 +339,15 @@ func DBAddClusterConfig(tenant string, data *TenantCluster) error {
 		return result.Err()
 	}
 
-	// The very first time we are associating a gateway with a tenant,
-	// add all the bundles of the tenant to this gateway
-	if clc == nil {
-		bundles := DBFindAllBundlesStruct(tenant)
-		for _, b := range bundles {
-			e := DBAddOneClusterBundle(tenant, &b, Cluster)
-			if e != nil {
-				return e
-			}
+	// add all the bundles of the tenant to this gateway.
+	// If its already added before, it just gets modified now - and that will
+	// notify clustermgr to reapply the connector yamls - maybe the tenant image has
+	// changed and hence the connector needs an upgrade.
+	bundles := DBFindAllBundlesStruct(tenant)
+	for _, b := range bundles {
+		e := DBAddOneClusterBundle(tenant, &b, Cluster)
+		if e != nil {
+			return e
 		}
 	}
 
