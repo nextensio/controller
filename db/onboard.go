@@ -1271,8 +1271,6 @@ func DBDelAllUsersOneAttr(tenant string, todel string) error {
 }
 
 func DBAddAllUsersOneAttr(tenant string, set AttrSet) error {
-	var attr bson.M
-
 	userAttrCltn := dbGetCollection(tenant, "NxtUserAttr")
 	if userAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -1286,6 +1284,7 @@ func DBAddAllUsersOneAttr(tenant string, set AttrSet) error {
 
 	defer cursor.Close(context.TODO())
 	for cursor.Next(context.TODO()) {
+		var attr bson.M
 		if err = cursor.Decode(&attr); err != nil {
 			return err
 		}
@@ -1785,8 +1784,6 @@ func DBDelAllBundlesOneAttr(tenant string, todel string) error {
 }
 
 func DBAddAllBundlesOneAttr(tenant string, set AttrSet) error {
-	var attr bson.M
-
 	appAttrCltn := dbGetCollection(tenant, "NxtAppAttr")
 	if appAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -1800,6 +1797,7 @@ func DBAddAllBundlesOneAttr(tenant string, set AttrSet) error {
 
 	defer cursor.Close(context.TODO())
 	for cursor.Next(context.TODO()) {
+		var attr bson.M
 		if err = cursor.Decode(&attr); err != nil {
 			return err
 		}
@@ -2137,8 +2135,6 @@ func defaultType(set AttrSet) interface{} {
 }
 
 func DBAddAllHostsOneAttr(tenant string, set AttrSet) error {
-	var attr bson.M
-
 	hostAttrCltn := dbGetCollection(tenant, "NxtHostAttr")
 	if hostAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -2152,6 +2148,7 @@ func DBAddAllHostsOneAttr(tenant string, set AttrSet) error {
 
 	defer cursor.Close(context.TODO())
 	for cursor.Next(context.TODO()) {
+		var attr bson.M
 		if err = cursor.Decode(&attr); err != nil {
 			return err
 		}
