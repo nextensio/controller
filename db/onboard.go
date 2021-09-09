@@ -1247,8 +1247,6 @@ func DBDelUserAttr(tenant string, userid string) error {
 }
 
 func DBDelAllUsersOneAttr(tenant string, todel string) error {
-	var attr bson.M
-
 	userAttrCltn := dbGetCollection(tenant, "NxtUserAttr")
 	if userAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -1259,6 +1257,7 @@ func DBDelAllUsersOneAttr(tenant string, todel string) error {
 	}
 	defer cursor.Close(context.TODO())
 	for cursor.Next(context.TODO()) {
+		var attr bson.M = make(bson.M)
 		if err = cursor.Decode(&attr); err != nil {
 			return err
 		}
@@ -1284,7 +1283,7 @@ func DBAddAllUsersOneAttr(tenant string, set AttrSet) error {
 
 	defer cursor.Close(context.TODO())
 	for cursor.Next(context.TODO()) {
-		var attr bson.M
+		var attr bson.M = make(bson.M)
 		if err = cursor.Decode(&attr); err != nil {
 			return err
 		}
@@ -1760,8 +1759,6 @@ func DBDelBundleAttr(tenant string, bundleid string) error {
 }
 
 func DBDelAllBundlesOneAttr(tenant string, todel string) error {
-	var attr bson.M
-
 	appAttrCltn := dbGetCollection(tenant, "NxtAppAttr")
 	if appAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -1772,6 +1769,7 @@ func DBDelAllBundlesOneAttr(tenant string, todel string) error {
 	}
 	defer cursor.Close(context.TODO())
 	for cursor.Next(context.TODO()) {
+		var attr bson.M = make(bson.M)
 		if err = cursor.Decode(&attr); err != nil {
 			return err
 		}
@@ -1797,7 +1795,7 @@ func DBAddAllBundlesOneAttr(tenant string, set AttrSet) error {
 
 	defer cursor.Close(context.TODO())
 	for cursor.Next(context.TODO()) {
-		var attr bson.M
+		var attr bson.M = make(bson.M)
 		if err = cursor.Decode(&attr); err != nil {
 			return err
 		}
@@ -2073,8 +2071,6 @@ func DBDelHostAttr(tenant string, hostid string) error {
 }
 
 func DBDelAllHostsOneAttr(tenant string, todel string) error {
-	var attr bson.M
-
 	hostAttrCltn := dbGetCollection(tenant, "NxtHostAttr")
 	if hostAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -2085,6 +2081,7 @@ func DBDelAllHostsOneAttr(tenant string, todel string) error {
 	}
 	defer cursor.Close(context.TODO())
 	for cursor.Next(context.TODO()) {
+		var attr bson.M = make(bson.M)
 		if err = cursor.Decode(&attr); err != nil {
 			return err
 		}
@@ -2148,7 +2145,7 @@ func DBAddAllHostsOneAttr(tenant string, set AttrSet) error {
 
 	defer cursor.Close(context.TODO())
 	for cursor.Next(context.TODO()) {
-		var attr bson.M
+		var attr bson.M = make(bson.M)
 		if err = cursor.Decode(&attr); err != nil {
 			return err
 		}
