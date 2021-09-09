@@ -106,3 +106,221 @@ func DBDelPolicy(tenant string, policyId string) error {
 
 	return err
 }
+
+//----------------------------------Bundle ID rules-----------------------------------
+// Access Policy is generated from the rules for one or more bundle ids
+
+type DBBundleAccessRule struct {
+	Id   string `json:"id" bson:"_id"` // Bundle-id:Rule-id
+	Bid  string `json:"bid" bson:"bid"`
+	Rid  string `json:"rid" bson:"rid"`
+	Rule []rune `json:"rule" bson:"rule"`
+}
+
+type BundleAccessRule struct {
+	Bid  string `json:"bid" bson:"bid"`
+	Rid  string `json:"rid" bson:"rid"`
+	Rule []rune `json:"rule" bson:"rule"`
+}
+
+// This API will add a new bundle rule or update a bundle rule if it already exists
+func DBAddBundleRule(uuid string, data *BundleAccessRule) error {
+	var rule DBBundleAccessRule
+
+	if DBFindTenant(uuid) == nil {
+		return fmt.Errorf("Cant find tenant %s", uuid)
+	}
+	rule.Id = data.Bid + ":" + data.Rid
+	rule.Bid = data.Bid
+	rule.Rid = data.Rid
+	rule.Rule = data.Rule
+
+	// The upsert option asks the DB to add a tenant if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	bundleRuleCltn := dbGetCollection(uuid, "NxtBundleRules")
+	if bundleRuleCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	err := bundleRuleCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": rule.Id},
+		bson.D{
+			{"$set", bson.M{"_id": rule.Bid, "rule": rule.Rule,
+				"rid": rule.Rid}},
+		},
+		&opt,
+	)
+
+	if err != nil {
+		return err.Err()
+	}
+	return nil
+}
+
+func DBFindBundleRule(tenant string, Id string) *BundleAccessRule {
+	var dbrule DBBundleAccessRule
+	var rule BundleAccessRule
+
+	bundleRuleCltn := dbGetCollection(tenant, "NxtBundleRules")
+	if bundleRuleCltn == nil {
+		return nil
+	}
+	err := bundleRuleCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": Id},
+	).Decode(&dbrule)
+	if err != nil {
+		return nil
+	}
+	rule.Bid = dbrule.Bid
+	rule.Rid = dbrule.Rid
+	rule.Rule = dbrule.Rule
+	return &rule
+}
+
+func DBFindAllBundleRules(tenant string) []BundleAccessRule {
+	var rules []BundleAccessRule
+
+	bundleRuleCltn := dbGetCollection(tenant, "NxtBundleRules")
+	if bundleRuleCltn == nil {
+		return nil
+	}
+	cursor, err := bundleRuleCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &rules)
+	if err != nil {
+		return nil
+	}
+
+	return rules
+}
+
+func DBDelBundleRule(tenant string, bid string, ruleid string) error {
+	bundleRuleCltn := dbGetCollection(tenant, "NxtBundleRules")
+	if bundleRuleCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	id := bid + ":" + ruleid
+	_, err := bundleRuleCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": id},
+	)
+
+	return err
+}
+
+//----------------------------------Host ID rules-----------------------------------
+// Route Policy is generated from the rules for one or more host ids.
+// Note that Route policy also supports host access control
+
+type DBHostRouteRule struct {
+	Id   string `json:"id" bson:"_id"` // Host-id:Rule-id
+	Host string `json:"host" bson:"host"`
+	Rid  string `json:"rid" bson:"rid"`
+	Rule []rune `json:"rule" bson:"rule"`
+}
+
+type HostRouteRule struct {
+	Host string `json:"host" bson:"host"`
+	Rid  string `json:"rid" bson:"rid"`
+	Rule []rune `json:"rule" bson:"rule"`
+}
+
+// This API will add a new host rule or update a host rule if it already exists
+func DBAddHostRule(uuid string, data *HostRouteRule) error {
+	var rule DBHostRouteRule
+
+	if DBFindTenant(uuid) == nil {
+		return fmt.Errorf("Cant find tenant %s", uuid)
+	}
+	rule.Id = data.Host + ":" + data.Rid
+	rule.Host = data.Host
+	rule.Rid = data.Rid
+	rule.Rule = data.Rule
+
+	// The upsert option asks the DB to add a tenant if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	hostRuleCltn := dbGetCollection(uuid, "NxtHostRules")
+	if hostRuleCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	err := hostRuleCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": rule.Id},
+		bson.D{
+			{"$set", bson.M{"_id": rule.Host, "rule": rule.Rule,
+				"rid": rule.Rid}},
+		},
+		&opt,
+	)
+
+	if err != nil {
+		return err.Err()
+	}
+	return nil
+}
+
+func DBFindHostRule(tenant string, Id string) *HostRouteRule {
+	var dbrule DBHostRouteRule
+	var rule HostRouteRule
+
+	hostRuleCltn := dbGetCollection(tenant, "NxtHostRules")
+	if hostRuleCltn == nil {
+		return nil
+	}
+	err := hostRuleCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": Id},
+	).Decode(&dbrule)
+	if err != nil {
+		return nil
+	}
+	rule.Host = dbrule.Host
+	rule.Rid = dbrule.Rid
+	rule.Rule = dbrule.Rule
+	return &rule
+}
+
+func DBFindAllHostRules(tenant string) []HostRouteRule {
+	var rules []HostRouteRule
+
+	hostRuleCltn := dbGetCollection(tenant, "NxtHostRules")
+	if hostRuleCltn == nil {
+		return nil
+	}
+	cursor, err := hostRuleCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &rules)
+	if err != nil {
+		return nil
+	}
+	return rules
+}
+
+func DBDelHostRule(tenant string, hostid string, ruleid string) error {
+	hostRuleCltn := dbGetCollection(tenant, "NxtHostRules")
+	if hostRuleCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	id := hostid + ":" + ruleid
+	_, err := hostRuleCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": id},
+	)
+
+	return err
+}
