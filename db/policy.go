@@ -114,13 +114,13 @@ type DBBundleAccessRule struct {
 	Id   string `json:"id" bson:"_id"` // Bundle-id:Rule-id
 	Bid  string `json:"bid" bson:"bid"`
 	Rid  string `json:"rid" bson:"rid"`
-	Rule []rune `json:"rule" bson:"rule"`
+	Rule string `json:"rule" bson:"rule"`
 }
 
 type BundleAccessRule struct {
 	Bid  string `json:"bid" bson:"bid"`
 	Rid  string `json:"rid" bson:"rid"`
-	Rule []rune `json:"rule" bson:"rule"`
+	Rule string `json:"rule" bson:"rule"`
 }
 
 // This API will add a new bundle rule or update a bundle rule if it already exists
@@ -150,8 +150,7 @@ func DBAddBundleRule(uuid string, data *BundleAccessRule) error {
 		context.TODO(),
 		bson.M{"_id": rule.Id},
 		bson.D{
-			{"$set", bson.M{"_id": rule.Bid, "rule": rule.Rule,
-				"rid": rule.Rid}},
+			{"$set", bson.M{"rule": rule.Rule, "rid": rule.Rid}},
 		},
 		&opt,
 	)
@@ -224,13 +223,13 @@ type DBHostRouteRule struct {
 	Id   string `json:"id" bson:"_id"` // Host-id:Rule-id
 	Host string `json:"host" bson:"host"`
 	Rid  string `json:"rid" bson:"rid"`
-	Rule []rune `json:"rule" bson:"rule"`
+	Rule string `json:"rule" bson:"rule"`
 }
 
 type HostRouteRule struct {
 	Host string `json:"host" bson:"host"`
 	Rid  string `json:"rid" bson:"rid"`
-	Rule []rune `json:"rule" bson:"rule"`
+	Rule string `json:"rule" bson:"rule"`
 }
 
 // This API will add a new host rule or update a host rule if it already exists
@@ -260,8 +259,7 @@ func DBAddHostRule(uuid string, data *HostRouteRule) error {
 		context.TODO(),
 		bson.M{"_id": rule.Id},
 		bson.D{
-			{"$set", bson.M{"_id": rule.Host, "rule": rule.Rule,
-				"rid": rule.Rid}},
+			{"$set", bson.M{"rule": rule.Rule, "rid": rule.Rid}},
 		},
 		&opt,
 	)

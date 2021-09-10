@@ -158,7 +158,7 @@ func addBundleRuleHandler(w http.ResponseWriter, r *http.Request) {
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		fmt.Println(err)
-		result.Result = "Error parsing json"
+		result.Result = fmt.Sprintf("%v", err)
 		utils.WriteResult(w, result)
 		return
 	}
@@ -227,7 +227,7 @@ func addHostRuleHandler(w http.ResponseWriter, r *http.Request) {
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		fmt.Println(err)
-		result.Result = "Error parsing json"
+		result.Result = fmt.Sprintf("%v", err)
 		utils.WriteResult(w, result)
 		return
 	}
