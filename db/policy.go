@@ -150,7 +150,7 @@ func DBAddBundleRule(uuid string, data *BundleAccessRule) error {
 		context.TODO(),
 		bson.M{"_id": rule.Id},
 		bson.D{
-			{"$set", bson.M{"rule": rule.Rule, "rid": rule.Rid}},
+			{"$set", bson.M{"rule": rule.Rule, "rid": rule.Rid, "bid": rule.Bid}},
 		},
 		&opt,
 	)
@@ -259,7 +259,7 @@ func DBAddHostRule(uuid string, data *HostRouteRule) error {
 		context.TODO(),
 		bson.M{"_id": rule.Id},
 		bson.D{
-			{"$set", bson.M{"rule": rule.Rule, "rid": rule.Rid}},
+			{"$set", bson.M{"rule": rule.Rule, "rid": rule.Rid, "host": rule.Host}},
 		},
 		&opt,
 	)
