@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"nextensio/controller/db"
 	"nextensio/controller/utils"
 	"regexp"
 	"strings"
@@ -79,17 +80,8 @@ func initRoutes(readonly bool) {
 	initRdWrRoutes()
 }
 
-func IsAuthenticated(r *http.Request, cid string) *context.Context {
-	authHeader := r.Header.Get("Authorization")
-
-	if authHeader == "" {
-		return nil
-	}
-	tokenParts := strings.Split(authHeader, "Bearer ")
-	bearerToken := tokenParts[1]
-
+func oktaJwt(r *http.Request, bearerToken string, cid string) *context.Context {
 	idp := utils.GetEnv("IDP_URI", "none")
-
 	tv := map[string]string{}
 	tv["aud"] = "api://default"
 	tv["cid"] = cid
@@ -113,6 +105,24 @@ func IsAuthenticated(r *http.Request, cid string) *context.Context {
 	ctx = context.WithValue(ctx, "userid", token.Claims["sub"])
 	ctx = context.WithValue(ctx, "usertype", token.Claims["usertype"])
 	return &ctx
+}
+
+func IsAuthenticated(r *http.Request, cid string) *context.Context {
+	authHeader := r.Header.Get("Authorization")
+
+	if authHeader == "" {
+		return nil
+	}
+	tokenParts := strings.Split(authHeader, "Bearer ")
+	bearerToken := tokenParts[1]
+	// First try to interpret the token as an agent's okta token, if that fails
+	// then try to see if its a connectors token we generated
+	ctx := oktaJwt(r, bearerToken, cid)
+	if ctx != nil {
+		return ctx
+	}
+	ctx = db.VerifyMyJwt(r, bearerToken)
+	return ctx
 }
 
 // TODO: This checking for whether non-superadmin/admin is trying to access add/del

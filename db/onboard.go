@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/dgrijalva/jwt-go"
 	"github.com/golang/glog"
+	"github.com/sethvargo/go-password/password"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -23,6 +26,63 @@ const HDRKEY = "Header"
 type Signup struct {
 	Tenant string `json:"tenant" bson:"tenant"`
 	Email  string `json:"email" bson:"email"`
+}
+
+type CustomClaims struct {
+	Tenant   string `json:"tenant"`
+	Username string `json:"sub"`
+	Secret   string `json:"secret"`
+	jwt.StandardClaims
+}
+
+func VerifyMyJwt(r *http.Request, bearerToken string) *context.Context {
+	claims := GetMyJwt(bearerToken)
+	if claims == nil {
+		return nil
+	}
+	ctx := context.WithValue(r.Context(), "user-tenant", claims.Tenant)
+	ctx = context.WithValue(ctx, "userid", claims.Username)
+	ctx = context.WithValue(ctx, "usertype", "regular")
+	ctx = context.WithValue(ctx, "secret", claims.Secret)
+	return &ctx
+}
+
+func GetMyJwt(bearerToken string) *CustomClaims {
+	token, err := jwt.ParseWithClaims(
+		bearerToken,
+		&CustomClaims{},
+		func(token *jwt.Token) (interface{}, error) {
+			return []byte("TODONeedSecureNextensioSecret"), nil
+		},
+	)
+	if err != nil {
+		fmt.Println("My claim not verified", err)
+		return nil
+	}
+	claims, ok := token.Claims.(*CustomClaims)
+	if !ok {
+		fmt.Println("couldn't parse My claims")
+		return nil
+	}
+	return claims
+}
+
+func GenMyJwt(tenant string, username string) (string, error) {
+	secret, err := password.Generate(64, 10, 10, false, false)
+	if err != nil {
+		return "", err
+	}
+	claims := CustomClaims{
+		Tenant:   tenant,
+		Username: username,
+		Secret:   secret,
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signedToken, err := token.SignedString([]byte("TODONeedSecureNextensioSecret"))
+	if err != nil {
+		return "", err
+	}
+	return signedToken, nil
 }
 
 //TODO: The usages of "FindAllXYZ" has to be audited and modified to a more appropriate form,
@@ -41,10 +101,9 @@ func delEmpty(s []string) []string {
 
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type Tenant struct {
-	ID              string   `json:"_id" bson:"_id"`
-	Name            string   `json:"name" bson:"name"`
-	JaegerCollector string   `json:"jaegerCollector" bson:"jaegerCollector"`
-	Domains         []Domain `json:"domains" bson:"domains"`
+	ID      string   `json:"_id" bson:"_id"`
+	Name    string   `json:"name" bson:"name"`
+	Domains []Domain `json:"domains" bson:"domains"`
 }
 
 type Domain struct {
@@ -148,7 +207,7 @@ func DBAddTenant(data *Tenant) error {
 	if tdoc != nil {
 		domains = tdoc.Domains
 	}
-	change := bson.M{"name": data.Name, "domains": domains, "jaegerCollector": data.JaegerCollector}
+	change := bson.M{"name": data.Name, "domains": domains}
 	err := tenantCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": data.ID},
@@ -1340,6 +1399,7 @@ type Bundle struct {
 	Services      []string `json:"services" bson:"services"`
 	CpodRepl      int      `json:"cpodrepl" bson:"cpodrepl"`
 	ConfigVersion string   `json:"cfgvn" bson:"cfgvn"`
+	SharedKey     string   `json:"sharedkey" bson:"sharedkey"`
 }
 
 // This API will add/update a new bundle
@@ -1372,6 +1432,16 @@ func DBAddBundle(uuid string, data *Bundle) error {
 		if gw == nil {
 			return fmt.Errorf("Gateway %s not configured", data.Gateway)
 		}
+	}
+
+	if bundle != nil {
+		data.SharedKey = bundle.SharedKey
+	} else {
+		s, e := GenMyJwt(uuid, data.Bid)
+		if e != nil {
+			return e
+		}
+		data.SharedKey = s
 	}
 
 	data.Services = delEmpty(data.Services)
@@ -1414,7 +1484,8 @@ func DBAddBundle(uuid string, data *Bundle) error {
 		bson.D{
 			{"$set", bson.M{"name": data.Bundlename,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
-				"services": data.Services, "cpodrepl": data.CpodRepl, "cfgvn": cfgvn}},
+				"services": data.Services, "cpodrepl": data.CpodRepl, "cfgvn": cfgvn,
+				"sharedkey": data.SharedKey}},
 		},
 		&opt,
 	)

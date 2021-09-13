@@ -454,6 +454,7 @@ type ClusterBundle struct {
 	Services  []string `json:"services" bson:"services"`
 	Version   int      `json:"version" bson:"version"`
 	CpodRepl  int      `json:"cpodrepl" bson:"cpodrepl"`
+	SharedKey string   `json:"sharedkey" bson:"sharedkey"`
 }
 
 func DBAddOneClusterBundle(tenant string, data *Bundle, Cluster string) error {
@@ -482,7 +483,8 @@ func DBAddOneClusterBundle(tenant string, data *Bundle, Cluster string) error {
 		bson.M{"_id": uid},
 		bson.D{
 			{"$set", bson.M{"tenant": tenant, "version": version, "pod": data.Pod,
-				"connectid": data.Connectid, "services": data.Services, "cpodrepl": data.CpodRepl}},
+				"connectid": data.Connectid, "services": data.Services, "cpodrepl": data.CpodRepl,
+				"sharedkey": data.SharedKey}},
 		},
 		&opt,
 	)

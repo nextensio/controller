@@ -571,20 +571,19 @@ type onboardData struct {
 }
 
 type OnboardResult struct {
-	Result          string      `json:"Result"`
-	Userid          string      `json:"userid"`
-	Tenant          string      `json:"tenant"`
-	Gateway         string      `json:"gateway"`
-	Domains         []db.Domain `json:"domains"`
-	Connectid       string      `json:"connectid"`
-	Cluster         string      `json:"cluster"`
-	Podname         string      `json:"podname"`
-	Cacert          []rune      `json:"cacert"`
-	Services        []string    `json:"services"`
-	Version         string      `json:"version"`
-	Keepalive       uint        `json:"keepalive"`
-	JaegerCollector string      `json:"jaegerCollector"`
-	TraceUsers      string      `json:"traceusers"`
+	Result     string      `json:"Result"`
+	Userid     string      `json:"userid"`
+	Tenant     string      `json:"tenant"`
+	Gateway    string      `json:"gateway"`
+	Domains    []db.Domain `json:"domains"`
+	Connectid  string      `json:"connectid"`
+	Cluster    string      `json:"cluster"`
+	Podname    string      `json:"podname"`
+	Cacert     []rune      `json:"cacert"`
+	Services   []string    `json:"services"`
+	Version    string      `json:"version"`
+	Keepalive  uint        `json:"keepalive"`
+	TraceUsers string      `json:"traceusers"`
 }
 
 func onboardHandler(w http.ResponseWriter, r *http.Request) {
@@ -602,10 +601,6 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result.TraceUsers = ""
-	result.JaegerCollector = tenant.JaegerCollector
-	if result.JaegerCollector == "" {
-		result.JaegerCollector = "https://nxt-nextensio.nxt-kc1.do-sf.nextensio.net/jaegerthrift14268/api/traces"
-	}
 	user := db.DBFindUser(data.Tenant, data.Userid)
 	if user != nil {
 		result.Connectid = user.Connectid
@@ -616,6 +611,18 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		bundle := db.DBFindBundle(data.Tenant, data.Userid)
 		if bundle != nil {
+			secret := r.Context().Value("secret").(string)
+			claims := db.GetMyJwt(bundle.SharedKey)
+			if claims == nil {
+				result.Result = "Bundle bad secret"
+				utils.WriteResult(w, result)
+				return
+			}
+			if secret != claims.Secret {
+				result.Result = "Bundle secret mismatch"
+				utils.WriteResult(w, result)
+				return
+			}
 			result.Connectid = bundle.Connectid
 			if bundle.Pod != "" {
 				result.Connectid = bundle.Pod
@@ -1006,15 +1013,6 @@ func addBundleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(string)
-	_, err = IdpAddUser(API, TOKEN, data.Bid, uuid, "regular")
-	if err != nil {
-		msg := "Adding appGroup to IDP fail:" + err.Error()
-		glog.Errorf(msg)
-		result.Result = msg
-		utils.WriteResult(w, result)
-		return
-	}
-
 	err = db.DBAddBundle(uuid, &data)
 	if err != nil {
 		result.Result = err.Error()
@@ -1072,14 +1070,8 @@ func delBundleHandler(w http.ResponseWriter, r *http.Request) {
 	v := mux.Vars(r)
 	bid := v["bid"]
 	uuid := r.Context().Value("tenant").(string)
-	err := IdpDelUser(API, TOKEN, bid, uuid)
-	if err != nil {
-		result.Result = "Deleting bundle from IDP fail: " + err.Error()
-		utils.WriteResult(w, result)
-		return
-	}
 
-	err = db.DBDelBundleAttr(uuid, bid)
+	err := db.DBDelBundleAttr(uuid, bid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {
