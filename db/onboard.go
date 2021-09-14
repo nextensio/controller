@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -107,18 +106,16 @@ type Tenant struct {
 }
 
 type Domain struct {
-	Name    string `json:"name" bson:"name"`
-	NeedDns bool   `json:"needdns" bson:"needdns"`
-	DnsIP   string `json:"dnsip" bson:"dnsip"`
+	Name string `json:"name" bson:"name"`
 }
 
-func dbaddTenantDomain(uuid string, host string, needdns bool, dnsip string) error {
+func dbaddTenantDomain(uuid string, host string) error {
 	tenant := DBFindTenant(uuid)
 	if tenant == nil {
 		return errors.New("Cant find tenant")
 	}
 	domain := Domain{
-		Name: host, NeedDns: needdns, DnsIP: dnsip,
+		Name: host,
 	}
 	tenant.Domains = append(tenant.Domains, domain)
 	// The upsert option asks the DB to add if one is not found
@@ -2093,12 +2090,7 @@ func DBAddHostAttr(uuid string, data []byte) error {
 	}
 
 	if !found {
-		// TODO: Later we can make this configurable where we
-		// provide customer with an option to configure the IP address
-		// in the hosts/hostattr page in the UI. For now we generate
-		// an IP in the CGNAT range which is not used by anyone
-		dnsip := fmt.Sprintf("100.64.%d.%d", rand.Intn(250)+1, rand.Intn(250)+1)
-		err = dbaddTenantDomain(uuid, host, true, dnsip)
+		err = dbaddTenantDomain(uuid, host)
 		if err != nil {
 			return err
 		}
