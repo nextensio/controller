@@ -110,30 +110,19 @@ func DBDelPolicy(tenant string, policyId string) error {
 //----------------------------------Bundle ID rules-----------------------------------
 // Access Policy is generated from the rules for one or more bundle ids
 
-type DBBundleAccessRule struct {
-	Id   string `json:"id" bson:"_id"` // Bundle-id:Rule-id
-	Bid  string `json:"bid" bson:"bid"`
-	Rid  string `json:"rid" bson:"rid"`
-	Rule string `json:"rule" bson:"rule"`
-}
-
 type BundleAccessRule struct {
-	Bid  string `json:"bid" bson:"bid"`
-	Rid  string `json:"rid" bson:"rid"`
-	Rule string `json:"rule" bson:"rule"`
+	Bid  string     `json:"bid" bson:"bid"`
+	Rid  string     `json:"rid" bson:"rid"`
+	Rule [][]string `json:"rule" bson:"rule"`
 }
 
 // This API will add a new bundle rule or update a bundle rule if it already exists
 func DBAddBundleRule(uuid string, data *BundleAccessRule) error {
-	var rule DBBundleAccessRule
 
 	if DBFindTenant(uuid) == nil {
 		return fmt.Errorf("Cant find tenant %s", uuid)
 	}
-	rule.Id = data.Bid + ":" + data.Rid
-	rule.Bid = data.Bid
-	rule.Rid = data.Rid
-	rule.Rule = data.Rule
+	Id := data.Bid + ":" + data.Rid
 
 	// The upsert option asks the DB to add a tenant if one is not found
 	upsert := true
@@ -148,9 +137,9 @@ func DBAddBundleRule(uuid string, data *BundleAccessRule) error {
 	}
 	err := bundleRuleCltn.FindOneAndUpdate(
 		context.TODO(),
-		bson.M{"_id": rule.Id},
+		bson.M{"_id": Id},
 		bson.D{
-			{"$set", bson.M{"rule": rule.Rule, "rid": rule.Rid, "bid": rule.Bid}},
+			{"$set", bson.M{"rule": data.Rule, "rid": data.Rid, "bid": data.Bid}},
 		},
 		&opt,
 	)
@@ -162,7 +151,6 @@ func DBAddBundleRule(uuid string, data *BundleAccessRule) error {
 }
 
 func DBFindBundleRule(tenant string, Id string) *BundleAccessRule {
-	var dbrule DBBundleAccessRule
 	var rule BundleAccessRule
 
 	bundleRuleCltn := dbGetCollection(tenant, "NxtBundleRules")
@@ -172,13 +160,10 @@ func DBFindBundleRule(tenant string, Id string) *BundleAccessRule {
 	err := bundleRuleCltn.FindOne(
 		context.TODO(),
 		bson.M{"_id": Id},
-	).Decode(&dbrule)
+	).Decode(&rule)
 	if err != nil {
 		return nil
 	}
-	rule.Bid = dbrule.Bid
-	rule.Rid = dbrule.Rid
-	rule.Rule = dbrule.Rule
 	return &rule
 }
 
@@ -219,30 +204,19 @@ func DBDelBundleRule(tenant string, bid string, ruleid string) error {
 // Route Policy is generated from the rules for one or more host ids.
 // Note that Route policy also supports host access control
 
-type DBHostRouteRule struct {
-	Id   string `json:"id" bson:"_id"` // Host-id:Rule-id
-	Host string `json:"host" bson:"host"`
-	Rid  string `json:"rid" bson:"rid"`
-	Rule string `json:"rule" bson:"rule"`
-}
-
 type HostRouteRule struct {
-	Host string `json:"host" bson:"host"`
-	Rid  string `json:"rid" bson:"rid"`
-	Rule string `json:"rule" bson:"rule"`
+	Host string     `json:"host" bson:"host"`
+	Rid  string     `json:"rid" bson:"rid"`
+	Rule [][]string `json:"rule" bson:"rule"`
 }
 
 // This API will add a new host rule or update a host rule if it already exists
 func DBAddHostRule(uuid string, data *HostRouteRule) error {
-	var rule DBHostRouteRule
 
 	if DBFindTenant(uuid) == nil {
 		return fmt.Errorf("Cant find tenant %s", uuid)
 	}
-	rule.Id = data.Host + ":" + data.Rid
-	rule.Host = data.Host
-	rule.Rid = data.Rid
-	rule.Rule = data.Rule
+	Id := data.Host + ":" + data.Rid
 
 	// The upsert option asks the DB to add a tenant if one is not found
 	upsert := true
@@ -257,9 +231,9 @@ func DBAddHostRule(uuid string, data *HostRouteRule) error {
 	}
 	err := hostRuleCltn.FindOneAndUpdate(
 		context.TODO(),
-		bson.M{"_id": rule.Id},
+		bson.M{"_id": Id},
 		bson.D{
-			{"$set", bson.M{"rule": rule.Rule, "rid": rule.Rid, "host": rule.Host}},
+			{"$set", bson.M{"rule": data.Rule, "rid": data.Rid, "host": data.Host}},
 		},
 		&opt,
 	)
@@ -271,7 +245,6 @@ func DBAddHostRule(uuid string, data *HostRouteRule) error {
 }
 
 func DBFindHostRule(tenant string, Id string) *HostRouteRule {
-	var dbrule DBHostRouteRule
 	var rule HostRouteRule
 
 	hostRuleCltn := dbGetCollection(tenant, "NxtHostRules")
@@ -281,13 +254,10 @@ func DBFindHostRule(tenant string, Id string) *HostRouteRule {
 	err := hostRuleCltn.FindOne(
 		context.TODO(),
 		bson.M{"_id": Id},
-	).Decode(&dbrule)
+	).Decode(&rule)
 	if err != nil {
 		return nil
 	}
-	rule.Host = dbrule.Host
-	rule.Rid = dbrule.Rid
-	rule.Rule = dbrule.Rule
 	return &rule
 }
 
