@@ -571,19 +571,18 @@ type onboardData struct {
 }
 
 type OnboardResult struct {
-	Result     string      `json:"Result"`
-	Userid     string      `json:"userid"`
-	Tenant     string      `json:"tenant"`
-	Gateway    string      `json:"gateway"`
-	Domains    []db.Domain `json:"domains"`
-	Connectid  string      `json:"connectid"`
-	Cluster    string      `json:"cluster"`
-	Podname    string      `json:"podname"`
-	Cacert     []rune      `json:"cacert"`
-	Services   []string    `json:"services"`
-	Version    string      `json:"version"`
-	Keepalive  uint        `json:"keepalive"`
-	TraceUsers string      `json:"traceusers"`
+	Result    string      `json:"Result"`
+	Userid    string      `json:"userid"`
+	Tenant    string      `json:"tenant"`
+	Gateway   string      `json:"gateway"`
+	Domains   []db.Domain `json:"domains"`
+	Connectid string      `json:"connectid"`
+	Cluster   string      `json:"cluster"`
+	Podname   string      `json:"podname"`
+	Cacert    []rune      `json:"cacert"`
+	Services  []string    `json:"services"`
+	Version   string      `json:"version"`
+	Keepalive uint        `json:"keepalive"`
 }
 
 func onboardHandler(w http.ResponseWriter, r *http.Request) {
@@ -600,7 +599,6 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	result.TraceUsers = ""
 	user := db.DBFindUser(data.Tenant, data.Userid)
 	if user != nil {
 		result.Connectid = user.Connectid
