@@ -279,7 +279,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 
 	accessPolicy := "package app.access\n\nallow = true\n"
 	routePolicy := "package user.routing\n\ndefault route_tag = \"\"\n"
-	tracePolicy := "package user.tracing\n\ndefault request = \"no\"\n"
+	tracePolicy := "package user.tracing\n\ndefault request = {\"no\": []}\n"
 	policy := db.Policy{PolicyId: "AccessPolicy", Rego: []rune(accessPolicy)}
 	err = db.DBAddPolicy(signup.Tenant, &policy)
 	if err != nil {

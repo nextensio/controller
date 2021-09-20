@@ -139,10 +139,10 @@ type RuleOpResult struct {
 }
 
 // {"bid": "<value>", "rid": "<value>", "rule":
-//     "[ {"lefttoken": "<value>", "operator": "<value>", "righttoken": "<value>", "type": "val"},
-//        {"lefttoken": "<value>", "operator": "<value>", "righttoken": "<value>", "type": "val"},
-//        { ... }
-//     ]"
+//      [ ["lefttoken", "operator", "righttoken", "type", "isArray"],
+//        ["lefttoken", "operator", "righttoken", "type", "isArray"],
+//        [ ... ]
+//      ]
 // Add a new bundle ID rule
 func addBundleRuleHandler(w http.ResponseWriter, r *http.Request) {
 	var result RuleOpResult
@@ -208,10 +208,10 @@ func delBundleRuleHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // {"host": "<value>", "rid": "<value>", "rule":
-//     "[ {"lefttoken": "<value>", "operator": "<value>", "righttoken": "<value>", "type": "val"},
-//        {"lefttoken": "<value>", "operator": "<value>", "righttoken": "<value>", "type": "val"},
-//        { ... }
-//     ]"
+//      [ ["lefttoken", "operator", "righttoken", "type", "isArray"],
+//        ["lefttoken", "operator", "righttoken", "type", "isArray"],
+//        [ ... ]
+//      ]
 // Add a new host ID rule
 func addHostRuleHandler(w http.ResponseWriter, r *http.Request) {
 	var result RuleOpResult
