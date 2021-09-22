@@ -927,7 +927,10 @@ func DBAddUser(uuid string, data *User) error {
 		return fmt.Errorf("Unknown tenant")
 	}
 	user := DBFindUser(uuid, data.Uid)
-
+	bundle := DBFindBundle(uuid, data.Uid)
+	if bundle != nil {
+		return fmt.Errorf("ID Already taken for an AppGroup, please use a different ID")
+	}
 	// In our test setup, we preassign the gateway/cluster and pod.
 	// In a real deployment, the gateway/cluster and pod have to be dynamically
 	// assigned when a user agent is on-boarded.
@@ -1405,6 +1408,10 @@ func DBAddBundle(uuid string, data *Bundle) error {
 	tenant := DBFindTenant(uuid)
 	if tenant == nil {
 		return fmt.Errorf("Unknown tenant")
+	}
+	user := DBFindUser(uuid, data.Bid)
+	if user != nil {
+		return fmt.Errorf("ID already taken for a user, please use different id")
 	}
 	bundle := DBFindBundle(uuid, data.Bid)
 
