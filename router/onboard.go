@@ -288,6 +288,8 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 	accessPolicy := "package app.access\n\nallow = true\n"
 	routePolicy := "package user.routing\n\ndefault route_tag = \"\"\n"
 	tracePolicy := "package user.tracing\n\ndefault request = {\"no\": []}\n"
+	statsPolicy := "package.user.stats\n\ndefault attributes = {\"exclude\": [\"uid\", \"maj_ver\", \"min_ver\", \"_hostname\", \"_model\", \"_osMinor\", \"_osPatch\", \"_osName\"]}\n"
+
 	policy := db.Policy{PolicyId: "AccessPolicy", Rego: []rune(accessPolicy)}
 	err = db.DBAddPolicy(signup.Tenant, &policy)
 	if err != nil {
@@ -303,6 +305,13 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	policy = db.Policy{PolicyId: "TracePolicy", Rego: []rune(tracePolicy)}
+	err = db.DBAddPolicy(signup.Tenant, &policy)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+	policy = db.Policy{PolicyId: "StatsPolicy", Rego: []rune(statsPolicy)}
 	err = db.DBAddPolicy(signup.Tenant, &policy)
 	if err != nil {
 		result.Result = err.Error()
