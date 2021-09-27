@@ -44,6 +44,10 @@ func rdonlyOnboard() {
 	//*******************************************************************/
 	//            In Per-tenant DB
 	//*******************************************************************/
+
+	// This route is used by the tenant admin to get the tenant parameters
+	getTenantRoute("/tenant", "GET", gettenantHandler)
+
 	// This route is used to get all users for a tenant
 	getTenantRoute("/allusers", "GET", getAllUsersHandler)
 
@@ -132,6 +136,10 @@ func rdwrOnboard() {
 	//*******************************************************************/
 	//            In Per-tenant DB
 	//*******************************************************************/
+
+	// This route is used by the tenant admin to modify the tenant parameters
+	addTenantRoute("/tenant", "POST", modifytenantHandler)
+
 	// This route is used to add new users with basic user info
 	addTenantRoute("/user", "POST", addUserHandler)
 
@@ -235,9 +243,9 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var data db.Tenant
+	var data db.TenantJson
 	data.ID = signup.Tenant
-	err = db.DBAddTenant(&data)
+	err = db.DBAddTenant(&data, false)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -306,11 +314,31 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-// Add a new tenant, with information like the SSO engine used by the
-// customers/agents in the tenant
-func addtenantHandler(w http.ResponseWriter, r *http.Request) {
+type GetTenantResult struct {
+	Result string `json:"Result"`
+	Tenant db.Tenant
+}
+
+// Get existing tenant's parameters
+func gettenantHandler(w http.ResponseWriter, r *http.Request) {
+	var result GetTenantResult
+
+	uuid := r.Context().Value("tenant").(string)
+	tenant := db.DBFindTenant(uuid)
+	if tenant == nil {
+		result.Result = "Tenant not found"
+		utils.WriteResult(w, result)
+		return
+	}
+	result.Result = "ok"
+	result.Tenant = *tenant
+	utils.WriteResult(w, result)
+}
+
+// Modify existing tenant's parameters
+func modifytenantHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
-	var data db.Tenant
+	var data db.TenantJson
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -325,7 +353,38 @@ func addtenantHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBAddTenant(&data)
+	data.ID = r.Context().Value("tenant").(string)
+	err = db.DBAddTenant(&data, true)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+// Add a new tenant, with information like the SSO engine used by the
+// customers/agents in the tenant
+func addtenantHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+	var data db.TenantJson
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		result.Result = "Error parsing json"
+		utils.WriteResult(w, result)
+		return
+	}
+	err = db.DBAddTenant(&data, false)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)

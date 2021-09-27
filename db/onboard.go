@@ -99,10 +99,17 @@ func delEmpty(s []string) []string {
 }
 
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
+type TenantJson struct {
+	ID       string  `json:"_id"`
+	Name     *string `json:"name"`
+	EasyMode *bool   `json:"easymode"`
+}
+
 type Tenant struct {
-	ID      string   `json:"_id" bson:"_id"`
-	Name    string   `json:"name" bson:"name"`
-	Domains []Domain `json:"domains" bson:"domains"`
+	ID       string   `json:"_id" bson:"_id"`
+	Name     string   `json:"name" bson:"name"`
+	Domains  []Domain `json:"domains" bson:"domains"`
+	EasyMode bool     `json:"easymode" bson:"easymode"`
 }
 
 type Domain struct {
@@ -179,19 +186,52 @@ func validateTenant(tenant string) bool {
 	return len(match) == 2
 }
 
+func dbTenantUpdateJson(tenant *Tenant, data *TenantJson) *Tenant {
+	if tenant == nil {
+		t := Tenant{}
+		t.ID = data.ID
+		if data.Name == nil {
+			t.Name = data.ID
+		} else {
+			t.Name = *data.Name
+		}
+		if data.EasyMode == nil {
+			t.EasyMode = true
+		} else {
+			t.EasyMode = *data.EasyMode
+		}
+		t.Domains = []Domain{}
+		return &t
+	} else {
+		if data.Name != nil {
+			tenant.Name = *data.Name
+		}
+		if data.EasyMode != nil {
+			tenant.EasyMode = *data.EasyMode
+		}
+		return tenant
+	}
+}
+
 // This API will add a new tenant or update a tenant if it already exists.
 // Tenant additions are now not dependent on gateways/clusters. After adding
 // the tenant, we link the tenant to one or more gateways/clusters via the
 // TenantCluster configuration. This can be done incrementally. Tenants can be
 // in different clusters using different number of minion allocations in each
 // cluster.
-func DBAddTenant(data *Tenant) error {
+func DBAddTenant(data *TenantJson, modifyOnly bool) error {
 
 	if !validateTenant(data.ID) {
 		return errors.New("invalid tenant id")
 	}
-	// See if tenant doc exists.
+
+	// See if tenant doc exists, if so inherit some values, if not create new tenant
 	tdoc := DBFindTenant(data.ID)
+	if modifyOnly && tdoc == nil {
+		return fmt.Errorf("Tenant does not exist")
+	}
+
+	tdoc = dbTenantUpdateJson(tdoc, data)
 
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
@@ -200,16 +240,12 @@ func DBAddTenant(data *Tenant) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	domains := []Domain{}
-	if tdoc != nil {
-		domains = tdoc.Domains
-	}
-	change := bson.M{"name": data.Name, "domains": domains}
+
 	err := tenantCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": data.ID},
 		bson.D{
-			{"$set", change},
+			{"$set", tdoc},
 		},
 		&opt,
 	)
