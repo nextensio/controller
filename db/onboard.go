@@ -231,7 +231,7 @@ func DBAddTenant(data *TenantJson, modifyOnly bool) error {
 		return fmt.Errorf("Tenant does not exist")
 	}
 
-	tdoc = dbTenantUpdateJson(tdoc, data)
+	tenant := dbTenantUpdateJson(tdoc, data)
 
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
@@ -245,7 +245,7 @@ func DBAddTenant(data *TenantJson, modifyOnly bool) error {
 		context.TODO(),
 		bson.M{"_id": data.ID},
 		bson.D{
-			{"$set", tdoc},
+			{"$set", tenant},
 		},
 		&opt,
 	)
