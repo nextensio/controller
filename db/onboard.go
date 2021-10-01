@@ -1088,7 +1088,7 @@ func DBFindAllUsers(tenant string) []bson.M {
 	j := 0
 	for i := 0; i < len(users); i++ {
 		// Need to skip header doc
-		uid := fmt.Sprintf("%s", users[i]["_id"])
+		uid := users[i]["_id"].(string)
 		if uid != hdockey {
 			nusers[j] = users[i]
 			nusers[j]["uid"] = users[i]["_id"]
@@ -1312,7 +1312,7 @@ func DBFindAllUserAttrs(tenant string) []bson.M {
 	j := 0
 	for i := 0; i < len(userAttrs); i++ {
 		// Need to skip header doc
-		uid := fmt.Sprintf("%s", userAttrs[i]["_id"])
+		uid := userAttrs[i]["_id"].(string)
 		if uid != hdockey {
 			nuserAttrs[j] = userAttrs[i]
 			nuserAttrs[j]["uid"] = userAttrs[i]["_id"]
@@ -1629,7 +1629,7 @@ func DBFindAllBundles(tenant string) []bson.M {
 	j := 0
 	for i := 0; i < len(bundles); i++ {
 		// Need to skip header doc
-		bid := fmt.Sprintf("%s", bundles[i]["_id"])
+		bid := bundles[i]["_id"].(string)
 		if bid != hdockey {
 			if bundles[i]["services"] != nil {
 				svcs := bundles[i]["services"].(primitive.A)
@@ -1861,7 +1861,7 @@ func DBFindAllBundleAttrs(tenant string) []bson.M {
 	j := 0
 	for i := 0; i < len(bundleAttrs); i++ {
 		// Need to skip header doc
-		bid := fmt.Sprintf("%s", bundleAttrs[i]["_id"])
+		bid := bundleAttrs[i]["_id"].(string)
 		if bid != hdockey {
 			nbundleAttrs[j] = bundleAttrs[i]
 			nbundleAttrs[j]["bid"] = bundleAttrs[i]["_id"]
@@ -2019,7 +2019,7 @@ func DBFindAllHosts(tenant string) []string {
 	hdockey := DBGetHdrKey("HostAttr")
 	for i := 0; i < len(hostAttrs); i++ {
 		// Need to skip header doc
-		host := fmt.Sprintf("%s", hostAttrs[i]["_id"])
+		host := hostAttrs[i]["_id"].(string)
 		if host != hdockey {
 			hosts = append(hosts, host)
 		}
@@ -2052,7 +2052,7 @@ func DBFindAllHostAttrs(tenant string) []bson.M {
 	j := 0
 	for i := 0; i < len(hostAttrs); i++ {
 		// Need to skip header doc
-		host := fmt.Sprintf("%s", hostAttrs[i]["_id"])
+		host := hostAttrs[i]["_id"].(string)
 		if host != hdockey {
 			nhostAttrs[j] = hostAttrs[i]
 			nhostAttrs[j]["host"] = hostAttrs[i]["_id"]
@@ -2114,7 +2114,7 @@ func DBAddHostAttr(uuid string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	host := fmt.Sprintf("%s", Hattr["host"])
+	host := Hattr["host"].(string)
 	delete(Hattr, "host")
 
 	hosts := DBFindAllHosts(uuid)
@@ -2440,7 +2440,7 @@ func DBFindAllTraceReqs(tenant string) []bson.M {
 	j := 0
 	for i := 0; i < len(tracereqs); i++ {
 		// Need to skip header doc
-		trcid := fmt.Sprintf("%s", tracereqs[i]["_id"])
+		trcid := tracereqs[i]["_id"].(string)
 		if trcid != hdockey {
 			ntracereqs[j] = tracereqs[i]
 			ntracereqs[j]["traceid"] = tracereqs[i]["_id"]
