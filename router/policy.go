@@ -69,7 +69,11 @@ func addpolicyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(string)
-	err = db.DBAddPolicy(uuid, &data)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	err = db.DBAddPolicy(uuid, admin, &data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)

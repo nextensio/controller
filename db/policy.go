@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -11,13 +12,15 @@ import (
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type Policy struct {
 	PolicyId string `json:"pid" bson:"_id"`
+	ChangeBy string `json:"changeby" bson:"changeby"`
+	ChangeAt string `json:"changeat" bson:"changeat"`
 	Majver   int    `json:"majver" bson:"majver"`
 	Minver   int    `json:"minver" bson:"minver"`
 	Rego     []rune `json:"rego" bson:"rego"`
 }
 
 // This API will add a new policy or update a policy if it already exists
-func DBAddPolicy(uuid string, data *Policy) error {
+func DBAddPolicy(uuid string, admin string, data *Policy) error {
 
 	if DBFindTenant(uuid) == nil {
 		return fmt.Errorf("Cant find tenant %s", uuid)
@@ -43,11 +46,13 @@ func DBAddPolicy(uuid string, data *Policy) error {
 	if policyCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
+	timenow := fmt.Sprintf("%s", time.Now().Format(time.RFC1123))
 	err := policyCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": data.PolicyId},
 		bson.D{
 			{"$set", bson.M{"_id": data.PolicyId, "rego": data.Rego,
+				"changeby": admin, "changeat": timenow,
 				"majver": data.Majver, "minver": data.Minver}},
 		},
 		&opt,
