@@ -1127,6 +1127,10 @@ func DBUpdateAllUsersCfgvn(tenant string, cfgvn uint64) error {
 		if err = cursor.Decode(&user); err != nil {
 			return err
 		}
+		if user.Uid == HDRKEY {
+			// Skip the header doc
+			continue
+		}
 		result := userCltn.FindOneAndUpdate(
 			context.TODO(),
 			bson.M{"_id": user.Uid},
@@ -1671,6 +1675,10 @@ func DBUpdateAllBundlesCfgvn(tenant string, cfgvn uint64) error {
 		var app Bundle
 		if err = cursor.Decode(&app); err != nil {
 			return err
+		}
+		if app.Bid == HDRKEY {
+			// Skip the header doc
+			continue
 		}
 		result := appCltn.FindOneAndUpdate(
 			context.TODO(),
