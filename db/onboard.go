@@ -204,7 +204,7 @@ func dbTenantUpdateJson(tenant *Tenant, data *TenantJson) *Tenant {
 // TenantCluster configuration. This can be done incrementally. Tenants can be
 // in different clusters using different number of minion allocations in each
 // cluster.
-func DBAddTenant(data *TenantJson, modifyOnly bool) error {
+func DBAddTenant(data *TenantJson, admin string, modifyOnly bool) error {
 
 	if !validateTenant(data.ID) {
 		return errors.New("invalid tenant id")
@@ -242,21 +242,21 @@ func DBAddTenant(data *TenantJson, modifyOnly bool) error {
 		// New tenant being added, so create logical DB for tenant
 		// and add header docs for all attribute collections of tenant
 		dbAddTenantDB(data.ID)
-		DBAddTenantCollectionHdrs(data.ID)
+		DBAddTenantCollectionHdrs(data.ID, admin)
 	}
 
 	return nil
 }
 
-func DBAddTenantCollectionHdrs(tenant string) {
+func DBAddTenantCollectionHdrs(tenant string, admin string) {
 	hdr := DataHdr{Majver: 1, Minver: 0}
 
-	_ = DBAddUserInfoHdr(tenant, &hdr)
-	_ = DBAddUserAttrHdr(tenant, &hdr)
-	_ = DBAddBundleInfoHdr(tenant, &hdr)
-	_ = DBAddBundleAttrHdr(tenant, &hdr)
-	_ = DBAddHostAttrHdr(tenant, &hdr)
-	_ = DBAddTraceRequestsHdr(tenant, &hdr)
+	_ = DBAddUserInfoHdr(tenant, admin, &hdr)
+	_ = DBAddUserAttrHdr(tenant, admin, &hdr)
+	_ = DBAddBundleInfoHdr(tenant, admin, &hdr)
+	_ = DBAddBundleAttrHdr(tenant, admin, &hdr)
+	_ = DBAddHostAttrHdr(tenant, admin, &hdr)
+	_ = DBAddTraceRequestsHdr(tenant, admin, &hdr)
 	// TenantCluster collection does not have a header doc for now
 }
 
@@ -737,7 +737,7 @@ type AttrSet struct {
 	IsArray   string `bson:"isArray" json:"isArray"`
 }
 
-func DBAddAttrSet(tenant string, s AttrSet) error {
+func DBAddAttrSet(tenant string, admin string, s AttrSet) error {
 	upsert := true
 	after := options.After
 	opt := options.FindOneAndUpdateOptions{
@@ -762,40 +762,40 @@ func DBAddAttrSet(tenant string, s AttrSet) error {
 		return err.Err()
 	}
 	if s.AppliesTo == "Hosts" {
-		if err := DBAddAllHostsOneAttr(tenant, s); err != nil {
+		if err := DBAddAllHostsOneAttr(tenant, admin, s); err != nil {
 			return err
 		}
 	}
 	if s.AppliesTo == "Users" {
-		if err := DBAddAllUsersOneAttr(tenant, s); err != nil {
+		if err := DBAddAllUsersOneAttr(tenant, admin, s); err != nil {
 			return err
 		}
 	}
 	if s.AppliesTo == "Bundles" {
-		if err := DBAddAllBundlesOneAttr(tenant, s); err != nil {
+		if err := DBAddAllBundlesOneAttr(tenant, admin, s); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func DBDelAttrSet(tenant string, set AttrSet) error {
+func DBDelAttrSet(tenant string, admin string, set AttrSet) error {
 	Cltn := dbGetCollection(tenant, "NxtAttrSet")
 	if Cltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
 	if set.AppliesTo == "Hosts" {
-		if err := DBDelAllHostsOneAttr(tenant, set.Name); err != nil {
+		if err := DBDelAllHostsOneAttr(tenant, admin, set.Name); err != nil {
 			return err
 		}
 	}
 	if set.AppliesTo == "Users" {
-		if err := DBDelAllUsersOneAttr(tenant, set.Name); err != nil {
+		if err := DBDelAllUsersOneAttr(tenant, admin, set.Name); err != nil {
 			return err
 		}
 	}
 	if set.AppliesTo == "Bundles" {
-		if err := DBDelAllBundlesOneAttr(tenant, set.Name); err != nil {
+		if err := DBDelAllBundlesOneAttr(tenant, admin, set.Name); err != nil {
 			return err
 		}
 	}
@@ -830,16 +830,18 @@ func DBFindAllAttrSet(tenant string) []AttrSet {
 //------------------------Collection header functions-------------------------
 
 type DataHdr struct {
-	ID     string `bson:"_id" json:"ID"`
-	Majver int    `bson:"majver" json:"majver"`
-	Minver int    `bson:"minver" json:"minver"`
+	ID       string `bson:"_id" json:"ID"`
+	Majver   int    `bson:"majver" json:"majver"`
+	Minver   int    `bson:"minver" json:"minver"`
+	ChangeBy string `bson:"changeby" json:"changeby"`
+	ChangeAt string `bson:"changeat" json:"changeat"`
 }
 
 func DBGetHdrKey(val string) string {
 	return HDRKEY // common name for all header docs
 }
 
-func DBAddCollectionHdr(uuid string, data *DataHdr, htype string, hkey string) error {
+func DBAddCollectionHdr(uuid string, admin string, data *DataHdr, htype string, hkey string) error {
 	// The upsert option asks the DB to add  if one is not found
 	upsert := true
 	after := options.After
@@ -851,25 +853,27 @@ func DBAddCollectionHdr(uuid string, data *DataHdr, htype string, hkey string) e
 	if Cltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
+	timenow := fmt.Sprintf("%s", time.Now().Format(time.RFC1123))
 	hdockey := DBGetHdrKey(hkey)
 	err := Cltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": hdockey},
 		bson.D{
-			{"$set", bson.M{"minver": data.Minver, "majver": data.Majver}},
+			{"$set", bson.M{"minver": data.Minver, "majver": data.Majver,
+				"changeby": admin, "changeat": timenow}},
 		},
 		&opt,
 	)
 	return err.Err()
 }
 
-func DBUpdateCollectionHdr(tenant string, htype string, hkey string) error {
+func DBUpdateCollectionHdr(tenant string, admin string, htype string, hkey string) error {
 	hdr := DBFindCollectionHdr(tenant, htype, hkey)
 	if hdr == nil {
 		return nil //TODO return error ?
 	}
 	hdr.Minver += 1
-	return DBAddCollectionHdr(tenant, hdr, htype, hkey)
+	return DBAddCollectionHdr(tenant, admin, hdr, htype, hkey)
 }
 
 func DBFindCollectionHdr(tenant string, htype string, hkey string) *DataHdr {
@@ -906,9 +910,15 @@ func DBDelCollectionHdr(tenant string, htype string, hkey string) error {
 //--------------------------User Info and Attributes---------=-------------------
 
 // This API will add/update a user info Header
-func DBAddUserInfoHdr(uuid string, data *DataHdr) error {
+func DBAddUserInfoHdr(uuid string, admin string, data *DataHdr) error {
 
-	return DBAddCollectionHdr(uuid, data, "NxtUsers", "UserInfo")
+	return DBAddCollectionHdr(uuid, admin, data, "NxtUsers", "UserInfo")
+}
+
+// This API will update a user Info Header
+func DBUpdateUserInfoHdr(uuid string, admin string) error {
+
+	return DBUpdateCollectionHdr(uuid, admin, "NxtUsers", "UserInfo")
 }
 
 func DBFindUserInfoHdr(tenant string) *DataHdr {
@@ -922,15 +932,15 @@ func DBDelUserInfoHdr(tenant string) error {
 }
 
 // This API will add a user Attribute Header
-func DBAddUserAttrHdr(uuid string, data *DataHdr) error {
+func DBAddUserAttrHdr(uuid string, admin string, data *DataHdr) error {
 
-	return DBAddCollectionHdr(uuid, data, "NxtUserAttr", "UserAttr")
+	return DBAddCollectionHdr(uuid, admin, data, "NxtUserAttr", "UserAttr")
 }
 
 // This API will update a user Attribute Header
-func DBUpdateUserAttrHdr(uuid string) error {
+func DBUpdateUserAttrHdr(uuid string, admin string) error {
 
-	return DBUpdateCollectionHdr(uuid, "NxtUserAttr", "UserAttr")
+	return DBUpdateCollectionHdr(uuid, admin, "NxtUserAttr", "UserAttr")
 }
 
 func DBFindUserAttrHdr(tenant string) *DataHdr {
@@ -956,7 +966,7 @@ type User struct {
 }
 
 // This API will add/update a new user
-func DBAddUser(uuid string, data *User) error {
+func DBAddUser(uuid string, admin string, data *User) error {
 
 	tenant := DBFindTenant(uuid)
 	if tenant == nil {
@@ -1044,6 +1054,7 @@ func DBAddUser(uuid string, data *User) error {
 	if result.Err() != nil {
 		return result.Err()
 	}
+	DBUpdateUserInfoHdr(uuid, admin)
 
 	return nil
 }
@@ -1146,7 +1157,7 @@ func DBUpdateAllUsersCfgvn(tenant string, cfgvn uint64) error {
 	return nil
 }
 
-func DBDelUser(tenant string, userid string) error {
+func DBDelUser(tenant string, admin string, userid string) error {
 	var user User
 
 	uattr := DBFindUserAttr(tenant, userid)
@@ -1168,6 +1179,7 @@ func DBDelUser(tenant string, userid string) error {
 	if err != nil {
 		return err
 	}
+	DBUpdateUserInfoHdr(tenant, admin)
 
 	return nil
 }
@@ -1242,7 +1254,7 @@ func dbAddUserAttr(uuid string, user string, Uattr bson.M, replace bool) error {
 //}
 
 // This API will add a new user attributes doc or update existing one
-func DBAddUserAttr(uuid string, user string, Uattr bson.M) error {
+func DBAddUserAttr(uuid string, admin string, user string, Uattr bson.M) error {
 	if Uattr != nil {
 		attrset := DBFindAllAttrSet(uuid)
 		nattrs := 0
@@ -1269,7 +1281,7 @@ func DBAddUserAttr(uuid string, user string, Uattr bson.M) error {
 
 	err := dbAddUserAttr(uuid, user, Uattr, false)
 	if err == nil {
-		DBUpdateUserAttrHdr(uuid)
+		DBUpdateUserAttrHdr(uuid, admin)
 	}
 	return err
 }
@@ -1330,7 +1342,7 @@ func DBFindAllUserAttrs(tenant string) []bson.M {
 	return nuserAttrs[:j]
 }
 
-func DBDelUserAttr(tenant string, userid string) error {
+func DBDelUserAttr(tenant string, admin string, userid string) error {
 	userAttrCltn := dbGetCollection(tenant, "NxtUserAttr")
 	if userAttrCltn == nil {
 		return fmt.Errorf("Unknown Collection")
@@ -1341,12 +1353,12 @@ func DBDelUserAttr(tenant string, userid string) error {
 	)
 
 	if err == nil {
-		DBUpdateUserAttrHdr(tenant)
+		DBUpdateUserAttrHdr(tenant, admin)
 	}
 	return err
 }
 
-func DBDelAllUsersOneAttr(tenant string, todel string) error {
+func DBDelAllUsersOneAttr(tenant string, admin string, todel string) error {
 	userAttrCltn := dbGetCollection(tenant, "NxtUserAttr")
 	if userAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -1371,12 +1383,12 @@ func DBDelAllUsersOneAttr(tenant string, todel string) error {
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateUserAttrHdr(tenant)
+		DBUpdateUserAttrHdr(tenant, admin)
 	}
 	return err
 }
 
-func DBAddAllUsersOneAttr(tenant string, set AttrSet) error {
+func DBAddAllUsersOneAttr(tenant string, admin string, set AttrSet) error {
 	userAttrCltn := dbGetCollection(tenant, "NxtUserAttr")
 	if userAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -1404,7 +1416,7 @@ func DBAddAllUsersOneAttr(tenant string, set AttrSet) error {
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateUserAttrHdr(tenant)
+		DBUpdateUserAttrHdr(tenant, admin)
 	}
 	return err
 }
@@ -1412,9 +1424,15 @@ func DBAddAllUsersOneAttr(tenant string, set AttrSet) error {
 //----------------------App bundle Info and Attributes-----------------------
 
 // This API will add/update a bundle info Header
-func DBAddBundleInfoHdr(uuid string, data *DataHdr) error {
+func DBAddBundleInfoHdr(uuid string, admin string, data *DataHdr) error {
 
-	return DBAddCollectionHdr(uuid, data, "NxtAppInfo", "AppInfo")
+	return DBAddCollectionHdr(uuid, admin, data, "NxtAppInfo", "AppInfo")
+}
+
+// This API will update a bundle Info Header
+func DBUpdateBundleInfoHdr(uuid string, admin string) error {
+
+	return DBUpdateCollectionHdr(uuid, admin, "NxtAppInfo", "AppInfo")
 }
 
 func DBFindBundleInfoHdr(tenant string) *DataHdr {
@@ -1428,15 +1446,15 @@ func DBDelBundleInfoHdr(tenant string) error {
 }
 
 // This API will add a bundle Attribute Header
-func DBAddBundleAttrHdr(uuid string, data *DataHdr) error {
+func DBAddBundleAttrHdr(uuid string, admin string, data *DataHdr) error {
 
-	return DBAddCollectionHdr(uuid, data, "NxtAppAttr", "AppAttr")
+	return DBAddCollectionHdr(uuid, admin, data, "NxtAppAttr", "AppAttr")
 }
 
 // This API will update a bundle Attribute Header
-func DBUpdateBundleAttrHdr(uuid string) error {
+func DBUpdateBundleAttrHdr(uuid string, admin string) error {
 
-	return DBUpdateCollectionHdr(uuid, "NxtAppAttr", "AppAttr")
+	return DBUpdateCollectionHdr(uuid, admin, "NxtAppAttr", "AppAttr")
 }
 
 func DBFindBundleAttrHdr(tenant string) *DataHdr {
@@ -1464,7 +1482,7 @@ type Bundle struct {
 }
 
 // This API will add/update a new bundle
-func DBAddBundle(uuid string, data *Bundle) error {
+func DBAddBundle(uuid string, admin string, data *Bundle) error {
 
 	tenant := DBFindTenant(uuid)
 	if tenant == nil {
@@ -1557,6 +1575,7 @@ func DBAddBundle(uuid string, data *Bundle) error {
 	if result.Err() != nil {
 		return result.Err()
 	}
+	DBUpdateBundleInfoHdr(uuid, admin)
 
 	err := DBAddClusterBundle(uuid, data)
 	if err != nil {
@@ -1695,7 +1714,7 @@ func DBUpdateAllBundlesCfgvn(tenant string, cfgvn uint64) error {
 	return nil
 }
 
-func DBDelBundle(tenant string, bundleid string) error {
+func DBDelBundle(tenant string, admin string, bundleid string) error {
 	var bun Bundle
 
 	battr := DBFindBundleAttr(tenant, bundleid)
@@ -1717,6 +1736,7 @@ func DBDelBundle(tenant string, bundleid string) error {
 	if err != nil {
 		return err
 	}
+	DBUpdateBundleInfoHdr(tenant, admin)
 
 	err = DBDelClusterBundle(tenant, bundleid)
 	if err != nil {
@@ -1788,7 +1808,7 @@ func dbAddBundleAttr(uuid string, bid string, Battr bson.M, replace bool) error 
 
 // This API will add/update a bundle attribute. If the data is nil,
 // it just updates the "base" attributes and returns
-func DBAddBundleAttr(uuid string, bid string, Battr bson.M) error {
+func DBAddBundleAttr(uuid string, admin string, bid string, Battr bson.M) error {
 	dbBundle := DBFindBundle(uuid, bid)
 	if dbBundle == nil {
 		return fmt.Errorf("Cannot find bundle")
@@ -1822,7 +1842,7 @@ func DBAddBundleAttr(uuid string, bid string, Battr bson.M) error {
 	}
 	err := dbAddBundleAttr(uuid, bid, Battr, false)
 	if err == nil {
-		DBUpdateBundleAttrHdr(uuid)
+		DBUpdateBundleAttrHdr(uuid, admin)
 	}
 	return err
 }
@@ -1883,7 +1903,7 @@ func DBFindAllBundleAttrs(tenant string) []bson.M {
 	return nbundleAttrs[:j]
 }
 
-func DBDelBundleAttr(tenant string, bundleid string) error {
+func DBDelBundleAttr(tenant string, admin string, bundleid string) error {
 	appAttrCltn := dbGetCollection(tenant, "NxtAppAttr")
 	if appAttrCltn == nil {
 		return fmt.Errorf("Unknown Collection")
@@ -1894,12 +1914,12 @@ func DBDelBundleAttr(tenant string, bundleid string) error {
 	)
 
 	if err == nil {
-		DBUpdateBundleAttrHdr(tenant)
+		DBUpdateBundleAttrHdr(tenant, admin)
 	}
 	return err
 }
 
-func DBDelAllBundlesOneAttr(tenant string, todel string) error {
+func DBDelAllBundlesOneAttr(tenant string, admin string, todel string) error {
 	appAttrCltn := dbGetCollection(tenant, "NxtAppAttr")
 	if appAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -1924,12 +1944,12 @@ func DBDelAllBundlesOneAttr(tenant string, todel string) error {
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateBundleAttrHdr(tenant)
+		DBUpdateBundleAttrHdr(tenant, admin)
 	}
 	return err
 }
 
-func DBAddAllBundlesOneAttr(tenant string, set AttrSet) error {
+func DBAddAllBundlesOneAttr(tenant string, admin string, set AttrSet) error {
 	appAttrCltn := dbGetCollection(tenant, "NxtAppAttr")
 	if appAttrCltn == nil {
 		return fmt.Errorf("Cant find AppGroup collection")
@@ -1957,7 +1977,7 @@ func DBAddAllBundlesOneAttr(tenant string, set AttrSet) error {
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateBundleAttrHdr(tenant)
+		DBUpdateBundleAttrHdr(tenant, admin)
 	}
 	return err
 }
@@ -1965,16 +1985,16 @@ func DBAddAllBundlesOneAttr(tenant string, set AttrSet) error {
 //-------------------------------Host Attributes -------------------------
 
 // This API will add a Host Attributes Header
-func DBAddHostAttrHdr(uuid string, data *DataHdr) error {
+func DBAddHostAttrHdr(uuid string, admin string, data *DataHdr) error {
 
-	return DBAddCollectionHdr(uuid, data, "NxtHostAttr", "HostAttr")
+	return DBAddCollectionHdr(uuid, admin, data, "NxtHostAttr", "HostAttr")
 
 }
 
 // This API will update a Host Attributes Header
-func DBUpdateHostAttrHdr(uuid string) error {
+func DBUpdateHostAttrHdr(uuid string, admin string) error {
 
-	return DBUpdateCollectionHdr(uuid, "NxtHostAttr", "HostAttr")
+	return DBUpdateCollectionHdr(uuid, admin, "NxtHostAttr", "HostAttr")
 
 }
 
@@ -2115,7 +2135,7 @@ func dbAddHostAttr(uuid string, host string, Hattr bson.M, replace bool) error {
 }
 
 // This API will add/update a host attributes doc
-func DBAddHostAttr(uuid string, data []byte) error {
+func DBAddHostAttr(uuid string, admin string, data []byte) error {
 	var Hattr bson.M
 
 	err := json.Unmarshal(data, &Hattr)
@@ -2174,7 +2194,7 @@ func DBAddHostAttr(uuid string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	DBUpdateHostAttrHdr(uuid)
+	DBUpdateHostAttrHdr(uuid, admin)
 
 	if !found {
 		err = dbaddTenantDomain(uuid, host)
@@ -2186,7 +2206,7 @@ func DBAddHostAttr(uuid string, data []byte) error {
 	return nil
 }
 
-func DBDelHostAttr(tenant string, hostid string) error {
+func DBDelHostAttr(tenant string, admin string, hostid string) error {
 	hostAttrCltn := dbGetCollection(tenant, "NxtHostAttr")
 	if hostAttrCltn == nil {
 		return fmt.Errorf("Unknown Collection")
@@ -2212,7 +2232,7 @@ func DBDelHostAttr(tenant string, hostid string) error {
 	if err != nil {
 		return err
 	}
-	DBUpdateHostAttrHdr(tenant)
+	DBUpdateHostAttrHdr(tenant, admin)
 	err = dbdelTenantDomain(tenant, hostid)
 	if err != nil {
 		return err
@@ -2221,7 +2241,7 @@ func DBDelHostAttr(tenant string, hostid string) error {
 	return nil
 }
 
-func DBDelAllHostsOneAttr(tenant string, todel string) error {
+func DBDelAllHostsOneAttr(tenant string, admin string, todel string) error {
 	hostAttrCltn := dbGetCollection(tenant, "NxtHostAttr")
 	if hostAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -2252,7 +2272,7 @@ func DBDelAllHostsOneAttr(tenant string, todel string) error {
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateHostAttrHdr(tenant)
+		DBUpdateHostAttrHdr(tenant, admin)
 	}
 	return err
 }
@@ -2289,7 +2309,7 @@ func defaultType(set AttrSet) interface{} {
 	return 0
 }
 
-func DBAddAllHostsOneAttr(tenant string, set AttrSet) error {
+func DBAddAllHostsOneAttr(tenant string, admin string, set AttrSet) error {
 	hostAttrCltn := dbGetCollection(tenant, "NxtHostAttr")
 	if hostAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -2323,7 +2343,7 @@ func DBAddAllHostsOneAttr(tenant string, set AttrSet) error {
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateHostAttrHdr(tenant)
+		DBUpdateHostAttrHdr(tenant, admin)
 	}
 	return err
 }
@@ -2331,16 +2351,16 @@ func DBAddAllHostsOneAttr(tenant string, set AttrSet) error {
 //-------------------------------Trace Attributes -------------------------
 
 // This API will add a Trace Requests Header
-func DBAddTraceRequestsHdr(uuid string, data *DataHdr) error {
+func DBAddTraceRequestsHdr(uuid string, admin string, data *DataHdr) error {
 
-	return DBAddCollectionHdr(uuid, data, "NxtTraceRequests", "TraceReqs")
+	return DBAddCollectionHdr(uuid, admin, data, "NxtTraceRequests", "TraceReqs")
 
 }
 
 // This API will update a Trace Requests Header
-func DBUpdateTraceRequestsHdr(uuid string) error {
+func DBUpdateTraceRequestsHdr(uuid string, admin string) error {
 
-	return DBUpdateCollectionHdr(uuid, "NxtTraceRequests", "TraceReqs")
+	return DBUpdateCollectionHdr(uuid, admin, "NxtTraceRequests", "TraceReqs")
 
 }
 
@@ -2395,11 +2415,11 @@ func dbAddTraceReq(uuid string, traceid string, Uattr bson.M, replace bool) erro
 }
 
 // This API will add a new trace requests doc or update existing one
-func DBAddTraceReq(uuid string, traceid string, Uattr bson.M) error {
+func DBAddTraceReq(uuid string, admin string, traceid string, Uattr bson.M) error {
 
 	err := dbAddTraceReq(uuid, traceid, Uattr, false)
 	if err == nil {
-		DBUpdateTraceRequestsHdr(uuid)
+		DBUpdateTraceRequestsHdr(uuid, admin)
 	}
 	return err
 }
@@ -2463,7 +2483,7 @@ func DBFindAllTraceReqs(tenant string) []bson.M {
 }
 
 // Delete a trace request
-func DBDelTraceReq(tenant string, traceid string) error {
+func DBDelTraceReq(tenant string, admin string, traceid string) error {
 	traceReqCltn := dbGetCollection(tenant, "NxtTraceRequests")
 	if traceReqCltn == nil {
 		return fmt.Errorf("Unknown Collection")
@@ -2474,13 +2494,13 @@ func DBDelTraceReq(tenant string, traceid string) error {
 	)
 
 	if err == nil {
-		DBUpdateTraceRequestsHdr(tenant)
+		DBUpdateTraceRequestsHdr(tenant, admin)
 	}
 	return err
 }
 
 // Remove one attribute from all trace requests
-func DBDelAllTraceReqsOneAttr(tenant string, attrtodel string) error {
+func DBDelAllTraceReqsOneAttr(tenant string, admin string, attrtodel string) error {
 	var tracereq bson.M
 
 	traceReqCltn := dbGetCollection(tenant, "NxtTraceRequests")
@@ -2506,7 +2526,7 @@ func DBDelAllTraceReqsOneAttr(tenant string, attrtodel string) error {
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateTraceRequestsHdr(tenant)
+		DBUpdateTraceRequestsHdr(tenant, admin)
 	}
 	return err
 }

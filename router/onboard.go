@@ -245,7 +245,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 
 	var data db.TenantJson
 	data.ID = signup.Tenant
-	err = db.DBAddTenant(&data, false)
+	err = db.DBAddTenant(&data, signup.Email, false)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -271,14 +271,14 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 	var user db.User
 	user.Uid = signup.Email
 	user.Email = signup.Email
-	err = db.DBAddUser(signup.Tenant, &user)
+	err = db.DBAddUser(signup.Tenant, user.Uid, &user)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
 		return
 	}
 	// Add "base" attributes
-	err = db.DBAddUserAttr(signup.Tenant, user.Uid, nil)
+	err = db.DBAddUserAttr(signup.Tenant, user.Uid, user.Uid, nil)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -363,7 +363,11 @@ func modifytenantHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data.ID = r.Context().Value("tenant").(string)
-	err = db.DBAddTenant(&data, true)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	err = db.DBAddTenant(&data, admin, true)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -393,7 +397,11 @@ func addtenantHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBAddTenant(&data, false)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	err = db.DBAddTenant(&data, admin, false)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -799,6 +807,10 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(string)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
 	_, err = IdpAddUser(API, TOKEN, data.Uid, uuid, "regular")
 	if err != nil {
 		msg := "Adding user to IDP fail:" + err.Error()
@@ -808,14 +820,14 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = db.DBAddUser(uuid, &data)
+	err = db.DBAddUser(uuid, admin, &data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
 		return
 	}
 	// Add/Update base attributes
-	err = db.DBAddUserAttr(uuid, data.Uid, nil)
+	err = db.DBAddUserAttr(uuid, admin, data.Uid, nil)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -864,6 +876,10 @@ func delUserHandler(w http.ResponseWriter, r *http.Request) {
 	v := mux.Vars(r)
 	userid := v["userid"]
 	uuid := r.Context().Value("tenant").(string)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
 
 	err := IdpDelUser(API, TOKEN, userid, uuid)
 	if err != nil {
@@ -872,11 +888,11 @@ func delUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = db.DBDelUserAttr(uuid, userid)
+	err = db.DBDelUserAttr(uuid, admin, userid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {
-		err = db.DBDelUser(uuid, userid)
+		err = db.DBDelUser(uuid, admin, userid)
 		if err != nil {
 			result.Result = err.Error()
 		} else {
@@ -886,12 +902,29 @@ func delUserHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
+// Get  attribute set
+func getAllAttrSet(w http.ResponseWriter, r *http.Request) {
+	uuid := r.Context().Value("tenant").(string)
+	set := db.DBFindAllAttrSet(uuid)
+	if set == nil {
+		result := make([]db.AttrSet, 0)
+		utils.WriteResult(w, result)
+	} else {
+		result := set
+		utils.WriteResult(w, result)
+	}
+}
+
 // Add a tenants attribute set
 func addAttrSet(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 	var data db.AttrSet
 
 	uuid := r.Context().Value("tenant").(string)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		result.Result = "Add tenant attribute set - HTTP Req Read fail"
@@ -905,7 +938,7 @@ func addAttrSet(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBAddAttrSet(uuid, data)
+	err = db.DBAddAttrSet(uuid, admin, data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -922,6 +955,10 @@ func delAttrSet(w http.ResponseWriter, r *http.Request) {
 	var data db.AttrSet
 
 	uuid := r.Context().Value("tenant").(string)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		result.Result = "Add tenant attribute set - HTTP Req Read fail"
@@ -935,7 +972,7 @@ func delAttrSet(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBDelAttrSet(uuid, data)
+	err = db.DBDelAttrSet(uuid, admin, data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -965,7 +1002,11 @@ func addUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(string)
-	err = db.DBAddUserAttrHdr(uuid, &data)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	err = db.DBAddUserAttrHdr(uuid, admin, &data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1017,7 +1058,11 @@ func addUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(string)
-	err = db.DBAddUserAttr(uuid, user, Uattr)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	err = db.DBAddUserAttr(uuid, admin, user, Uattr)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1079,14 +1124,18 @@ func addBundleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(string)
-	err = db.DBAddBundle(uuid, &data)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	err = db.DBAddBundle(uuid, admin, &data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
 		return
 	}
 	// Add/update "base" attributes
-	err = db.DBAddBundleAttr(uuid, data.Bid, nil)
+	err = db.DBAddBundleAttr(uuid, admin, data.Bid, nil)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1136,12 +1185,16 @@ func delBundleHandler(w http.ResponseWriter, r *http.Request) {
 	v := mux.Vars(r)
 	bid := v["bid"]
 	uuid := r.Context().Value("tenant").(string)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
 
-	err := db.DBDelBundleAttr(uuid, bid)
+	err := db.DBDelBundleAttr(uuid, admin, bid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {
-		err = db.DBDelBundle(uuid, bid)
+		err = db.DBDelBundle(uuid, admin, bid)
 		if err != nil {
 			result.Result = err.Error()
 		} else {
@@ -1170,7 +1223,11 @@ func addBundleAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(string)
-	err = db.DBAddBundleAttrHdr(uuid, &data)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	err = db.DBAddBundleAttrHdr(uuid, admin, &data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1179,19 +1236,6 @@ func addBundleAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 
 	result.Result = "ok"
 	utils.WriteResult(w, result)
-}
-
-// Get  attribute set
-func getAllAttrSet(w http.ResponseWriter, r *http.Request) {
-	uuid := r.Context().Value("tenant").(string)
-	set := db.DBFindAllAttrSet(uuid)
-	if set == nil {
-		result := make([]db.AttrSet, 0)
-		utils.WriteResult(w, result)
-	} else {
-		result := set
-		utils.WriteResult(w, result)
-	}
 }
 
 // Get bundle attribute header
@@ -1235,7 +1279,11 @@ func addBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(string)
-	err = db.DBAddBundleAttr(uuid, bid, Battr)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	err = db.DBAddBundleAttr(uuid, admin, bid, Battr)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1342,7 +1390,11 @@ func addHostAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(string)
-	err = db.DBAddHostAttrHdr(uuid, &data)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	err = db.DBAddHostAttrHdr(uuid, admin, &data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1364,7 +1416,11 @@ func addHostAttrHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(string)
-	err = db.DBAddHostAttr(uuid, body)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	err = db.DBAddHostAttr(uuid, admin, body)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1384,7 +1440,11 @@ func delHostAttrHandler(w http.ResponseWriter, r *http.Request) {
 	// IP/Mask will be sent as IP_Mask since / will be interpreted as an http path
 	host = strings.ReplaceAll(host, "_", "/")
 	uuid := r.Context().Value("tenant").(string)
-	err := db.DBDelHostAttr(uuid, host)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	err := db.DBDelHostAttr(uuid, admin, host)
 	if err != nil {
 		result.Result = err.Error()
 	} else {
@@ -1594,7 +1654,11 @@ func addTraceRequestsHdrHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(string)
-	err = db.DBAddTraceRequestsHdr(uuid, &data)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	err = db.DBAddTraceRequestsHdr(uuid, admin, &data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1633,7 +1697,11 @@ func addTraceReqHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(string)
-	err = db.DBAddTraceReq(uuid, traceid, Treq)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	err = db.DBAddTraceReq(uuid, admin, traceid, Treq)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1651,8 +1719,12 @@ func delTraceReqHandler(w http.ResponseWriter, r *http.Request) {
 	v := mux.Vars(r)
 	traceid := v["traceid"]
 	uuid := r.Context().Value("tenant").(string)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
 
-	err := db.DBDelTraceReq(uuid, traceid)
+	err := db.DBDelTraceReq(uuid, admin, traceid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {
