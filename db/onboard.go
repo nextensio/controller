@@ -1373,6 +1373,9 @@ func DBDelAllUsersOneAttr(tenant string, admin string, todel string) error {
 		if err = cursor.Decode(&attr); err != nil {
 			break
 		}
+		if attr["_id"].(string) == HDRKEY {
+			continue
+		}
 		delete(attr, todel)
 		if err = dbAddUserAttr(tenant, attr["_id"].(string), attr, true); err != nil {
 			break
@@ -1405,6 +1408,9 @@ func DBAddAllUsersOneAttr(tenant string, admin string, set AttrSet) error {
 		var attr bson.M = make(bson.M)
 		if err = cursor.Decode(&attr); err != nil {
 			break
+		}
+		if attr["_id"].(string) == HDRKEY {
+			continue
 		}
 		attr[set.Name] = value
 		if err = dbAddUserAttr(tenant, attr["_id"].(string), attr, true); err != nil {
@@ -1934,6 +1940,9 @@ func DBDelAllBundlesOneAttr(tenant string, admin string, todel string) error {
 		if err = cursor.Decode(&attr); err != nil {
 			break
 		}
+		if attr["_id"].(string) == HDRKEY {
+			continue
+		}
 		delete(attr, todel)
 		if err = dbAddBundleAttr(tenant, attr["_id"].(string), attr, true); err != nil {
 			break
@@ -1966,6 +1975,9 @@ func DBAddAllBundlesOneAttr(tenant string, admin string, set AttrSet) error {
 		var attr bson.M = make(bson.M)
 		if err = cursor.Decode(&attr); err != nil {
 			break
+		}
+		if attr["_id"].(string) == HDRKEY {
+			continue
 		}
 		attr[set.Name] = value
 		if err = dbAddBundleAttr(tenant, attr["_id"].(string), attr, true); err != nil {
@@ -2515,6 +2527,9 @@ func DBDelAllTraceReqsOneAttr(tenant string, admin string, attrtodel string) err
 	for cursor.Next(context.TODO()) {
 		if err = cursor.Decode(&tracereq); err != nil {
 			break
+		}
+		if tracereq["_id"].(string) == HDRKEY {
+			continue
 		}
 		delete(tracereq, attrtodel)
 		if err = dbAddTraceReq(tenant, tracereq["_id"].(string), tracereq, true); err != nil {
