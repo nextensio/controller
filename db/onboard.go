@@ -1432,23 +1432,23 @@ func DBAddAllUsersOneAttr(tenant string, admin string, set AttrSet) error {
 // This API will add/update a bundle info Header
 func DBAddBundleInfoHdr(uuid string, admin string, data *DataHdr) error {
 
-	return DBAddCollectionHdr(uuid, admin, data, "NxtAppInfo", "AppInfo")
+	return DBAddCollectionHdr(uuid, admin, data, "NxtApps", "AppInfo")
 }
 
 // This API will update a bundle Info Header
 func DBUpdateBundleInfoHdr(uuid string, admin string) error {
 
-	return DBUpdateCollectionHdr(uuid, admin, "NxtAppInfo", "AppInfo")
+	return DBUpdateCollectionHdr(uuid, admin, "NxtApps", "AppInfo")
 }
 
 func DBFindBundleInfoHdr(tenant string) *DataHdr {
 
-	return DBFindCollectionHdr(tenant, "NxtAppInfo", "AppInfo")
+	return DBFindCollectionHdr(tenant, "NxtApps", "AppInfo")
 }
 
 func DBDelBundleInfoHdr(tenant string) error {
 
-	return DBDelCollectionHdr(tenant, "NxtAppInfo", "AppInfo")
+	return DBDelCollectionHdr(tenant, "NxtApps", "AppInfo")
 }
 
 // This API will add a bundle Attribute Header
