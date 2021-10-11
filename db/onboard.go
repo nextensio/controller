@@ -399,8 +399,8 @@ func DBAddTenantCluster(tenant string, data *TenantCluster) error {
 			// just use the existing image
 			data.Image = tcl.Image
 		} else {
-			// Default to image specified at tenant level
-			data.Image = "registry.gitlab.com/nextensio/cluster/minion:latest"
+			// Default image
+			data.Image = "registry.gitlab.com/nextensio/cluster/minion:production"
 		}
 	}
 	if data.ApodSets == 0 {
