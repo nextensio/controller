@@ -1591,6 +1591,39 @@ func DBAddBundle(uuid string, admin string, data *Bundle) error {
 	return nil
 }
 
+func DBUpdateBundle(uuid string, admin string, data *Bundle) error {
+
+	// The upsert option asks the DB to add if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+
+	appCltn := dbGetCollection(uuid, "NxtApps")
+	if appCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	result := appCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": data.Bid},
+		bson.D{
+			{"$set", bson.M{"name": data.Bundlename,
+				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
+				"services": data.Services, "cpodrepl": data.CpodRepl,
+				"sharedkey": data.SharedKey}},
+		},
+		&opt,
+	)
+	if result.Err() != nil {
+		return result.Err()
+	}
+	DBUpdateBundleInfoHdr(uuid, admin)
+
+	return nil
+}
+
 func DBFindBundle(tenant string, bundleid string) *Bundle {
 	var app Bundle
 	appCltn := dbGetCollection(tenant, "NxtApps")
@@ -1799,6 +1832,31 @@ func dbAddBundleAttr(uuid string, bid string, Battr bson.M, replace bool) error 
 		}
 	}
 	return nil
+}
+
+func dbUpdateBundleServices(tenant string, admin string, app string) {
+	// Get all bundles
+	// For each bundle, check if it has any service(s) matching the incoming
+	// service name. If so, remove the service(s) and update the bundle
+	bundles := DBFindAllBundlesStruct(tenant)
+	if bundles == nil {
+		return
+	}
+	for _, b := range bundles {
+		nsvcs := []string{}
+		changed := false
+		for _, svc := range b.Services {
+			if strings.Contains(svc, app) {
+				changed = true
+				continue
+			}
+			nsvcs = append(nsvcs, svc)
+		}
+		if changed {
+			b.Services = nsvcs
+			DBUpdateBundle(tenant, admin, &b)
+		}
+	}
 }
 
 // Sample app-bundle attributes schema. It is transparent to the controller.
@@ -2245,6 +2303,7 @@ func DBDelHostAttr(tenant string, admin string, hostid string) error {
 		return err
 	}
 	DBUpdateHostAttrHdr(tenant, admin)
+	dbUpdateBundleServices(tenant, admin, hostid)
 	err = dbdelTenantDomain(tenant, hostid)
 	if err != nil {
 		return err
