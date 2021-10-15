@@ -1285,7 +1285,7 @@ func testHostAttrAdd_v1(t *testing.T, tenantadd bool, host string) {
 
 	attr := HostAttr_v1{
 		Host:       host,
-		Routeattrs: []HostAttrs_v1{{Tag: "v1", Location: "boston"}},
+		Routeattrs: []HostAttrs_v1{{Tag: "v1", Location: "boston"}, {Tag: "v2", Location: "chicago"}},
 	}
 	body, err := json.Marshal(attr)
 	if err != nil {
@@ -1336,7 +1336,7 @@ func testHostAttrAdd_v1(t *testing.T, tenantadd bool, host string) {
 		t.Error()
 		return
 	}
-	if dbAttr.Host != "google.com" || len(dbAttr.Routeattrs) != 1 {
+	if dbAttr.Host != "google.com" || len(dbAttr.Routeattrs) != 2 {
 		t.Error()
 		return
 	}
@@ -1389,16 +1389,33 @@ func TestHostAttrGet_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	if dbAttr.Host != "google.com" || len(dbAttr.Routeattrs) != 1 {
+	if dbAttr.Host != "google.com" || len(dbAttr.Routeattrs) != 2 {
 		t.Error()
 		return
 	}
 }
 
 func TestHostAttrDel_v1(t *testing.T) {
+	// Add an App
+	// Then add an AppGroup with services based on the App
+	// Confirm that AppGroup with two services has been created
+	// Delete the App
+	// This should remove the services based on the App from the AppGroup
+	// Confirm that the AppGroup does not have the services
 	db.DBReinit()
 	testHostAttrAdd_v1(t, true, "google.com")
+	testBundleAdd_v1(t, false, "youtube", []string{"v1.google.com", "v2.google.com"})
 	dbTenants := db.DBFindAllTenants()
+
+	bun := db.DBFindBundle(dbTenants[0].ID, "youtube")
+	if bun == nil {
+		t.Error()
+		return
+	}
+	if len(bun.Services) != 2 {
+		t.Error()
+		return
+	}
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/hostattr/google.com", nil)
 	req.Header.Add("Accept", "application/json")
@@ -1427,6 +1444,15 @@ func TestHostAttrDel_v1(t *testing.T) {
 	}
 	dbBson := db.DBFindHostAttr(dbTenants[0].ID, "google.com")
 	if dbBson != nil {
+		t.Error()
+		return
+	}
+	bun = db.DBFindBundle(dbTenants[0].ID, "youtube")
+	if bun == nil {
+		t.Error()
+		return
+	}
+	if len(bun.Services) != 0 {
 		t.Error()
 		return
 	}
