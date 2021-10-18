@@ -106,10 +106,11 @@ type TenantJson struct {
 }
 
 type Tenant struct {
-	ID       string   `json:"_id" bson:"_id"`
-	Name     string   `json:"name" bson:"name"`
-	Domains  []Domain `json:"domains" bson:"domains"`
-	EasyMode bool     `json:"easymode" bson:"easymode"`
+	ID          string   `json:"_id" bson:"_id"`
+	Name        string   `json:"name" bson:"name"`
+	Domains     []Domain `json:"domains" bson:"domains"`
+	EasyMode    bool     `json:"easymode" bson:"easymode"`
+	SplitTunnel bool     `json:"splittunnel" bson:"splittunnel"`
 }
 
 type Domain struct {
