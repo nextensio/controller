@@ -147,7 +147,11 @@ func GlobalMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 	}
 	allowed := (match[1] == "get" && match[2] == "onboard")
 	if !allowed {
+		// TODO: DEPRECATE THIS
 		allowed = (match[1] == "get" && strings.HasPrefix(match[2], "keepalive"))
+	}
+	if !allowed {
+		allowed = (match[1] == "add" && strings.HasPrefix(match[2], "keepaliverequest"))
 	}
 	usertype := (*ctx).Value("usertype").(string)
 	if usertype != "superadmin" && !allowed {

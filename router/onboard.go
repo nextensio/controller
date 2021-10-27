@@ -20,10 +20,7 @@ func rdonlyOnboard() {
 	// tenant-id and expects to get information like the gateway in response
 	getGlobalRoute("/onboard", "GET", onboardHandler)
 
-	// This route is used by agent post onboarding, for keepalives. This is kept as a global
-	// route and not a per-tenant route (which it can be) because agents coming to us with
-	// keepalives will have the lowest of all privileges and might not be able to access
-	// the tenant API space
+	// TODO: DEPRECATE the GET /keepalive, we need only the POST /keepaliverequest
 	getGlobalRoute("/keepalive/{version}/{uuid}", "GET", keepaliveHandler)
 
 	//*******************************************************************/
@@ -107,6 +104,12 @@ func rdonlyOnboard() {
 
 	// This route is used to get all trace requests for a tenant
 	getTenantRoute("/alltracereq", "GET", getAllTraceReqHandler)
+
+	// This route is used to get keepalive information for a user
+	getTenantRoute("/userstatus/{userid}", "GET", getUserStatus)
+
+	// This route is used to get keepalive information for a user
+	getTenantRoute("/bundlestatus/{bid}", "GET", getBundleStatus)
 }
 
 func rdwrOnboard() {
@@ -132,6 +135,12 @@ func rdwrOnboard() {
 	delGlobalRoute("/tenant/{tenant-uuid}", "GET", deltenantHandler)
 
 	noauthRoute("/signup", "POST", signupHandler)
+
+	// This route is used by agents & connectors post onboarding, for keepalives.
+	// This is kept as a global route and not a per-tenant route (which it can be)
+	// because agents coming to us with keepalives will have the lowest of all privileges
+	// and might not be able to access the tenant API space
+	addGlobalRoute("/keepaliverequest", "POST", keepaliveReqHandler)
 
 	//*******************************************************************/
 	//            In Per-tenant DB
@@ -753,6 +762,7 @@ type KeepaliveResponse struct {
 	Version string `json:"version"`
 }
 
+// TODO: WILL BE DEPRECATED
 func keepaliveHandler(w http.ResponseWriter, r *http.Request) {
 	var result KeepaliveResponse
 
@@ -781,6 +791,61 @@ func keepaliveHandler(w http.ResponseWriter, r *http.Request) {
 			utils.WriteResult(w, result)
 			return
 		}
+	}
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+// TODO NOTE: THIS will be the biggest scale bottleneck for the controller
+// Tens of thousands of devices keepalive requesting will kill the controller
+// So we will need to find some alternative way of handling this, like split
+// the keepalive database into a seperate one (per tenant of course) and then
+// spread it across multiple controllers so each controller handles a set of
+// tenants and their keepalive database writes.
+func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
+	var result KeepaliveResponse
+	var data db.Keepalive
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Keepalive - HTTP Req Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		result.Result = "Keepalive - Error parsing json"
+		utils.WriteResult(w, result)
+		return
+	}
+	data.Source = r.RemoteAddr
+	data.Seen = time.Now().Unix()
+
+	userid := r.Context().Value("userid").(string)
+	tenant := r.Context().Value("user-tenant").(string)
+
+	t := db.DBFindTenant(tenant)
+	if t == nil {
+		result.Result = "Tenant not found"
+		utils.WriteResult(w, result)
+		return
+	}
+	user := db.DBFindUser(tenant, userid)
+	if user != nil {
+		result.Version = user.ConfigVersion
+		// We dont check the keepalive return value, keepalives are sent periodically
+		db.UserKeepalive(tenant, user, data)
+	} else {
+		bundle := db.DBFindBundle(tenant, userid)
+		if bundle != nil {
+			result.Version = bundle.ConfigVersion
+		} else {
+			result.Result = "IDP user/bundle not found on controller"
+			utils.WriteResult(w, result)
+			return
+		}
+		// We dont check the keepalive return value, keepalives are sent periodically
+		db.BundleKeepalive(tenant, bundle, data)
 	}
 	result.Result = "ok"
 	utils.WriteResult(w, result)
@@ -1732,5 +1797,23 @@ func delTraceReqHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		result.Result = "ok"
 	}
+	utils.WriteResult(w, result)
+}
+
+// Get details about user devices and their status
+func getUserStatus(w http.ResponseWriter, r *http.Request) {
+	v := mux.Vars(r)
+	userid := v["userid"]
+	uuid := r.Context().Value("tenant").(string)
+	result := db.DBFindUserStatus(uuid, userid)
+	utils.WriteResult(w, result)
+}
+
+// Get details about bundles and their status
+func getBundleStatus(w http.ResponseWriter, r *http.Request) {
+	v := mux.Vars(r)
+	bid := v["bid"]
+	uuid := r.Context().Value("tenant").(string)
+	result := db.DBFindBundleStatus(uuid, bid)
 	utils.WriteResult(w, result)
 }
