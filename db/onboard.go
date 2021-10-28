@@ -105,7 +105,7 @@ type Keepalive struct {
 	Gateway uint   `json:"gateway" bson:"gateway"`
 	Device  string `json:"device" bson:"device"`
 	Version string `json:"version" bson:"version"`
-	Source  string `bson:"source"`
+	Source  string `json:"source" bson:"source"`
 	Seen    int64  `bson:"seen"`
 }
 

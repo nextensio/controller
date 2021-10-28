@@ -818,7 +818,6 @@ func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	data.Source = r.RemoteAddr
 	data.Seen = time.Now().Unix()
 
 	userid := r.Context().Value("userid").(string)
