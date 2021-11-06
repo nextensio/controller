@@ -2370,6 +2370,28 @@ func dbAddHostAttr(uuid string, host string, Hattr bson.M, replace bool) error {
 	return nil
 }
 
+func DBValidateHostId(host string) string {
+	// Host ID format is label1[.label2][.label3]...[:port]
+	// No label should be "consul" or "query" or have length > 63
+	labels := strings.Split(host, ".")
+	numlabels := len(labels)
+	for i, lbl := range labels {
+		if lbl == "query" {
+			return "Invalid Host ID (" + host + ") - contains label \"query\""
+		}
+		if lbl == "consul" {
+			return "Invalid Host ID (" + host + ") - contains label \"consul\""
+		}
+		if len(lbl) > 63 {
+			return "Invalid Host ID (" + host + ") - contains label with length > 63"
+		}
+		if (i < (numlabels - 1)) && strings.Contains(lbl, ":") {
+			return "Invalid Host ID (" + host + ") - label contains : character"
+		}
+	}
+	return ""
+}
+
 // This API will add/update a host attributes doc
 func DBAddHostAttr(uuid string, admin string, data []byte) error {
 	var Hattr bson.M
@@ -2394,6 +2416,10 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 	// for which agent sends traffic to nextensio gateways.
 	// Bundles also need the update for connector to connector traffic
 	if !found {
+		sts := DBValidateHostId(host)
+		if sts != "" {
+			return fmt.Errorf(sts)
+		}
 		now := time.Now().Unix()
 		err := DBUpdateAllUsersCfgvn(uuid, uint64(now))
 		if err != nil {
