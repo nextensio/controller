@@ -735,7 +735,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	result.Userid = data.Userid
 	result.Tenant = data.Tenant
 	result.Cacert = cert.Cert
-	result.Domains = tenant.Domains
+	result.Domains = db.ProcessDomains(tenant.Domains)
 	if result.Domains == nil {
 		result.Domains = make([]db.Domain, 0)
 	}

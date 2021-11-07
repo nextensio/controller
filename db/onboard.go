@@ -100,6 +100,25 @@ func delEmpty(s []string) []string {
 	return r
 }
 
+// Remove port number from any app url. If this results in duplicate
+// urls, remove duplicate. Do this when sending domains to Agent.
+// Agent should not get a domain with a port #
+func ProcessDomains(s []Domain) []Domain {
+	var r []Domain
+	var svcs map[string]bool
+	svcs = make(map[string]bool)
+	for _, str := range s {
+		if strings.TrimSpace(str.Name) != "" {
+			splitstr := strings.Split(str.Name, ":")
+			svcs[splitstr[0]] = true
+		}
+	}
+	for svc, _ := range svcs {
+		r = append(r, Domain{Name: svc})
+	}
+	return r
+}
+
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type Keepalive struct {
 	Gateway uint   `json:"gateway" bson:"gateway"`
