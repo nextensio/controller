@@ -23,6 +23,9 @@ func rdonlyPolicy() {
 
 	// This route is used to get all host rules
 	getTenantRoute("/allhostrules", "GET", getAllHostRulesHandler)
+
+	// This route is used to get all trace req rules
+	getTenantRoute("/alltracereqrules", "GET", getAllTraceReqRulesHandler)
 }
 
 func rdwrPolicy() {
@@ -43,6 +46,12 @@ func rdwrPolicy() {
 
 	// This route is used by the tenant admin to delete a host ID rule
 	delTenantRoute("/hostrule/{host}/{rid}", "GET", delHostRuleHandler)
+
+	// This route is used by the tenant admin to add a new trace req rule
+	addTenantRoute("/tracereqrule/", "POST", addTraceReqRuleHandler)
+
+	// This route is used by the tenant admin to delete a trace req rule
+	delTenantRoute("/tracereqrule/{rid}", "GET", delTraceReqRuleHandler)
 }
 
 type AddpolicyResult struct {
@@ -136,7 +145,7 @@ func delpolicyHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-//------------------------------------Bundle and Host rules------------------------------
+//------------------------------------Bundle, Host and Trace Req rules------------------------------
 
 type RuleOpResult struct {
 	Result string `json:"Result"`
@@ -272,6 +281,75 @@ func delHostRuleHandler(w http.ResponseWriter, r *http.Request) {
 	ruleid := v["rid"]
 	uuid := r.Context().Value("tenant").(string)
 	err := db.DBDelHostRule(uuid, hostid, ruleid)
+	if err != nil {
+		result.Result = err.Error()
+	} else {
+		result = RuleOpResult{Result: "ok"}
+	}
+	utils.WriteResult(w, result)
+}
+
+// {"rid": "<value>", "rule":
+//      [ ["lefttoken", "operator", "righttoken", "type", "isArray"],
+//        ["lefttoken", "operator", "righttoken", "type", "isArray"],
+//        [ ... ]
+//      ]
+// Rule ID is also the trace request ID (has to be unique)
+// Add a new trace req rule
+func addTraceReqRuleHandler(w http.ResponseWriter, r *http.Request) {
+	var result RuleOpResult
+	var data db.TraceReqRule
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		fmt.Println(err)
+		result.Result = fmt.Sprintf("%v", err)
+		utils.WriteResult(w, result)
+		return
+	}
+	uuid := r.Context().Value("tenant").(string)
+	err = db.DBAddTraceReqRule(uuid, &data)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+type GetTraceReqRuleResult struct {
+	Result string `json:"Result"`
+	db.TraceReqRule
+}
+
+// Get all trace req rules
+func getAllTraceReqRulesHandler(w http.ResponseWriter, r *http.Request) {
+	uuid := r.Context().Value("tenant").(string)
+	rules := db.DBFindAllTraceReqRules(uuid)
+	if rules == nil {
+		rules = make([]db.TraceReqRule, 0)
+	}
+	utils.WriteResult(w, rules)
+
+}
+
+// Delete a trace req rule
+func delTraceReqRuleHandler(w http.ResponseWriter, r *http.Request) {
+	var result RuleOpResult
+
+	v := mux.Vars(r)
+	ruleid := v["rid"]
+	uuid := r.Context().Value("tenant").(string)
+	err := db.DBDelTraceReqRule(uuid, ruleid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {

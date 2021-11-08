@@ -297,3 +297,93 @@ func DBDelHostRule(tenant string, hostid string, ruleid string) error {
 
 	return err
 }
+
+//----------------------------------TraceRequest rules-----------------------------------
+// Trace Policy is generated from the rules for one or more trace requests
+
+type TraceReqRule struct {
+	Rid  string     `json:"rid" bson:"_id"`
+	Rule [][]string `json:"rule" bson:"rule"`
+}
+
+// This API will add a new trace req rule or update a trace req rule if it already exists
+func DBAddTraceReqRule(uuid string, data *TraceReqRule) error {
+
+	if DBFindTenant(uuid) == nil {
+		return fmt.Errorf("Cant find tenant %s", uuid)
+	}
+
+	// The upsert option asks the DB to add a tenant if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	traceReqRuleCltn := dbGetCollection(uuid, "NxtTraceReqRules")
+	if traceReqRuleCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	err := traceReqRuleCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": data.Rid},
+		bson.D{
+			{"$set", bson.M{"rule": data.Rule}},
+		},
+		&opt,
+	)
+
+	if err != nil {
+		return err.Err()
+	}
+	return nil
+}
+
+func DBFindTraceReqRule(tenant string, Id string) *TraceReqRule {
+	var rule TraceReqRule
+
+	traceReqRuleCltn := dbGetCollection(tenant, "NxtTraceReqRules")
+	if traceReqRuleCltn == nil {
+		return nil
+	}
+	err := traceReqRuleCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": Id},
+	).Decode(&rule)
+	if err != nil {
+		return nil
+	}
+	return &rule
+}
+
+func DBFindAllTraceReqRules(tenant string) []TraceReqRule {
+	var rules []TraceReqRule
+
+	traceReqRuleCltn := dbGetCollection(tenant, "NxtTraceReqRules")
+	if traceReqRuleCltn == nil {
+		return nil
+	}
+	cursor, err := traceReqRuleCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &rules)
+	if err != nil {
+		return nil
+	}
+
+	return rules
+}
+
+func DBDelTraceReqRule(tenant string, ruleid string) error {
+	traceReqRuleCltn := dbGetCollection(tenant, "NxtTraceReqRules")
+	if traceReqRuleCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	_, err := traceReqRuleCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": ruleid},
+	)
+
+	return err
+}
