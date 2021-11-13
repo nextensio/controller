@@ -26,6 +26,9 @@ func rdonlyPolicy() {
 
 	// This route is used to get all trace req rules
 	getTenantRoute("/alltracereqrules", "GET", getAllTraceReqRulesHandler)
+
+	// This route is used to get stats rule
+	getTenantRoute("/statsrule", "GET", getAllStatsRulesHandler)
 }
 
 func rdwrPolicy() {
@@ -52,6 +55,12 @@ func rdwrPolicy() {
 
 	// This route is used by the tenant admin to delete a trace req rule
 	delTenantRoute("/tracereqrule/{rid}", "GET", delTraceReqRuleHandler)
+
+	// This route is used by the tenant admin to add a new statsq rule
+	addTenantRoute("/statsrule/", "POST", addStatsRuleHandler)
+
+	// This route is used by the tenant admin to delete a stats rule
+	delTenantRoute("/statsrule/{rid}", "GET", delStatsRuleHandler)
 }
 
 type AddpolicyResult struct {
@@ -350,6 +359,73 @@ func delTraceReqRuleHandler(w http.ResponseWriter, r *http.Request) {
 	ruleid := v["rid"]
 	uuid := r.Context().Value("tenant").(string)
 	err := db.DBDelTraceReqRule(uuid, ruleid)
+	if err != nil {
+		result.Result = err.Error()
+	} else {
+		result = RuleOpResult{Result: "ok"}
+	}
+	utils.WriteResult(w, result)
+}
+
+// {"rid": "StatsRule", "rule":
+//      [ ["lefttoken", "operator", "righttoken", "type", "isArray"]
+//      ]
+// Rule ID is constant
+// Add a new stats rule
+func addStatsRuleHandler(w http.ResponseWriter, r *http.Request) {
+	var result RuleOpResult
+	var data db.StatsRule
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		fmt.Println(err)
+		result.Result = fmt.Sprintf("%v", err)
+		utils.WriteResult(w, result)
+		return
+	}
+	uuid := r.Context().Value("tenant").(string)
+	err = db.DBAddStatsRule(uuid, &data)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+type GetStatsRuleResult struct {
+	Result string `json:"Result"`
+	db.StatsRule
+}
+
+// Get stats rule
+func getAllStatsRulesHandler(w http.ResponseWriter, r *http.Request) {
+	uuid := r.Context().Value("tenant").(string)
+	rule := db.DBFindAllStatsRules(uuid)
+	if rule == nil {
+		rule = make([]db.StatsRule, 0)
+	}
+	utils.WriteResult(w, rule)
+
+}
+
+// Delete a stats rule
+func delStatsRuleHandler(w http.ResponseWriter, r *http.Request) {
+	var result RuleOpResult
+
+	v := mux.Vars(r)
+	ruleid := v["rid"]
+	uuid := r.Context().Value("tenant").(string)
+	err := db.DBDelStatsRule(uuid, ruleid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {

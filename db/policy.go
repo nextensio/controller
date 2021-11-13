@@ -387,3 +387,77 @@ func DBDelTraceReqRule(tenant string, ruleid string) error {
 
 	return err
 }
+
+//----------------------------------Stats rule-----------------------------------
+// Stats Policy is generated from a single rule called "StatsRule" that specifies the
+// user attributes to be used as dimensions for the stats
+
+type StatsRule struct {
+	Rid  string     `json:"rid" bson:"_id"`
+	Rule [][]string `json:"rule" bson:"rule"`
+}
+
+// This API will add a new stats rule or update stats rule if it already exists
+func DBAddStatsRule(uuid string, data *StatsRule) error {
+
+	if DBFindTenant(uuid) == nil {
+		return fmt.Errorf("Cant find tenant %s", uuid)
+	}
+
+	// The upsert option asks the DB to add a tenant if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	statsRuleCltn := dbGetCollection(uuid, "NxtStatsRule")
+	if statsRuleCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	err := statsRuleCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": data.Rid},
+		bson.D{
+			{"$set", bson.M{"rule": data.Rule}},
+		},
+		&opt,
+	)
+
+	if err != nil {
+		return err.Err()
+	}
+	return nil
+}
+
+func DBFindAllStatsRules(tenant string) []StatsRule {
+	var rules []StatsRule
+
+	statsRuleCltn := dbGetCollection(tenant, "NxtStatsRule")
+	if statsRuleCltn == nil {
+		return nil
+	}
+	cursor, err := statsRuleCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &rules)
+	if err != nil {
+		return nil
+	}
+
+	return rules
+}
+
+func DBDelStatsRule(tenant string, ruleid string) error {
+	statsRuleCltn := dbGetCollection(tenant, "NxtStatsRule")
+	if statsRuleCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	_, err := statsRuleCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": ruleid},
+	)
+
+	return err
+}
