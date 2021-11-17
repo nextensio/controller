@@ -344,7 +344,15 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
+// This function syncs tenants and their users with the Idp to create a group per
+// tenant and add tenants's users to the group. If a user does not exist in the
+// Idp, the user is added to the Idp first before assigning to the group.
+// Finally, the usertype is updated in the user record in our DB. It is taken
+// from the Idp if the user existed there, else usertype is treated as "regular".
 func SyncIdp() {
+	var data db.User
+
+	// Find all tenants. For each tenant, get all users
 	tenants := db.DBFindAllTenants()
 	glog.Infof("SyncIdp: found %d tenants", len(tenants))
 	for _, tenant := range tenants {
@@ -356,18 +364,37 @@ func SyncIdp() {
 		}
 		users := db.DBFindAllUsers(tenant.ID)
 		for _, user := range users {
-			uid := user["_id"].(string)
-			usertype := user["usertype"].(string)
-			glog.Infof("SyncIdp: syncing user " + uid + " of type " + usertype)
-			idpusr, err := IdpAddUser(API, TOKEN, uid, tenant.ID, usertype, false)
-			if err == nil {
-				glog.Infof("SyncIdp: added user " + uid + " to Idp")
-				err = IdpAddUserToGroup(API, TOKEN, gid, idpusr, uid, false)
+			body, err := json.Marshal(user)
+			if err != nil {
+				continue
+			}
+			err = json.Unmarshal(body, &data)
+			if err != nil {
+				continue
+			}
+			userInIdp := true
+			idpUid, _, usertype, err := IdpGetUserInfo(API, TOKEN, data.Uid)
+			if err != nil {
+				// User doesn't exist, so add user
+				usertype = "regular"
+				idpUid, err = IdpAddUser(API, TOKEN, data.Uid, tenant.ID, usertype, false)
 				if err != nil {
-					glog.Infof("SyncIdp: user "+uid+" add to Idp group failed - %v", err)
+					userInIdp = false
+					glog.Infof("SyncIdp: failed to add user " + data.Uid + " to Idp - %v", err)
 				} else {
-					glog.Infof("SyncIdp: user " + uid + " added to Idp group")
+					glog.Infof("SyncIdp: added user " + data.Uid + " to Idp")
 				}
+			}
+			if userInIdp {
+				err = IdpAddUserToGroup(API, TOKEN, gid, idpUid, data.Uid, false)
+				if err != nil {
+					glog.Infof("SyncIdp: user "+ data.Uid +" add to Idp group failed - %v", err)
+				} else {
+					glog.Infof("SyncIdp: user " + data.Uid + " added to Idp group for " + tenant.ID)
+				}
+				data.Usertype = usertype
+				err = db.DBAddUser(tenant.ID, "Nextensio", &data)
+				glog.Infof("SyncIdp: Updated user " + data.Uid + " in DB for usertype - %v", err)
 			}
 		}
 	}
