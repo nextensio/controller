@@ -209,6 +209,32 @@ func rdwrOnboard() {
 	delTenantRoute("/tracereq/{traceid}", "GET", delTraceReqHandler)
 }
 
+func signupWithIdp(w http.ResponseWriter, tenant string, email string) error {
+	var result OpResult
+
+	gid, err := IdpAddGroup(API, TOKEN, tenant, true)
+	if err != nil {
+		errmsg := fmt.Sprintf("Group creation failed for tenant %s - %v", tenant, err)
+		result.Result = errmsg
+		utils.WriteResult(w, result)
+		return err
+	}
+	uid, err := IdpAddUser(API, TOKEN, email, tenant, "admin", true)
+	if err != nil {
+		result.Result = "Failure adding user, please try again: " + err.Error()
+		utils.WriteResult(w, result)
+		return err
+	}
+
+	err = IdpAddUserToGroup(API, TOKEN, gid, uid, email, true)
+	if err != nil {
+		result.Result = "Failed to add user to group, please try again: " + err.Error()
+		utils.WriteResult(w, result)
+		return err
+	}
+	return nil
+}
+
 func signupHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 	var signup db.Signup
@@ -227,28 +253,13 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, tenant, _, err := IdpGetUser(API, TOKEN, signup.Email)
-	if err == nil && id != "" {
-		if tenant == signup.Tenant {
-			result.Result = "You have already signed up, please check your email, activate the account and login here with your password"
-			utils.WriteResult(w, result)
-			return
-		} else {
-			result.Result = "Userid is already assigned to tenant " + tenant + ". To reassign userid to new tenant, login to the old tenant, delete the userid under Users and signup again for the new tenant"
-			utils.WriteResult(w, result)
-			return
-		}
-	}
 	if db.DBFindTenant(signup.Tenant) != nil {
 		result.Result = "Enterprise ID already taken, please signup for another enterprise, or contact admin for the enterprise to get you an account in this enterprise"
 		utils.WriteResult(w, result)
 		return
 	}
 
-	_, err = IdpAddUser(API, TOKEN, signup.Email, signup.Tenant, "admin")
-	if err != nil {
-		result.Result = "Failure adding user, please try again: " + err.Error()
-		utils.WriteResult(w, result)
+	if signupWithIdp(w, signup.Tenant, signup.Email) != nil {
 		return
 	}
 
@@ -280,6 +291,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 	var user db.User
 	user.Uid = signup.Email
 	user.Email = signup.Email
+	user.Usertype = "admin"
 	err = db.DBAddUser(signup.Tenant, user.Uid, &user)
 	if err != nil {
 		result.Result = err.Error()
@@ -330,6 +342,35 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 
 	result.Result = "ok"
 	utils.WriteResult(w, result)
+}
+
+func SyncIdp() {
+	tenants := db.DBFindAllTenants()
+	glog.Infof("SyncIdp: found %d tenants", len(tenants))
+	for _, tenant := range tenants {
+		glog.Infof("SyncIdp: syncing tenant " + tenant.ID)
+		gid, err := IdpAddGroup(API, TOKEN, tenant.ID, false)
+		if err != nil {
+			glog.Infof("SyncIdp: group creation for tenant "+tenant.ID+" failed - %v", err)
+			continue
+		}
+		users := db.DBFindAllUsers(tenant.ID)
+		for _, user := range users {
+			uid := user["_id"].(string)
+			usertype := user["usertype"].(string)
+			glog.Infof("SyncIdp: syncing user " + uid + " of type " + usertype)
+			idpusr, err := IdpAddUser(API, TOKEN, uid, tenant.ID, usertype, false)
+			if err == nil {
+				glog.Infof("SyncIdp: added user " + uid + " to Idp")
+				err = IdpAddUserToGroup(API, TOKEN, gid, idpusr, uid, false)
+				if err != nil {
+					glog.Infof("SyncIdp: user "+uid+" add to Idp group failed - %v", err)
+				} else {
+					glog.Infof("SyncIdp: user " + uid + " added to Idp group")
+				}
+			}
+		}
+	}
 }
 
 type GetTenantResult struct {
@@ -409,6 +450,13 @@ func addtenantHandler(w http.ResponseWriter, r *http.Request) {
 	admin, ok := r.Context().Value("userid").(string)
 	if !ok {
 		admin = "UnknownUser"
+	}
+	_, err = IdpAddGroup(API, TOKEN, data.ID, false)
+	if err != nil {
+		errmsg := fmt.Sprintf("Group creation failed for tenant %s - %v", data.ID, err)
+		result.Result = errmsg
+		utils.WriteResult(w, result)
+		return
 	}
 	err = db.DBAddTenant(&data, admin, false)
 	if err != nil {
@@ -490,6 +538,13 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	err = IdpDelGroup(API, TOKEN, uuid)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
 	// DBDelTenant() will remove all header docs for tenant collections
 	err = db.DBDelTenant(uuid)
 	if err != nil {
@@ -877,11 +932,31 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		admin = "UnknownUser"
 	}
-	_, err = IdpAddUser(API, TOKEN, data.Uid, uuid, "regular")
+
+	idpgid, err := IdpGetGroupID(API, TOKEN, uuid)
+	if err != nil {
+		result.Result = "Multiple groups found for tenant " + uuid + " - " + err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+	usertype := "regular"
+	if data.Usertype == "" {
+		data.Usertype = usertype
+	} else {
+		usertype = data.Usertype
+	}
+	idpuser, err := IdpAddUser(API, TOKEN, data.Uid, uuid, usertype, false)
 	if err != nil {
 		msg := "Adding user to IDP fail:" + err.Error()
 		glog.Errorf(msg)
 		result.Result = msg
+		utils.WriteResult(w, result)
+		return
+	}
+	err = IdpAddUserToGroup(API, TOKEN, idpgid, idpuser, data.Uid, false)
+	if err != nil {
+		glog.Errorf("IdpAddUserToGroup failed for user %s in group %s - %v", data.Uid, uuid, err)
+		result.Result = "Failed to add user to group, please try again: " + err.Error()
 		utils.WriteResult(w, result)
 		return
 	}

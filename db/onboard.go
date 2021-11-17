@@ -990,6 +990,7 @@ type User struct {
 	Username      string      `json:"name" bson:"name"`
 	Email         string      `json:"email" bson:"email"`
 	Gateway       string      `json:"gateway" bson:"gateway"`
+	Usertype      string      `json:"usertype" bson:"usertype"`
 	Pod           int         `json:"pod" bson:"pod"`
 	Connectid     string      `json:"connectid" bson:"connectid"`
 	Services      []string    `json:"services" bson:"services"`
@@ -1078,7 +1079,7 @@ func DBAddUser(uuid string, admin string, data *User) error {
 		bson.D{
 			{"$set", bson.M{"name": data.Username, "email": data.Email,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
-				"services": data.Services, "cfgvn": cfgvn}},
+				"services": data.Services, "cfgvn": cfgvn, "usertype": data.Usertype}},
 		},
 		&opt,
 	)
