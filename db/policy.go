@@ -215,6 +215,43 @@ type HostRouteRule struct {
 	Rule [][]string `json:"rule" bson:"rule"`
 }
 
+func DBHostRuleExists(tenant string, host string, tags *[]string) bool {
+	var rule HostRouteRule
+
+	hostRuleCltn := dbGetCollection(tenant, "NxtHostRules")
+	if hostRuleCltn == nil {
+		return false
+	}
+	cursor, err := hostRuleCltn.Find(
+		context.TODO(),
+		bson.M{"host": host},
+	)
+	if err != nil {
+		return false
+	}
+
+	defer cursor.Close(context.TODO())
+	for cursor.Next(context.TODO()) {
+		// tag == nil means return true as long as any one rule exists
+		if tags == nil {
+			return true
+		}
+		if err = cursor.Decode(&rule); err != nil {
+			return false
+		}
+
+		for _, t := range *tags {
+			for _, r := range rule.Rule {
+				if len(r) >= 3 && r[0] == "tag" && r[2] == t {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
 // This API will add a new host rule or update a host rule if it already exists
 func DBAddHostRule(uuid string, data *HostRouteRule) error {
 

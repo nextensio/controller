@@ -2363,6 +2363,7 @@ func dbAddHostAttr(uuid string, host string, Hattr bson.M, replace bool) error {
 	if hostAttrCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
+
 	if !replace {
 		result := hostAttrCltn.FindOneAndUpdate(
 			context.TODO(),
@@ -2392,16 +2393,10 @@ func dbAddHostAttr(uuid string, host string, Hattr bson.M, replace bool) error {
 
 func DBValidateHostId(host string) string {
 	// Host ID format is label1[.label2][.label3]...[:port]
-	// No label should be "consul" or "query" or have length > 63
+	// No label should have length > 63
 	labels := strings.Split(host, ".")
 	numlabels := len(labels)
 	for i, lbl := range labels {
-		if lbl == "query" {
-			return "Invalid Host ID (" + host + ") - contains label \"query\""
-		}
-		if lbl == "consul" {
-			return "Invalid Host ID (" + host + ") - contains label \"consul\""
-		}
 		if len(lbl) > 63 {
 			return "Invalid Host ID (" + host + ") - contains label with length > 63"
 		}
@@ -2472,6 +2467,31 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 		}
 	}
 
+	deleted := []string{}
+	existing := DBFindHostAttr(uuid, host)
+	if existing != nil {
+		oldattrs := (*existing)["routeattrs"].(primitive.A)
+		for _, o := range oldattrs {
+			found := false
+			old := o.(primitive.M)
+			ot := old["tag"].(string)
+			for _, r := range attrs {
+				new := r.(map[string]interface{})
+				nt := new["tag"].(string)
+				if ot == nt {
+					found = true
+					break
+				}
+			}
+			if !found {
+				deleted = append(deleted, ot)
+			}
+		}
+	}
+	if DBHostRuleExists(uuid, host, &deleted) {
+		return fmt.Errorf("Please delete policies for the route before deleting the route")
+	}
+
 	err = dbAddHostAttr(uuid, host, Hattr, false)
 	if err != nil {
 		return err
@@ -2489,6 +2509,9 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 }
 
 func DBDelHostAttr(tenant string, admin string, hostid string) error {
+	if DBHostRuleExists(tenant, hostid, nil) {
+		return fmt.Errorf("Please delete policies for the route before deleting the route")
+	}
 	hostAttrCltn := dbGetCollection(tenant, "NxtHostAttr")
 	if hostAttrCltn == nil {
 		return fmt.Errorf("Unknown Collection")
