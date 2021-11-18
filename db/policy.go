@@ -215,6 +215,43 @@ type HostRouteRule struct {
 	Rule [][]string `json:"rule" bson:"rule"`
 }
 
+func DBHostRuleExists(tenant string, host string, tags *[]string) bool {
+	var rule HostRouteRule
+
+	hostRuleCltn := dbGetCollection(tenant, "NxtHostRules")
+	if hostRuleCltn == nil {
+		return false
+	}
+	cursor, err := hostRuleCltn.Find(
+		context.TODO(),
+		bson.M{"host": host},
+	)
+	if err != nil {
+		return false
+	}
+
+	defer cursor.Close(context.TODO())
+	for cursor.Next(context.TODO()) {
+		// tag == nil means return true as long as any one rule exists
+		if tags == nil {
+			return true
+		}
+		if err = cursor.Decode(&rule); err != nil {
+			return false
+		}
+
+		for _, t := range *tags {
+			for _, r := range rule.Rule {
+				if len(r) >= 3 && r[0] == "tag" && r[2] == t {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
 // This API will add a new host rule or update a host rule if it already exists
 func DBAddHostRule(uuid string, data *HostRouteRule) error {
 
@@ -293,6 +330,170 @@ func DBDelHostRule(tenant string, hostid string, ruleid string) error {
 	_, err := hostRuleCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": id},
+	)
+
+	return err
+}
+
+//----------------------------------TraceRequest rules-----------------------------------
+// Trace Policy is generated from the rules for one or more trace requests
+
+type TraceReqRule struct {
+	Rid  string     `json:"rid" bson:"_id"`
+	Rule [][]string `json:"rule" bson:"rule"`
+}
+
+// This API will add a new trace req rule or update a trace req rule if it already exists
+func DBAddTraceReqRule(uuid string, data *TraceReqRule) error {
+
+	if DBFindTenant(uuid) == nil {
+		return fmt.Errorf("Cant find tenant %s", uuid)
+	}
+
+	// The upsert option asks the DB to add a tenant if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	traceReqRuleCltn := dbGetCollection(uuid, "NxtTraceReqRules")
+	if traceReqRuleCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	err := traceReqRuleCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": data.Rid},
+		bson.D{
+			{"$set", bson.M{"rule": data.Rule}},
+		},
+		&opt,
+	)
+
+	if err != nil {
+		return err.Err()
+	}
+	return nil
+}
+
+func DBFindTraceReqRule(tenant string, Id string) *TraceReqRule {
+	var rule TraceReqRule
+
+	traceReqRuleCltn := dbGetCollection(tenant, "NxtTraceReqRules")
+	if traceReqRuleCltn == nil {
+		return nil
+	}
+	err := traceReqRuleCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": Id},
+	).Decode(&rule)
+	if err != nil {
+		return nil
+	}
+	return &rule
+}
+
+func DBFindAllTraceReqRules(tenant string) []TraceReqRule {
+	var rules []TraceReqRule
+
+	traceReqRuleCltn := dbGetCollection(tenant, "NxtTraceReqRules")
+	if traceReqRuleCltn == nil {
+		return nil
+	}
+	cursor, err := traceReqRuleCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &rules)
+	if err != nil {
+		return nil
+	}
+
+	return rules
+}
+
+func DBDelTraceReqRule(tenant string, ruleid string) error {
+	traceReqRuleCltn := dbGetCollection(tenant, "NxtTraceReqRules")
+	if traceReqRuleCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	_, err := traceReqRuleCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": ruleid},
+	)
+
+	return err
+}
+
+//----------------------------------Stats rule-----------------------------------
+// Stats Policy is generated from a single rule called "StatsRule" that specifies the
+// user attributes to be used as dimensions for the stats
+
+type StatsRule struct {
+	Rid  string     `json:"rid" bson:"_id"`
+	Rule [][]string `json:"rule" bson:"rule"`
+}
+
+// This API will add a new stats rule or update stats rule if it already exists
+func DBAddStatsRule(uuid string, data *StatsRule) error {
+
+	if DBFindTenant(uuid) == nil {
+		return fmt.Errorf("Cant find tenant %s", uuid)
+	}
+
+	// The upsert option asks the DB to add a tenant if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	statsRuleCltn := dbGetCollection(uuid, "NxtStatsRule")
+	if statsRuleCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	err := statsRuleCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": data.Rid},
+		bson.D{
+			{"$set", bson.M{"rule": data.Rule}},
+		},
+		&opt,
+	)
+
+	if err != nil {
+		return err.Err()
+	}
+	return nil
+}
+
+func DBFindAllStatsRules(tenant string) []StatsRule {
+	var rules []StatsRule
+
+	statsRuleCltn := dbGetCollection(tenant, "NxtStatsRule")
+	if statsRuleCltn == nil {
+		return nil
+	}
+	cursor, err := statsRuleCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &rules)
+	if err != nil {
+		return nil
+	}
+
+	return rules
+}
+
+func DBDelStatsRule(tenant string, ruleid string) error {
+	statsRuleCltn := dbGetCollection(tenant, "NxtStatsRule")
+	if statsRuleCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	_, err := statsRuleCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": ruleid},
 	)
 
 	return err

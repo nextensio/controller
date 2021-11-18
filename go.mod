@@ -15,11 +15,11 @@ require (
 	github.com/nabeken/negroni-auth v0.0.0-20170421074600-c65ff4ad85ca
 	github.com/okta/okta-jwt-verifier-golang v1.0.0
 	github.com/okta/okta-sdk-golang v1.1.0
+	github.com/okta/okta-sdk-golang/v2 v2.9.1
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/satori/go.uuid v1.2.0
 	github.com/sethvargo/go-password v0.2.0
 	github.com/urfave/negroni v1.0.0
 	go.mongodb.org/mongo-driver v1.4.0
-	golang.org/x/crypto v0.0.0-20200728195943-123391ffb6de // indirect
 	golang.org/x/oauth2 v0.0.0-20200107190931-bf48bf16ab8d // indirect
 )

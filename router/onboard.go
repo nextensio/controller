@@ -20,10 +20,7 @@ func rdonlyOnboard() {
 	// tenant-id and expects to get information like the gateway in response
 	getGlobalRoute("/onboard", "GET", onboardHandler)
 
-	// This route is used by agent post onboarding, for keepalives. This is kept as a global
-	// route and not a per-tenant route (which it can be) because agents coming to us with
-	// keepalives will have the lowest of all privileges and might not be able to access
-	// the tenant API space
+	// TODO: DEPRECATE the GET /keepalive, we need only the POST /keepaliverequest
 	getGlobalRoute("/keepalive/{version}/{uuid}", "GET", keepaliveHandler)
 
 	//*******************************************************************/
@@ -107,6 +104,12 @@ func rdonlyOnboard() {
 
 	// This route is used to get all trace requests for a tenant
 	getTenantRoute("/alltracereq", "GET", getAllTraceReqHandler)
+
+	// This route is used to get keepalive information for a user
+	getTenantRoute("/userstatus/{userid}", "GET", getUserStatus)
+
+	// This route is used to get keepalive information for a user
+	getTenantRoute("/bundlestatus/{bid}", "GET", getBundleStatus)
 }
 
 func rdwrOnboard() {
@@ -132,6 +135,12 @@ func rdwrOnboard() {
 	delGlobalRoute("/tenant/{tenant-uuid}", "GET", deltenantHandler)
 
 	noauthRoute("/signup", "POST", signupHandler)
+
+	// This route is used by agents & connectors post onboarding, for keepalives.
+	// This is kept as a global route and not a per-tenant route (which it can be)
+	// because agents coming to us with keepalives will have the lowest of all privileges
+	// and might not be able to access the tenant API space
+	addGlobalRoute("/keepaliverequest", "POST", keepaliveReqHandler)
 
 	//*******************************************************************/
 	//            In Per-tenant DB
@@ -200,6 +209,32 @@ func rdwrOnboard() {
 	delTenantRoute("/tracereq/{traceid}", "GET", delTraceReqHandler)
 }
 
+func signupWithIdp(w http.ResponseWriter, tenant string, email string) error {
+	var result OpResult
+
+	gid, err := IdpAddGroup(API, TOKEN, tenant, true)
+	if err != nil {
+		errmsg := fmt.Sprintf("Group creation failed for tenant %s - %v", tenant, err)
+		result.Result = errmsg
+		utils.WriteResult(w, result)
+		return err
+	}
+	uid, err := IdpAddUser(API, TOKEN, email, tenant, "admin", true)
+	if err != nil {
+		result.Result = "Failure adding user, please try again: " + err.Error()
+		utils.WriteResult(w, result)
+		return err
+	}
+
+	err = IdpAddUserToGroup(API, TOKEN, gid, uid, email, true)
+	if err != nil {
+		result.Result = "Failed to add user to group, please try again: " + err.Error()
+		utils.WriteResult(w, result)
+		return err
+	}
+	return nil
+}
+
 func signupHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 	var signup db.Signup
@@ -218,28 +253,13 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, tenant, _, err := IdpGetUser(API, TOKEN, signup.Email)
-	if err == nil && id != "" {
-		if tenant == signup.Tenant {
-			result.Result = "You have already signed up, please check your email, activate the account and login here with your password"
-			utils.WriteResult(w, result)
-			return
-		} else {
-			result.Result = "Userid is already assigned to tenant " + tenant + ". To reassign userid to new tenant, login to the old tenant, delete the userid under Users and signup again for the new tenant"
-			utils.WriteResult(w, result)
-			return
-		}
-	}
 	if db.DBFindTenant(signup.Tenant) != nil {
 		result.Result = "Enterprise ID already taken, please signup for another enterprise, or contact admin for the enterprise to get you an account in this enterprise"
 		utils.WriteResult(w, result)
 		return
 	}
 
-	_, err = IdpAddUser(API, TOKEN, signup.Email, signup.Tenant, "admin")
-	if err != nil {
-		result.Result = "Failure adding user, please try again: " + err.Error()
-		utils.WriteResult(w, result)
+	if signupWithIdp(w, signup.Tenant, signup.Email) != nil {
 		return
 	}
 
@@ -271,6 +291,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 	var user db.User
 	user.Uid = signup.Email
 	user.Email = signup.Email
+	user.Usertype = "admin"
 	err = db.DBAddUser(signup.Tenant, user.Uid, &user)
 	if err != nil {
 		result.Result = err.Error()
@@ -321,6 +342,62 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 
 	result.Result = "ok"
 	utils.WriteResult(w, result)
+}
+
+// This function syncs tenants and their users with the Idp to create a group per
+// tenant and add tenants's users to the group. If a user does not exist in the
+// Idp, the user is added to the Idp first before assigning to the group.
+// Finally, the usertype is updated in the user record in our DB. It is taken
+// from the Idp if the user existed there, else usertype is treated as "regular".
+func SyncIdp() {
+	var data db.User
+
+	// Find all tenants. For each tenant, get all users
+	tenants := db.DBFindAllTenants()
+	glog.Infof("SyncIdp: found %d tenants", len(tenants))
+	for _, tenant := range tenants {
+		glog.Infof("SyncIdp: syncing tenant " + tenant.ID)
+		gid, err := IdpAddGroup(API, TOKEN, tenant.ID, false)
+		if err != nil {
+			glog.Infof("SyncIdp: group creation for tenant "+tenant.ID+" failed - %v", err)
+			continue
+		}
+		users := db.DBFindAllUsers(tenant.ID)
+		for _, user := range users {
+			body, err := json.Marshal(user)
+			if err != nil {
+				continue
+			}
+			err = json.Unmarshal(body, &data)
+			if err != nil {
+				continue
+			}
+			userInIdp := true
+			idpUid, _, usertype, err := IdpGetUserInfo(API, TOKEN, data.Uid)
+			if err != nil {
+				// User doesn't exist, so add user
+				usertype = "regular"
+				idpUid, err = IdpAddUser(API, TOKEN, data.Uid, tenant.ID, usertype, false)
+				if err != nil {
+					userInIdp = false
+					glog.Infof("SyncIdp: failed to add user " + data.Uid + " to Idp - %v", err)
+				} else {
+					glog.Infof("SyncIdp: added user " + data.Uid + " to Idp")
+				}
+			}
+			if userInIdp {
+				err = IdpAddUserToGroup(API, TOKEN, gid, idpUid, data.Uid, false)
+				if err != nil {
+					glog.Infof("SyncIdp: user "+ data.Uid +" add to Idp group failed - %v", err)
+				} else {
+					glog.Infof("SyncIdp: user " + data.Uid + " added to Idp group for " + tenant.ID)
+				}
+				data.Usertype = usertype
+				err = db.DBAddUser(tenant.ID, "Nextensio", &data)
+				glog.Infof("SyncIdp: Updated user " + data.Uid + " in DB for usertype - %v", err)
+			}
+		}
+	}
 }
 
 type GetTenantResult struct {
@@ -400,6 +477,13 @@ func addtenantHandler(w http.ResponseWriter, r *http.Request) {
 	admin, ok := r.Context().Value("userid").(string)
 	if !ok {
 		admin = "UnknownUser"
+	}
+	_, err = IdpAddGroup(API, TOKEN, data.ID, false)
+	if err != nil {
+		errmsg := fmt.Sprintf("Group creation failed for tenant %s - %v", data.ID, err)
+		result.Result = errmsg
+		utils.WriteResult(w, result)
+		return
 	}
 	err = db.DBAddTenant(&data, admin, false)
 	if err != nil {
@@ -481,6 +565,13 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	err = IdpDelGroup(API, TOKEN, uuid)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
 	// DBDelTenant() will remove all header docs for tenant collections
 	err = db.DBDelTenant(uuid)
 	if err != nil {
@@ -726,7 +817,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 	result.Userid = data.Userid
 	result.Tenant = data.Tenant
 	result.Cacert = cert.Cert
-	result.Domains = tenant.Domains
+	result.Domains = db.ProcessDomains(tenant.Domains)
 	if result.Domains == nil {
 		result.Domains = make([]db.Domain, 0)
 	}
@@ -753,6 +844,7 @@ type KeepaliveResponse struct {
 	Version string `json:"version"`
 }
 
+// TODO: WILL BE DEPRECATED
 func keepaliveHandler(w http.ResponseWriter, r *http.Request) {
 	var result KeepaliveResponse
 
@@ -786,6 +878,60 @@ func keepaliveHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
+// TODO NOTE: THIS will be the biggest scale bottleneck for the controller
+// Tens of thousands of devices keepalive requesting will kill the controller
+// So we will need to find some alternative way of handling this, like split
+// the keepalive database into a seperate one (per tenant of course) and then
+// spread it across multiple controllers so each controller handles a set of
+// tenants and their keepalive database writes.
+func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
+	var result KeepaliveResponse
+	var data db.Keepalive
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Keepalive - HTTP Req Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		result.Result = "Keepalive - Error parsing json"
+		utils.WriteResult(w, result)
+		return
+	}
+	data.Seen = time.Now().Unix()
+
+	userid := r.Context().Value("userid").(string)
+	tenant := r.Context().Value("user-tenant").(string)
+
+	t := db.DBFindTenant(tenant)
+	if t == nil {
+		result.Result = "Tenant not found"
+		utils.WriteResult(w, result)
+		return
+	}
+	user := db.DBFindUser(tenant, userid)
+	if user != nil {
+		result.Version = user.ConfigVersion
+		// We dont check the keepalive return value, keepalives are sent periodically
+		db.UserKeepalive(tenant, user, data)
+	} else {
+		bundle := db.DBFindBundle(tenant, userid)
+		if bundle != nil {
+			result.Version = bundle.ConfigVersion
+		} else {
+			result.Result = "IDP user/bundle not found on controller"
+			utils.WriteResult(w, result)
+			return
+		}
+		// We dont check the keepalive return value, keepalives are sent periodically
+		db.BundleKeepalive(tenant, bundle, data)
+	}
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
 type OpResult struct {
 	Result string `json:"Result"`
 }
@@ -813,11 +959,31 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		admin = "UnknownUser"
 	}
-	_, err = IdpAddUser(API, TOKEN, data.Uid, uuid, "regular")
+
+	idpgid, err := IdpGetGroupID(API, TOKEN, uuid)
+	if err != nil {
+		result.Result = "Multiple groups found for tenant " + uuid + " - " + err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+	usertype := "regular"
+	if data.Usertype == "" {
+		data.Usertype = usertype
+	} else {
+		usertype = data.Usertype
+	}
+	idpuser, err := IdpAddUser(API, TOKEN, data.Uid, uuid, usertype, false)
 	if err != nil {
 		msg := "Adding user to IDP fail:" + err.Error()
 		glog.Errorf(msg)
 		result.Result = msg
+		utils.WriteResult(w, result)
+		return
+	}
+	err = IdpAddUserToGroup(API, TOKEN, idpgid, idpuser, data.Uid, false)
+	if err != nil {
+		glog.Errorf("IdpAddUserToGroup failed for user %s in group %s - %v", data.Uid, uuid, err)
+		result.Result = "Failed to add user to group, please try again: " + err.Error()
 		utils.WriteResult(w, result)
 		return
 	}
@@ -1732,5 +1898,23 @@ func delTraceReqHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		result.Result = "ok"
 	}
+	utils.WriteResult(w, result)
+}
+
+// Get details about user devices and their status
+func getUserStatus(w http.ResponseWriter, r *http.Request) {
+	v := mux.Vars(r)
+	userid := v["userid"]
+	uuid := r.Context().Value("tenant").(string)
+	result := db.DBFindUserStatus(uuid, userid)
+	utils.WriteResult(w, result)
+}
+
+// Get details about bundles and their status
+func getBundleStatus(w http.ResponseWriter, r *http.Request) {
+	v := mux.Vars(r)
+	bid := v["bid"]
+	uuid := r.Context().Value("tenant").(string)
+	result := db.DBFindBundleStatus(uuid, bid)
 	utils.WriteResult(w, result)
 }

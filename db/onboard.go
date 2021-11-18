@@ -2,9 +2,11 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -96,6 +98,34 @@ func delEmpty(s []string) []string {
 		}
 	}
 	return r
+}
+
+// Remove port number from any app url. If this results in duplicate
+// urls, remove duplicate. Do this when sending domains to Agent.
+// Agent should not get a domain with a port #
+func ProcessDomains(s []Domain) []Domain {
+	var r []Domain
+	var svcs map[string]bool
+	svcs = make(map[string]bool)
+	for _, str := range s {
+		if strings.TrimSpace(str.Name) != "" {
+			splitstr := strings.Split(str.Name, ":")
+			svcs[splitstr[0]] = true
+		}
+	}
+	for svc, _ := range svcs {
+		r = append(r, Domain{Name: svc})
+	}
+	return r
+}
+
+// NOTE: The bson decoder will not work if the structure field names dont start with upper case
+type Keepalive struct {
+	Gateway uint   `json:"gateway" bson:"gateway"`
+	Device  string `json:"device" bson:"device"`
+	Version string `json:"version" bson:"version"`
+	Source  string `json:"source" bson:"source"`
+	Seen    int64  `bson:"seen"`
 }
 
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
@@ -956,14 +986,16 @@ func DBDelUserAttrHdr(tenant string) error {
 // The Pod here indicates the "pod set" that this user should
 // connect to, each pod set has its own number of replicas etc..
 type User struct {
-	Uid           string   `json:"uid" bson:"_id"`
-	Username      string   `json:"name" bson:"name"`
-	Email         string   `json:"email" bson:"email"`
-	Gateway       string   `json:"gateway" bson:"gateway"`
-	Pod           int      `json:"pod" bson:"pod"`
-	Connectid     string   `json:"connectid" bson:"connectid"`
-	Services      []string `json:"services" bson:"services"`
-	ConfigVersion string   `json:"cfgvn" bson:"cfgvn"`
+	Uid           string      `json:"uid" bson:"_id"`
+	Username      string      `json:"name" bson:"name"`
+	Email         string      `json:"email" bson:"email"`
+	Gateway       string      `json:"gateway" bson:"gateway"`
+	Usertype      string      `json:"usertype" bson:"usertype"`
+	Pod           int         `json:"pod" bson:"pod"`
+	Connectid     string      `json:"connectid" bson:"connectid"`
+	Services      []string    `json:"services" bson:"services"`
+	ConfigVersion string      `json:"cfgvn" bson:"cfgvn"`
+	Keepalive     []Keepalive `json:"keepalive" bson:"keepalive"`
 }
 
 // This API will add/update a new user
@@ -1047,7 +1079,7 @@ func DBAddUser(uuid string, admin string, data *User) error {
 		bson.D{
 			{"$set", bson.M{"name": data.Username, "email": data.Email,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
-				"services": data.Services, "cfgvn": cfgvn}},
+				"services": data.Services, "cfgvn": cfgvn, "usertype": data.Usertype}},
 		},
 		&opt,
 	)
@@ -1183,6 +1215,85 @@ func DBDelUser(tenant string, admin string, userid string) error {
 	DBUpdateUserInfoHdr(tenant, admin)
 
 	return nil
+}
+
+func UserKeepalive(tenant string, user *User, keep Keepalive) error {
+	upsert := false
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	userCltn := dbGetCollection(tenant, "NxtUsers")
+	if userCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	found := false
+	newKeep := []Keepalive{}
+	for _, u := range user.Keepalive {
+		if u.Device == keep.Device {
+			if !found {
+				newKeep = append(newKeep, keep)
+				found = true
+			}
+		} else {
+			// purge old entries
+			t := time.Unix(u.Seen, 0)
+			if time.Since(t) <= 3*time.Minute {
+				newKeep = append(newKeep, u)
+			}
+		}
+	}
+	if !found {
+		newKeep = append(newKeep, keep)
+	}
+	result := userCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": user.Uid},
+		bson.D{
+			{"$set", bson.M{"keepalive": newKeep}},
+		},
+		&opt,
+	)
+	if result.Err() != nil {
+		return result.Err()
+	}
+
+	return nil
+}
+
+func int2ip(nn uint32) net.IP {
+	ip := make(net.IP, 4)
+	binary.BigEndian.PutUint32(ip, nn)
+	return ip
+}
+
+type UserStatus struct {
+	Device  string `json:"device" bson:"device"`
+	Gateway string `json:"gateway" bson:"gateway"`
+	Source  string `json:"source" bson:"source"`
+	Health  string `json:"health" bson:"health"`
+}
+
+func DBFindUserStatus(tenant string, userid string) []UserStatus {
+	var status []UserStatus = []UserStatus{}
+
+	user := DBFindUser(tenant, userid)
+	if user == nil {
+		return status
+	}
+
+	for _, k := range user.Keepalive {
+		ip := int2ip(uint32(k.Gateway))
+		t := time.Unix(k.Seen, 0)
+		health := "offline"
+		if time.Since(t) <= 3*time.Minute {
+			health = "online"
+		}
+		us := UserStatus{Device: k.Device, Gateway: ip.String(), Source: k.Source, Health: health}
+		status = append(status, us)
+	}
+	return status
 }
 
 func dbAddUserAttr(uuid string, user string, Uattr bson.M, replace bool) error {
@@ -1477,15 +1588,16 @@ func DBDelBundleAttrHdr(tenant string) error {
 // The Pod here indicates the "pod set" that this user should
 // connect to, each pod set has its own number of replicas etc..
 type Bundle struct {
-	Bid           string   `json:"bid" bson:"_id"`
-	Bundlename    string   `json:"name" bson:"name"`
-	Gateway       string   `json:"gateway" bson:"gateway"`
-	Pod           string   `json:"pod" bson:"pod"`
-	Connectid     string   `json:"connectid" bson:"connectid"`
-	Services      []string `json:"services" bson:"services"`
-	CpodRepl      int      `json:"cpodrepl" bson:"cpodrepl"`
-	ConfigVersion string   `json:"cfgvn" bson:"cfgvn"`
-	SharedKey     string   `json:"sharedkey" bson:"sharedkey"`
+	Bid           string      `json:"bid" bson:"_id"`
+	Bundlename    string      `json:"name" bson:"name"`
+	Gateway       string      `json:"gateway" bson:"gateway"`
+	Pod           string      `json:"pod" bson:"pod"`
+	Connectid     string      `json:"connectid" bson:"connectid"`
+	Services      []string    `json:"services" bson:"services"`
+	CpodRepl      int         `json:"cpodrepl" bson:"cpodrepl"`
+	ConfigVersion string      `json:"cfgvn" bson:"cfgvn"`
+	SharedKey     string      `json:"sharedkey" bson:"sharedkey"`
+	Keepalive     []Keepalive `json:"keepalive" bson:"keepalive"`
 }
 
 // This API will add/update a new bundle
@@ -1784,6 +1896,79 @@ func DBDelBundle(tenant string, admin string, bundleid string) error {
 	}
 
 	return err
+}
+
+func BundleKeepalive(tenant string, bundle *Bundle, keep Keepalive) error {
+	upsert := false
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	appCltn := dbGetCollection(tenant, "NxtApps")
+	if appCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	found := false
+	newKeep := []Keepalive{}
+	for _, b := range bundle.Keepalive {
+		if b.Device == keep.Device {
+			if !found {
+				newKeep = append(newKeep, keep)
+				found = true
+			}
+		} else {
+			// purge old entries
+			t := time.Unix(b.Seen, 0)
+			if time.Since(t) <= 3*time.Minute {
+				newKeep = append(newKeep, b)
+			}
+		}
+	}
+	if !found {
+		newKeep = append(newKeep, keep)
+	}
+	result := appCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": bundle.Bid},
+		bson.D{
+			{"$set", bson.M{"keepalive": newKeep}},
+		},
+		&opt,
+	)
+	if result.Err() != nil {
+		return result.Err()
+	}
+
+	return nil
+}
+
+type BundleStatus struct {
+	Device  string `json:"device" bson:"device"`
+	Gateway string `json:"gateway" bson:"gateway"`
+	Source  string `json:"source" bson:"source"`
+	Health  string `json:"health" bson:"health"`
+}
+
+func DBFindBundleStatus(tenant string, bid string) []BundleStatus {
+	var status []BundleStatus = []BundleStatus{}
+
+	bundle := DBFindBundle(tenant, bid)
+	if bundle == nil {
+		return status
+	}
+
+	for _, k := range bundle.Keepalive {
+		ip := int2ip(uint32(k.Gateway))
+		t := time.Unix(k.Seen, 0)
+		health := "offline"
+		if time.Since(t) <= 3*time.Minute {
+			health = "online"
+		}
+		bs := BundleStatus{Device: k.Device, Gateway: ip.String(), Source: k.Source, Health: health}
+		status = append(status, bs)
+	}
+	return status
 }
 
 func dbAddBundleAttr(uuid string, bid string, Battr bson.M, replace bool) error {
@@ -2178,6 +2363,7 @@ func dbAddHostAttr(uuid string, host string, Hattr bson.M, replace bool) error {
 	if hostAttrCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
+
 	if !replace {
 		result := hostAttrCltn.FindOneAndUpdate(
 			context.TODO(),
@@ -2205,6 +2391,22 @@ func dbAddHostAttr(uuid string, host string, Hattr bson.M, replace bool) error {
 	return nil
 }
 
+func DBValidateHostId(host string) string {
+	// Host ID format is label1[.label2][.label3]...[:port]
+	// No label should have length > 63
+	labels := strings.Split(host, ".")
+	numlabels := len(labels)
+	for i, lbl := range labels {
+		if len(lbl) > 63 {
+			return "Invalid Host ID (" + host + ") - contains label with length > 63"
+		}
+		if (i < (numlabels - 1)) && strings.Contains(lbl, ":") {
+			return "Invalid Host ID (" + host + ") - label contains : character"
+		}
+	}
+	return ""
+}
+
 // This API will add/update a host attributes doc
 func DBAddHostAttr(uuid string, admin string, data []byte) error {
 	var Hattr bson.M
@@ -2229,6 +2431,10 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 	// for which agent sends traffic to nextensio gateways.
 	// Bundles also need the update for connector to connector traffic
 	if !found {
+		sts := DBValidateHostId(host)
+		if sts != "" {
+			return fmt.Errorf(sts)
+		}
 		now := time.Now().Unix()
 		err := DBUpdateAllUsersCfgvn(uuid, uint64(now))
 		if err != nil {
@@ -2261,6 +2467,31 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 		}
 	}
 
+	deleted := []string{}
+	existing := DBFindHostAttr(uuid, host)
+	if existing != nil {
+		oldattrs := (*existing)["routeattrs"].(primitive.A)
+		for _, o := range oldattrs {
+			found := false
+			old := o.(primitive.M)
+			ot := old["tag"].(string)
+			for _, r := range attrs {
+				new := r.(map[string]interface{})
+				nt := new["tag"].(string)
+				if ot == nt {
+					found = true
+					break
+				}
+			}
+			if !found {
+				deleted = append(deleted, ot)
+			}
+		}
+	}
+	if DBHostRuleExists(uuid, host, &deleted) {
+		return fmt.Errorf("Please delete policies for the route before deleting the route")
+	}
+
 	err = dbAddHostAttr(uuid, host, Hattr, false)
 	if err != nil {
 		return err
@@ -2278,6 +2509,9 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 }
 
 func DBDelHostAttr(tenant string, admin string, hostid string) error {
+	if DBHostRuleExists(tenant, hostid, nil) {
+		return fmt.Errorf("Please delete policies for the route before deleting the route")
+	}
 	hostAttrCltn := dbGetCollection(tenant, "NxtHostAttr")
 	if hostAttrCltn == nil {
 		return fmt.Errorf("Unknown Collection")
