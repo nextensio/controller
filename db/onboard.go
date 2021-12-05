@@ -1354,6 +1354,52 @@ func dbAddUserAttr(uuid string, user string, Uattr bson.M, replace bool) error {
 	return nil
 }
 
+// Bulk add/update of attributes for multiple users
+func DBUpdateAttrsForMultipleUsers(uuid string, admin string, Uattr []bson.M) error {
+	if Uattr == nil || len(Uattr) == 0 {
+		return nil
+	}
+	// The upsert option asks the DB to add if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	userAttrCltn := dbGetCollection(uuid, "NxtUserAttr")
+	if userAttrCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	count := 0
+	for _, urec := range Uattr {
+		user, ok := urec["uid"].(string)
+		if !ok {
+			continue
+		}
+		delete(urec, "uid")
+		result := userAttrCltn.FindOneAndUpdate(
+			context.TODO(),
+			bson.M{"_id": user},
+			bson.D{
+				{"$set", urec},
+			},
+			&opt,
+		)
+		if result.Err() != nil {
+			return result.Err()
+		}
+		count++
+	}
+	if count > 0 {
+		// Some user attribute docs were updated
+		DBUpdateUserAttrHdr(uuid, admin)
+		glog.Infof("DBUpdateAttrsForMultpleUsers: updated %d users", count)
+	} else {
+		glog.Infof("DBUpdateAttrsForMultpleUsers: could not update any users")
+	}
+	return nil
+}
+
 // Sample user attributes schema. It is transparent to the controller.
 //type UserAttr struct {
 //	Uid      string             `bson:"_id" json:"uid"`

@@ -174,6 +174,9 @@ func rdwrOnboard() {
 	// This route is used to add attributes for a user
 	addTenantRoute("/userattr", "POST", addUserAttrHandler)
 
+	// This route is used to update attributes for multiple users
+	addTenantRoute("/userattr/multiple", "POST", updMultiUsersAttrHandler)
+
 	// This route is used to add attributes for an app-bundle
 	addTenantRoute("/bundleattr", "POST", addBundleAttrHandler)
 
@@ -1240,6 +1243,40 @@ func addUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 	result.Result = "ok"
 	utils.WriteResult(w, result)
 }
+
+func updMultiUsersAttrHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Update Multi-User attributes - HTTP Req Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	var Uattr []bson.M
+	err = json.Unmarshal(body, &Uattr)
+	if err != nil {
+		result.Result = "Users json decode fail"
+		utils.WriteResult(w, result)
+		return
+	}
+	uuid := r.Context().Value("tenant").(string)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	err = db.DBUpdateAttrsForMultipleUsers(uuid, admin, Uattr)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
 
 type GetuserAttrResult struct {
 	Result string `json:"Result"`
