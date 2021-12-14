@@ -177,6 +177,23 @@ func rdwrOnboard() {
 	// This route is used to update attributes for multiple users
 	addTenantRoute("/userattr/multiple", "POST", updMultiUsersAttrHandler)
 
+	// This route is used to import attributes for multiple users
+	addTenantRoute("/userattr/import", "POST", importUserAttrHandler)
+
+	// This route is used to export attributes for all users of tenant.
+	// Attributes that don't exist in the user profile will be added.
+	// TODO: if an attribute is deleted for a tenant, how do we know if
+	// it should be removed from user profile or is in use by any other
+	// tenant(s) ?
+	addTenantRoute("/userattr/exportattr", "POST", exportUserAttrHandler)
+
+	// This route is used to export user attribute set for a tenant.
+	// Attributes that don't exist in the user profile will be added.
+	// TODO: if an attribute is deleted for a tenant, how do we know if
+	// it should be removed from user profile or is in use by any other
+	// tenant(s) ?
+	addTenantRoute("/userattr/exportset", "POST", exportUserAttrSetHandler)
+
 	// This route is used to add attributes for an app-bundle
 	addTenantRoute("/bundleattr", "POST", addBundleAttrHandler)
 
@@ -383,7 +400,7 @@ func SyncIdp() {
 				idpUid, err = IdpAddUser(API, TOKEN, data.Uid, tenant.ID, usertype, false)
 				if err != nil {
 					userInIdp = false
-					glog.Infof("SyncIdp: failed to add user " + data.Uid + " to Idp - %v", err)
+					glog.Infof("SyncIdp: failed to add user "+data.Uid+" to Idp - %v", err)
 				} else {
 					glog.Infof("SyncIdp: added user " + data.Uid + " to Idp")
 				}
@@ -391,13 +408,13 @@ func SyncIdp() {
 			if userInIdp {
 				err = IdpAddUserToGroup(API, TOKEN, gid, idpUid, data.Uid, false)
 				if err != nil {
-					glog.Infof("SyncIdp: user "+ data.Uid +" add to Idp group failed - %v", err)
+					glog.Infof("SyncIdp: user "+data.Uid+" add to Idp group failed - %v", err)
 				} else {
 					glog.Infof("SyncIdp: user " + data.Uid + " added to Idp group for " + tenant.ID)
 				}
 				data.Usertype = usertype
 				err = db.DBAddUser(tenant.ID, "Nextensio", &data)
-				glog.Infof("SyncIdp: Updated user " + data.Uid + " in DB for usertype - %v", err)
+				glog.Infof("SyncIdp: Updated user "+data.Uid+" in DB for usertype - %v", err)
 			}
 		}
 	}
@@ -965,7 +982,7 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	idpgid, err := IdpGetGroupID(API, TOKEN, uuid)
 	if err != nil {
-		result.Result = "Multiple groups found for tenant " + uuid + " - " + err.Error()
+		result.Result = err.Error()
 		utils.WriteResult(w, result)
 		return
 	}
@@ -1098,6 +1115,7 @@ func addAttrSet(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
+		glog.Errorf("addAttrSet: attribute set http read failure - %v", err)
 		result.Result = "Add tenant attribute set - HTTP Req Read fail"
 		utils.WriteResult(w, result)
 		return
@@ -1105,17 +1123,20 @@ func addAttrSet(w http.ResponseWriter, r *http.Request) {
 
 	err = json.Unmarshal(body, &data)
 	if err != nil {
+		glog.Errorf("addAttrSet: attribute set unmarshal failure - %v", err)
 		result.Result = "Add tenant attribute set - Error parsing json"
 		utils.WriteResult(w, result)
 		return
 	}
 	err = db.DBAddAttrSet(uuid, admin, data)
 	if err != nil {
+		glog.Errorf("addAttrSet: attribute set add failure - %v", err)
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
 		return
 	}
 
+	glog.Infof("addAttrSet: added an attribute set for tenant " + uuid + ": " + string(body))
 	result.Result = "ok"
 	utils.WriteResult(w, result)
 }
@@ -1277,6 +1298,168 @@ func updMultiUsersAttrHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
+func exportUserAttrSet(w http.ResponseWriter, r *http.Request, uuid string) *[]byte {
+	var result OpResult
+	var uattrList map[string]bson.M
+
+	// For a given tenant:
+	// Get all user attributes configured via attribute editor
+	// Export these attributes to the default user profile in the Idp
+	// Add an attribute to the custom set if not present
+	// TODO: what if two tenants have the same attribute name but with
+	// different types
+	UattrSet := db.DBFindAllUserAttrSet(uuid)
+	if UattrSet == nil {
+		glog.Infof("ExportUserAttrSet: got empty user attribute set for export")
+		result.Result = "Could not get User AttrSet for tenant " + uuid
+		utils.WriteResult(w, result)
+		return nil
+	}
+	uattrList = make(map[string]bson.M, 0)
+	for _, aset := range UattrSet {
+		uattrProp := bson.M{
+			"type":  "string",
+			"enums": []string{""},
+		}
+		if aset.IsArray == "true" {
+			uattrProp["type"] = aset.Type + "-array"
+		} else {
+			uattrProp["type"] = aset.Type
+		}
+		if aset.Enums != nil {
+			uattrProp["enums"] = aset.Enums
+		}
+		uattrList[aset.Name] = uattrProp
+	}
+	if len(uattrList) == 0 {
+		glog.Infof("ExportUserAttrSet: no attributes to be exported")
+		result.Result = "Could not get User attribute set for tenant " + uuid
+		utils.WriteResult(w, result)
+		return nil
+	}
+	attrJson, err := json.Marshal(uattrList)
+	if err != nil {
+		glog.Infof("ExportUserAttrSet: marshal of attributes to export failed - %v ", err)
+		result.Result = "Marshal of attributes to export failed for tenant " + uuid
+		utils.WriteResult(w, result)
+		return nil
+	}
+	_, err = IdpSetTenantCustomUserAttr(API, TOKEN, uuid, &attrJson)
+	if err != nil {
+		result.Result = "Export of attribute set failed for tenant " + uuid
+		utils.WriteResult(w, result)
+		return nil
+	}
+	return &attrJson
+}
+
+// API handler for exporting user AttrSet for a tenant to Idp
+func exportUserAttrSetHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+
+	uuid := r.Context().Value("tenant").(string)
+
+	attrJson := exportUserAttrSet(w, r, uuid)
+	if attrJson != nil {
+		result.Result = "ok"
+		utils.WriteResult(w, result)
+	}
+}
+
+// API handler for exporting user attributes for a tenant to Idp
+func exportUserAttrHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+
+	uuid := r.Context().Value("tenant").(string)
+
+	// For a given tenant:
+	// Get all user attributes configured via attribute editor
+	// Read attribute collection from mongoDB for all users
+	// Export these attributes and values to the Idp
+	attrJson := exportUserAttrSet(w, r, uuid)
+	if attrJson == nil {
+		// Error case. The error has already been returned, so nothing to do.
+		return
+	}
+
+	userattr := db.DBFindAllUserAttrs(uuid)
+	if userattr == nil {
+		glog.Infof("ExportUserAttrs: no user attributes found for export to Idp")
+		result.Result = "Could not get User attributes to export for tenant " + uuid
+		utils.WriteResult(w, result)
+		return
+	}
+	attrValJson, err := json.Marshal(userattr)
+	if err != nil {
+		glog.Errorf("ExportUserAttrs: user attribute json marshal error for tenant " + uuid)
+		result.Result = "Could not marshal User attributes to json for export for tenant " + uuid
+		utils.WriteResult(w, result)
+		return
+	}
+	err = IdpSetAllUserAttr(API, TOKEN, uuid, attrJson, attrValJson)
+	if err != nil {
+		glog.Errorf("ExportUserAttrs: Idp returned error for tenant "+uuid+" - %v", err)
+		result.Result = "User attributes export to Idp failed for tenant " + uuid
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+// API handler for importing user attributes from Idp
+func importUserAttrHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+	var uattrNeeded []string
+
+	uuid := r.Context().Value("tenant").(string)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+
+	// For a given tenant:
+	// Get all user attributes configured via attribute editor
+	// Get filtered list of values for these attributes for all users
+	// Update attribute collection in mongoDB
+	UattrSet := db.DBFindAllUserAttrSet(uuid)
+	if UattrSet == nil {
+		result.Result = "Could not get User AttrSet for tenant " + uuid
+		utils.WriteResult(w, result)
+		return
+	}
+	for _, aset := range UattrSet {
+		uattrNeeded = append(uattrNeeded, aset.Name)
+	}
+
+	idpUattrs, err := IdpGetAllUserAttr(API, TOKEN, uuid, uattrNeeded)
+	if err != nil {
+		glog.Errorf("ImportUserAttrs: Idp returned error for tenant "+uuid+" - %v", err)
+		result.Result = "User attributes import from Idp failed for tenant " + uuid
+		utils.WriteResult(w, result)
+		return
+	}
+
+	Uattr := make([]bson.M, 0)
+	err = json.Unmarshal(idpUattrs, &Uattr)
+	if err != nil {
+		glog.Errorf("ImportUserAttrs: Unmarshal of attributes from Idp failed for tenant "+uuid+" - %v", err)
+		result.Result = "Users attributes json decode failed"
+		utils.WriteResult(w, result)
+		return
+	}
+	err = db.DBUpdateAttrsForMultipleUsers(uuid, admin, Uattr)
+	if err != nil {
+		glog.Errorf("ImportUserAttrs: Update of attributes in mongoDB failed for tenant "+uuid+" - %v", err)
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
 
 type GetuserAttrResult struct {
 	Result string `json:"Result"`

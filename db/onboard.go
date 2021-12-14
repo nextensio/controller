@@ -761,14 +761,47 @@ func DBFindAllGateways() (error, []Gateway) {
 }
 
 //------------------------Attribute set functions-----------------------------
+// Enums are required by Okta for any array type attribute. They specify all
+// possible values for the attribute. When any values are updated in Okta for
+// this attribute for any user, Okta validates against the enums and reports
+// an error if any value in the array does not match any of the enums for that
+// attribute.
+// For each enum, Okta also requires a corresponding display name. The enums
+// and their display names are given to Okta when the attribute is added to the
+// custom attributes list in the default user profile. We combine them both in
+// the Enums field as <enum-value>:<display-name>.
+// Eg., Attrset.Enums = ["ABU:Access BU", "BBU:Broadband BU", "CBU:Core BU", ...]
+// Because of the enum requirement, each array type attribute has to be unique
+// across all tenants.
 type AttrSet struct {
-	Name      string `bson:"name" json:"name"`
-	AppliesTo string `bson:"appliesTo" json:"appliesTo"`
-	Type      string `bson:"type" json:"type"`
-	IsArray   string `bson:"isArray" json:"isArray"`
+	Name      string   `bson:"name" json:"name"`
+	AppliesTo string   `bson:"appliesTo" json:"appliesTo"`
+	Type      string   `bson:"type" json:"type"`
+	IsArray   string   `bson:"isArray" json:"isArray"`
+	Enums     []string `bson:"enums" json:"enums"`
 }
 
 func DBAddAttrSet(tenant string, admin string, s AttrSet) error {
+
+	attrProp := bson.M{
+		"name":      s.Name,
+		"appliesTo": s.AppliesTo,
+		"type":      s.Type,
+		"isArray":   s.IsArray,
+	}
+	if s.Type == "" {
+		delete(attrProp, "type")
+	}
+	if s.IsArray == "" {
+		delete(attrProp, "isArray")
+	}
+	if s.AppliesTo == "Users" {
+		if s.Enums != nil {
+			attrProp["enums"] = s.Enums
+		} else {
+			attrProp["enums"] = []string{""}
+		}
+	}
 	upsert := true
 	after := options.After
 	opt := options.FindOneAndUpdateOptions{
@@ -783,8 +816,7 @@ func DBAddAttrSet(tenant string, admin string, s AttrSet) error {
 		context.TODO(),
 		bson.M{"_id": s.Name + ":" + s.AppliesTo},
 		bson.D{
-			{"$set", bson.M{"name": s.Name, "appliesTo": s.AppliesTo,
-				"type": s.Type, "isArray": s.IsArray}},
+			{"$set", attrProp},
 		},
 		&opt,
 	)
@@ -792,6 +824,7 @@ func DBAddAttrSet(tenant string, admin string, s AttrSet) error {
 		glog.Errorf("AttrSet: Add error - %v", err)
 		return err.Err()
 	}
+	glog.Infof("DBAddAttrSet: Added attribute set properties for %s:%s - %v", s.Name, s.AppliesTo, attrProp)
 	if s.AppliesTo == "Hosts" {
 		if err := DBAddAllHostsOneAttr(tenant, admin, s); err != nil {
 			return err
@@ -807,6 +840,7 @@ func DBAddAttrSet(tenant string, admin string, s AttrSet) error {
 			return err
 		}
 	}
+	glog.Infof("DBAddAttrSet: Added attribute " + s.Name + " to " + s.AppliesTo + " collection")
 	return nil
 }
 
@@ -852,6 +886,24 @@ func DBFindAllAttrSet(tenant string) []AttrSet {
 	err = cursor.All(context.TODO(), &set)
 	if err != nil {
 		glog.Errorf("AttrSet: Find all attr sets failed - %v", err)
+		return nil
+	}
+
+	return set
+}
+
+// Get the attribute set for Users only. Need it for import/export from Idp.
+func DBFindAllUserAttrSet(tenant string) []AttrSet {
+	var set []AttrSet
+
+	attrSetCltn := dbGetCollection(tenant, "NxtAttrSet")
+	cursor, err := attrSetCltn.Find(context.TODO(), bson.M{"appliesTo": "Users"})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &set)
+	if err != nil {
+		glog.Errorf("FindAllUserAttrSet: Find failed - %v", err)
 		return nil
 	}
 
