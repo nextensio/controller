@@ -202,7 +202,7 @@ func UpdDefaultUserCustomProfile(client *okta.Client, attrjson *[]byte) error {
 		return err
 	}
 	customattrs := uschema.Definitions.Custom.Properties
-	req := true
+	req := false
 	acount := 0
 	ucount := 0
 	glog.Infof("UpdDefaultUserCustomProfile: received attributes %v", attrList)
