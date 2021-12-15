@@ -336,6 +336,7 @@ func SearchUser(userattrs []primitive.M, uid string) primitive.M {
 // If any new attributes have been defined in Nextensio and are missing in the Idp,
 // they will be added in the Idp's user profile before the user attribute data is
 // exported.
+// This api is expected to be used when Nextensio is the source of truth for user data.
 func SetAllUserAttr(API string, TOKEN string, tenant string, attrjson *[]byte, uattrval []byte) error {
 	// Set tenant's missing user attributes in custom profile, if needed
 	// Get users in Okta tenant group via ListGroupUsers()
@@ -344,6 +345,7 @@ func SetAllUserAttr(API string, TOKEN string, tenant string, attrjson *[]byte, u
 	// uattrval is the collection of all users and their attributes as a json byte array
 
 	var userattrs []primitive.M
+	var oktausers map[string]bool
 
 	_, client, err := okta.NewClient(context.TODO(), okta.WithOrgUrl(API), okta.WithToken(TOKEN))
 	if err != nil {
@@ -368,54 +370,99 @@ func SetAllUserAttr(API string, TOKEN string, tenant string, attrjson *[]byte, u
 
 	ecount := 0 // error count
 	ucount := 0 // update count
-	mcount := 0 // missing users count
+	mcount := 0 // missing users count - in Okta but missing in Nextensio
 	errusers := []string{}
+	misusers := []string{}
+	oktausers = make(map[string]bool, 0)
 	for _, guser := range users {
+		// For each user in tenant group, get user info/profile
 		userinfo, _, err := client.User.GetUser(context.TODO(), guser.Id)
 		if err == nil {
 			uprofile := *userinfo.Profile
-			nxtuser := SearchUser(userattrs, uprofile["login"].(string))
+			uid := uprofile["login"].(string)
+			oktausers[uid] = true
+			// Search for user attribute record in data from Nextensio
+			nxtuser := SearchUser(userattrs, uid)
 			if nxtuser == nil {
 				// User is in Okta but not in Nextensio. Skip user.
+				// This should not happen since we add a user to our
+				// mongo collection and to Okta at the same time, unless
+				// the add to Okta succeeded but the add to our mongo
+				// collection somehow failed. We also delete the user from
+				// Okta if we delete the user from Nextensio.
+				// Let's log such errors but not take any corrective
+				// action here.
+				mcount++
+				misusers = append(misusers, uid)
 				continue
 			}
-			cnt := 0
 			for key, val := range nxtuser {
+				// For each user attribute from Nextensio, update
+				// the attribute in the Okta user profile.
 				if key == "uid" {
 					continue
 				}
 				switch val.(type) {
 				case []interface{}:
 					uprofile[key] = val
-					cnt++
 				default:
 					uprofile[key] = val
-					cnt++
 				}
 			}
 			userinfo.Profile = &uprofile
 			_, _, err := client.User.UpdateUser(context.TODO(), guser.Id, *userinfo, nil)
 			if err != nil {
-				glog.Errorf("SetAllUserAttr: Okta update of exported attribute value(s) failed - %v", err)
+				glog.Errorf("SetAllUserAttr: Okta update of exported attribute values failed for user %s - %v", uid, err)
 				ecount++
+				errusers = append(errusers, guser.Id)
 			} else {
 				ucount++
 			}
 		} else {
-			mcount++
+			// This should not happen since the user is from ListGroupUsers.
+			// We'll just keep track as this would be very serious.
+			ecount++
 			errusers = append(errusers, guser.Id)
 		}
 	}
 	if mcount > 0 {
-		glog.Errorf("SetAllUserAttr: %d users in Nextensio but not in Okta - %v", mcount, errusers)
+		glog.Errorf("SetAllUserAttr: %d users in Okta not in Nextensio - %v", mcount, misusers)
 	}
-	glog.Infof("SetAllUserAttr: exported user attributes to Okta: %d updated, %d failed", ucount, ecount)
+	if ecount > 0 {
+		glog.Errorf("SetAllUserAttr: %d users could not be updated in Okta - %v", ecount, errusers)
+	}
+	// Find out if we have any users in Nextensio but not in Okta.
+	// That should not happen since we add users to our mongo collection
+	// only if we have successfully added the user to Okta first.
+	// If we find any such users, we will log those users but not take
+	// any corrective action here. It's possible such users may have been
+	// removed from Okta via the dashboard but the removal hasn't happened
+	// in Nextensio. It could be due to a process failure based on source
+	// of truth for user data.
+	omcount := 0 // count of Nextensio users missing from Okta
+	misusers = []string{}
+	for _, nxtval := range userattrs {
+		// for each user attribute record from Nextensio
+		nxtuid := nxtval["uid"].(string)
+		_, ok := oktausers[nxtuid]
+		if !ok {
+			// User in Nextensio but not in Okta.
+			omcount++
+			misusers = append(misusers, nxtuid)
+		}
+	}
+	if omcount > 0 {
+		glog.Errorf("SetAllUserAttr: %d users in Nextensio not in Okta - %v", omcount, misusers)
+	}
+	glog.Infof("SetAllUserAttr: exported %d users with attributes to Okta, %d failed", ucount, ecount)
 	return nil
 }
 
 // This is for import of user attributes for a tenant from Okta to Nextensio.
 // The set of attributes is defined by the user AttrSet for the tenant in Nextensio
 // (since we can't get the set of attributes for any tenant from Okta)
+// This api is expected to be used when Okta is the source of truth for user data
+// (Okta or an external entity from where Okta imports user data - LDAP/AD/Workday/Salesforce/...)
 func GetAllUserAttr(API string, TOKEN string, tenant string, uattrNeeded []string) ([]byte, error) {
 	// Get Okta group for tenant
 	// Get users in group via ListGroupUsers()
