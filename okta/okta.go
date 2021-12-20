@@ -2,12 +2,14 @@ package okta
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 
 	"github.com/golang/glog"
 	"github.com/okta/okta-sdk-golang/v2/okta"
 	"github.com/okta/okta-sdk-golang/v2/okta/query"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func makeUserId(userid string) string {
@@ -93,7 +95,7 @@ func DelUser(API string, TOKEN string, userid string, tenant string) error {
 		glog.Errorf("user %s is part of tenant [%s], I am part of tenant[%s]", userid, oktaTenant, tenant)
 		return errors.New("Cannot delete user belonging to another tenant")
 	}
-	oktaGid, err := CheckGroup(client, tenant)
+	oktaGid, err := CheckGroup(client, tenant, false)
 	if oktaGid != "" {
 		_, err = client.Group.RemoveUserFromGroup(context.TODO(), oktaGid, oktaId)
 		glog.Infof("DelUser: user "+userid+" removed from group for tenant "+tenant+" - %v", err)
@@ -159,9 +161,8 @@ func AddToGroup(API string, TOKEN string, oktaGID string, oktaUID string, ulogin
 
 // Check if group has user, and if so, return user's Okta ID.
 func CheckGroupUser(client *okta.Client, gid string, uid string, ulogin string) (string, error) {
-	// Need to add filter
-	//search := fmt.Sprintf("profile.login eq \"%s\"", makeUserId(ulogin))
-	filter := query.NewQueryParams(query.WithFilter("profile.login eq \"" + ulogin + "\""))
+
+	filter := query.NewQueryParams(query.WithFilter("profile.login eq \"" + makeUserId(ulogin) + "\""))
 	u, _, err := client.Group.ListGroupUsers(context.TODO(), gid, filter)
 	if err != nil {
 		glog.Errorf("CheckGroupUser: user " + ulogin + "/" + uid + " search failed in group " + gid)
@@ -178,10 +179,353 @@ func CheckGroupUser(client *okta.Client, gid string, uid string, ulogin string) 
 	return "", errors.New("Group " + gid + " does not have user " + ulogin)
 }
 
+// Function that actually updates the custom attributes in the default user profile.
+// All attributes that are not part of the default 31 attributes defined by Okta are
+// added as custom attributes in the default user profile.
+// Attributes are added if they don't exist, updated if they already exist.
+func UpdDefaultUserCustomProfile(client *okta.Client, attrjson *[]byte) error {
+
+	type ItemProp struct {
+		Type  string   `bson:"type" json:"type"`
+		Enums []string `bson:"enums" json:"enums"`
+	}
+
+	attrList := make(map[string]ItemProp, 0)
+	err := json.Unmarshal(*attrjson, &attrList)
+	if err != nil {
+		glog.Errorf("UpdDefaultUserCustomProfile: attribute set unmarshal error - %v", err)
+		return err
+	}
+	uschema, _, err := client.UserSchema.GetUserSchema(context.TODO(), "default")
+	if err != nil {
+		glog.Errorf("UpdDefaultUserCustomProfile: could not get user schema - %v", err)
+		return err
+	}
+	customattrs := uschema.Definitions.Custom.Properties
+	req := false
+	acount := 0
+	ucount := 0
+	glog.Infof("UpdDefaultUserCustomProfile: received attributes %v", attrList)
+	for attr, val := range attrList {
+		cuattrProp, ok := customattrs[attr]
+		attrType := strings.ToLower(val.Type)
+		if !ok {
+			// Attribute missing - add it
+			perm := okta.UserSchemaAttributePermission{
+				Principal: "SELF",
+				Action:    "READ_WRITE",
+			}
+			items := okta.UserSchemaAttributeItems{}
+			uattrProp := okta.UserSchemaAttribute{
+				Description: attr,
+				Title:       attr,
+				Type:        attrType,
+				Required:    &req,
+				MaxLength:   0,
+				MinLength:   0,
+				Permissions: []*okta.UserSchemaAttributePermission{&perm},
+			}
+			switch attrType {
+			case "string-array":
+				uattrProp.Type = "array"
+				attrEnums := val.Enums
+				for _, enumVal := range attrEnums {
+					enumSplit := strings.Split(enumVal, ":")
+					items.Enum = append(items.Enum, enumSplit[0])
+					items.OneOf = append(items.OneOf, &okta.UserSchemaAttributeEnum{Const: enumSplit[0], Title: enumSplit[1]})
+					items.Type = "string"
+				}
+				uattrProp.Items = &items
+			case "number-array":
+				uattrProp.Type = "array"
+				attrEnums := val.Enums
+				for _, enumVal := range attrEnums {
+					enumSplit := strings.Split(enumVal, ":")
+					items.Enum = append(items.Enum, enumSplit[0])
+					items.OneOf = append(items.OneOf, &okta.UserSchemaAttributeEnum{Const: enumSplit[0], Title: enumSplit[1]})
+					items.Type = "string"
+				}
+				uattrProp.Items = &items
+			default:
+			}
+			customattrs[attr] = &uattrProp
+			acount++
+		} else {
+			// Attribute exists. Update just the Items field - Enums and OneOf.
+			// Not sure how Okta handles the items.Type field.
+			items := okta.UserSchemaAttributeItems{}
+			switch attrType {
+			case "string-array":
+				attrEnums := val.Enums
+				for _, enumVal := range attrEnums {
+					enumSplit := strings.Split(enumVal, ":")
+					items.Enum = append(items.Enum, enumSplit[0])
+					items.OneOf = append(items.OneOf, &okta.UserSchemaAttributeEnum{Const: enumSplit[0], Title: enumSplit[1]})
+					items.Type = "string"
+				}
+				cuattrProp.Items = &items
+			case "number-array":
+				attrEnums := val.Enums
+				for _, enumVal := range attrEnums {
+					enumSplit := strings.Split(enumVal, ":")
+					items.Enum = append(items.Enum, enumSplit[0])
+					items.OneOf = append(items.OneOf, &okta.UserSchemaAttributeEnum{Const: enumSplit[0], Title: enumSplit[1]})
+					items.Type = "string"
+				}
+				cuattrProp.Items = &items
+			default:
+			}
+			customattrs[attr] = cuattrProp
+			ucount++
+		}
+	}
+	_, _, err = client.UserSchema.UpdateUserProfile(context.TODO(), "default", *uschema)
+	if err != nil {
+		glog.Errorf("UpdDefaultUserCustomProfile: update failed - %v", err)
+		return err
+	}
+	glog.Errorf("UpdDefaultUserCustomProfile: added %d, updated %d custom user profile attributes", acount, ucount)
+	return nil
+}
+
+func setCustomUserAttr(client *okta.Client, tenant string, attrjson *[]byte) (string, error) {
+	grpid, err := CheckGroup(client, tenant, false)
+	if err != nil {
+		glog.Errorf("SetCustomUserAttr: Could not find group for tenant " + tenant)
+		return "", err
+	}
+
+	err = UpdDefaultUserCustomProfile(client, attrjson)
+	if err != nil {
+		glog.Errorf("SetCustomUserAttr: Could not update default user profile for tenant "+tenant+" - %v", err)
+		return "", err
+	}
+
+	glog.Infof("SetCustomUserAttr: exported user attribute set for tenant " + tenant + " to Idp custom profile")
+	return grpid, nil
+}
+
+// Export user attribute set for any tenant to Idp
+func SetTenantCustomUserAttr(API string, TOKEN string, tenant string, attrjson *[]byte) (string, error) {
+	// Get group for tenant
+	// Get default user profile and add any new attributes / update existing ones
+	// TODO: figure out how to remove obsolete attributes since such attributes
+	// can be deleted from user profile only if not used by any tenant.
+
+	_, client, err := okta.NewClient(context.TODO(), okta.WithOrgUrl(API), okta.WithToken(TOKEN))
+	if err != nil {
+		return "", err
+	}
+	return setCustomUserAttr(client, tenant, attrjson)
+}
+
+// Search for a specific user's attributes in a collection of attributes for all users
+// The attribute collection is from nextensio.
+func SearchUser(userattrs []primitive.M, uid string) primitive.M {
+	for _, attrs := range userattrs {
+		if attrs["uid"].(string) == uid {
+			return attrs
+		}
+	}
+	return nil
+}
+
+// This is for export of user attributes for a tenant from nextensio to Idp.
+// The set of attributes is defined by the user AttrSet for the tenant in Nextensio.
+// Nextensio holds attribute values for all users only for these attributes.
+// If any new attributes have been defined in Nextensio and are missing in the Idp,
+// they will be added in the Idp's user profile before the user attribute data is
+// exported.
+// This api is expected to be used when Nextensio is the source of truth for user data.
+func SetAllUserAttr(API string, TOKEN string, tenant string, attrjson *[]byte, uattrval []byte) error {
+	// Set tenant's missing user attributes in custom profile, if needed
+	// Get users in Okta tenant group via ListGroupUsers()
+	// For each user, set the attribute values.
+	// attrjson is the user AttrSet in json form
+	// uattrval is the collection of all users and their attributes as a json byte array
+
+	var userattrs []primitive.M
+	var oktausers map[string]bool
+
+	_, client, err := okta.NewClient(context.TODO(), okta.WithOrgUrl(API), okta.WithToken(TOKEN))
+	if err != nil {
+		return err
+	}
+	grpid, err := setCustomUserAttr(client, tenant, attrjson)
+	if err != nil {
+		return err
+	}
+
+	users, _, err := client.Group.ListGroupUsers(context.TODO(), grpid, nil)
+	if err != nil {
+		glog.Errorf("SetAllUserAttr: Could not find any users in group for tenant "+tenant+" - %v", err)
+		return err
+	}
+
+	err = json.Unmarshal(uattrval, &userattrs)
+	if err != nil {
+		glog.Errorf("SetAllUserAttr: Could not unmarshal user attributes for tenant "+tenant+" - %v", err)
+		return err
+	}
+
+	ecount := 0 // error count
+	ucount := 0 // update count
+	mcount := 0 // missing users count - in Okta but missing in Nextensio
+	errusers := []string{}
+	misusers := []string{}
+	oktausers = make(map[string]bool, 0)
+	for _, guser := range users {
+		// For each user in tenant group, get user info/profile
+		userinfo, _, err := client.User.GetUser(context.TODO(), guser.Id)
+		if err == nil {
+			uprofile := *userinfo.Profile
+			uid := uprofile["login"].(string)
+			oktausers[uid] = true
+			// Search for user attribute record in data from Nextensio
+			nxtuser := SearchUser(userattrs, uid)
+			if nxtuser == nil {
+				// User is in Okta but not in Nextensio. Skip user.
+				// This should not happen since we add a user to our
+				// mongo collection and to Okta at the same time, unless
+				// the add to Okta succeeded but the add to our mongo
+				// collection somehow failed. We also delete the user from
+				// Okta if we delete the user from Nextensio.
+				// Let's log such errors but not take any corrective
+				// action here.
+				mcount++
+				misusers = append(misusers, uid)
+				continue
+			}
+			for key, val := range nxtuser {
+				// For each user attribute from Nextensio, update
+				// the attribute in the Okta user profile.
+				if key == "uid" {
+					continue
+				}
+				switch val.(type) {
+				case []interface{}:
+					uprofile[key] = val
+				default:
+					uprofile[key] = val
+				}
+			}
+			userinfo.Profile = &uprofile
+			_, _, err := client.User.UpdateUser(context.TODO(), guser.Id, *userinfo, nil)
+			if err != nil {
+				glog.Errorf("SetAllUserAttr: Okta update of exported attribute values failed for user %s - %v", uid, err)
+				ecount++
+				errusers = append(errusers, guser.Id)
+			} else {
+				ucount++
+			}
+		} else {
+			// This should not happen since the user is from ListGroupUsers.
+			// We'll just keep track as this would be very serious.
+			ecount++
+			errusers = append(errusers, guser.Id)
+		}
+	}
+	if mcount > 0 {
+		glog.Errorf("SetAllUserAttr: %d users in Okta not in Nextensio - %v", mcount, misusers)
+	}
+	if ecount > 0 {
+		glog.Errorf("SetAllUserAttr: %d users could not be updated in Okta - %v", ecount, errusers)
+	}
+	// Find out if we have any users in Nextensio but not in Okta.
+	// That should not happen since we add users to our mongo collection
+	// only if we have successfully added the user to Okta first.
+	// If we find any such users, we will log those users but not take
+	// any corrective action here. It's possible such users may have been
+	// removed from Okta via the dashboard but the removal hasn't happened
+	// in Nextensio. It could be due to a process failure based on source
+	// of truth for user data.
+	omcount := 0 // count of Nextensio users missing from Okta
+	misusers = []string{}
+	for _, nxtval := range userattrs {
+		// for each user attribute record from Nextensio
+		nxtuid := nxtval["uid"].(string)
+		_, ok := oktausers[nxtuid]
+		if !ok {
+			// User in Nextensio but not in Okta.
+			omcount++
+			misusers = append(misusers, nxtuid)
+		}
+	}
+	if omcount > 0 {
+		glog.Errorf("SetAllUserAttr: %d users in Nextensio not in Okta - %v", omcount, misusers)
+	}
+	glog.Infof("SetAllUserAttr: exported %d users with attributes to Okta, %d failed", ucount, ecount)
+	return nil
+}
+
+// This is for import of user attributes for a tenant from Okta to Nextensio.
+// The set of attributes is defined by the user AttrSet for the tenant in Nextensio
+// (since we can't get the set of attributes for any tenant from Okta)
+// This api is expected to be used when Okta is the source of truth for user data
+// (Okta or an external entity from where Okta imports user data - LDAP/AD/Workday/Salesforce/...)
+func GetAllUserAttr(API string, TOKEN string, tenant string, uattrNeeded []string) ([]byte, error) {
+	// Get Okta group for tenant
+	// Get users in group via ListGroupUsers()
+	// For each user, get attribute values based on attributes in our AttrSet
+	// Package all user attributes into an array and return a json byte array
+
+	var allusers []map[string]interface{}
+	var oneuser map[string]interface{}
+
+	bytebody := []byte("")
+	_, client, err := okta.NewClient(context.TODO(), okta.WithOrgUrl(API), okta.WithToken(TOKEN))
+	if err != nil {
+		glog.Errorf("GetAllUserAttr: Could not get client for tenant " + tenant)
+		return bytebody, err
+	}
+	grpid, err := CheckGroup(client, tenant, false)
+	if err != nil {
+		glog.Errorf("GetAllUserAttr: Could not find group for tenant " + tenant)
+		return bytebody, err
+	}
+	users, _, err := client.Group.ListGroupUsers(context.TODO(), grpid, nil)
+	if err != nil {
+		glog.Errorf("GetAllUserAttr: Could not find any users in group for tenant "+tenant+" - %v", err)
+		return bytebody, err
+	}
+	glog.Infof("GetAllUserAttr: Found %d users in Idp group for tenant", len(users))
+	allusers = make([]map[string]interface{}, 0)
+	oneuser = make(map[string]interface{}, 0)
+	ecount := 0
+	acount := 0
+	errusers := []string{}
+	for _, guser := range users {
+		userinfo, _, err := client.User.GetUser(context.TODO(), guser.Id)
+		if err == nil {
+			uprofile := *userinfo.Profile
+			for _, key := range uattrNeeded {
+				oneuser[key] = uprofile[key]
+			}
+			oneuser["uid"] = uprofile["login"].(string)
+			allusers = append(allusers, oneuser)
+			acount++
+		} else {
+			ecount++
+			errusers = append(errusers, guser.Id)
+		}
+	}
+	if ecount > 0 {
+		glog.Errorf("GetAllUserAttr: failed for %d users - %v", ecount, errusers)
+	} else {
+		glog.Infof("GetAllUserAttr: importing attributes for %d users", acount)
+	}
+	bytebody, err = json.Marshal(allusers)
+	if err != nil {
+		glog.Errorf("GetAllUserAttr: Could not marshal attributes for users of tenant "+tenant+" - %v", err)
+		return bytebody, err
+	}
+	return bytebody, nil
+}
+
 //-------------------------------------Group API functions-----------------------------------
 
 // Check if group is valid/exists and if so, return its ID.
-func CheckGroup(client *okta.Client, group string) (string, error) {
+func CheckGroup(client *okta.Client, group string, delok bool) (string, error) {
 	groupIds, _, err := client.Group.ListGroups(context.TODO(), query.NewQueryParams(query.WithQ(group)))
 	if err != nil {
 		glog.Errorf("CheckGroup: search for tenant %s group errored - %v", group, err)
@@ -189,7 +533,7 @@ func CheckGroup(client *okta.Client, group string) (string, error) {
 	}
 	if len(groupIds) != 1 {
 		glog.Errorf("CheckGroup: None or Multiple groups for tenant " + group)
-		if len(groupIds) > 1 {
+		if len(groupIds) > 1 && delok {
 			for _, grp := range groupIds {
 				_, err1 := client.Group.DeleteGroup(context.TODO(), grp.Id)
 				glog.Infof("Deleting group %v - status: %v", *grp, err1)
@@ -208,7 +552,7 @@ func GetGroupID(API string, TOKEN string, group string) (string, error) {
 		return "", err
 	}
 
-	return CheckGroup(client, group)
+	return CheckGroup(client, group, false)
 }
 
 // Create a new group when a new tenant is created. Tenant creation may be via signup or via the
@@ -222,7 +566,7 @@ func AddGroup(API string, TOKEN string, group string, signup bool) (string, erro
 	}
 
 	// Check if group already exists
-	gid, err := CheckGroup(client, group)
+	gid, err := CheckGroup(client, group, true)
 	glog.Infof("AddGroup: checkgroup returned gid = %s, err = %v", gid, err)
 	if err == nil && signup {
 		return "", errors.New("Group " + group + " already exists")
@@ -257,7 +601,7 @@ func DelGroup(API string, TOKEN string, group string) error {
 	}
 
 	// Get group ID
-	gid, err := CheckGroup(client, group)
+	gid, err := CheckGroup(client, group, true)
 	if err != nil {
 		// Group not unique
 		glog.Errorf("DelGroup: group delete error for tenant "+group+" - %v", err)
