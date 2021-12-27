@@ -16,18 +16,6 @@ func IdpGetUserInfo(API string, TOKEN string, userid string) (string, string, st
 	return "", "", "", nil
 }
 
-func IdpGetAllUserAttr(API string, TOKEN string, tenant string, uattrNeeded []string) ([]byte, error) {
-	return []byte(""), nil
-}
-
-func IdpSetTenantCustomUserAttr(API string, TOKEN string, tenant string, attrjson *[]byte) (string, error) {
-	return "", nil
-}
-
-func IdpSetAllUserAttr(API string, TOKEN string, tenant string, attrjson *[]byte, uattrval []byte) error {
-	return nil
-}
-
 func IdpAddUser(API string, TOKEN string, userid string, tenant string, userType string, signup bool) (string, error) {
 	return "", nil
 }

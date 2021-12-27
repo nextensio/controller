@@ -31,18 +31,6 @@ func IdpGetUserInfo(API string, TOKEN string, userid string) (string, string, st
 	return okta.GetUserInfo(API, TOKEN, userid)
 }
 
-func IdpGetAllUserAttr(API string, TOKEN string, tenant string, uattrNeeded []string) ([]byte, error) {
-	return okta.GetAllUserAttr(API, TOKEN, tenant, uattrNeeded)
-}
-
-func IdpSetTenantCustomUserAttr(API string, TOKEN string, tenant string, attrjson *[]byte) (string, error) {
-	return okta.SetTenantCustomUserAttr(API, TOKEN, tenant, attrjson)
-}
-
-func IdpSetAllUserAttr(API string, TOKEN string, tenant string, attrjson *[]byte, uattrval []byte) error {
-	return okta.SetAllUserAttr(API, TOKEN, tenant, attrjson, uattrval)
-}
-
 func IdpAddUser(API string, TOKEN string, userid string, tenant string, userType string, signup bool) (string, error) {
 	return okta.AddUser(API, TOKEN, userid, tenant, userType, signup)
 }
