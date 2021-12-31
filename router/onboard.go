@@ -48,8 +48,11 @@ func rdonlyOnboard() {
 	// This route is used to get all users for a tenant
 	getTenantRoute("/allusers", "GET", getAllUsersHandler)
 
-	// This route is used to get all possible attributes for users/bundles
+	// This route is used to get all possible attributes for users/bundles/hosts
 	getTenantRoute("/allattrset", "GET", getAllAttrSet)
+
+	// This route is used to get attributes for a specific group - users or bundles or hosts
+	getTenantRoute("/groupattrset/{group}", "GET", getGroupAttrSet)
 
 	// This route is used to get bundle attributes header for a tenant
 	getTenantRoute("/bundleattrhdr", "GET", getBundleAttrHdrHandler)
@@ -1073,10 +1076,25 @@ func delUserHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-// Get  attribute set
+// Get all attribute sets
 func getAllAttrSet(w http.ResponseWriter, r *http.Request) {
 	uuid := r.Context().Value("tenant").(string)
 	set := db.DBFindAllAttrSet(uuid)
+	if set == nil {
+		result := make([]db.AttrSet, 0)
+		utils.WriteResult(w, result)
+	} else {
+		result := set
+		utils.WriteResult(w, result)
+	}
+}
+
+// Get attribute sets for specified group - "Users", "Bundles", "Hosts"
+func getGroupAttrSet(w http.ResponseWriter, r *http.Request) {
+	uuid := r.Context().Value("tenant").(string)
+	v := mux.Vars(r)
+	grp := v["group"]
+	set := db.DBFindGroupAttrSet(uuid, grp)
 	if set == nil {
 		result := make([]db.AttrSet, 0)
 		utils.WriteResult(w, result)
@@ -1096,6 +1114,10 @@ func addAttrSet(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		admin = "UnknownUser"
 	}
+	admingrp, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		admingrp = "regular"
+	}
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		result.Result = "Add tenant attribute set - HTTP Req Read fail"
@@ -1109,7 +1131,7 @@ func addAttrSet(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBAddAttrSet(uuid, admin, data)
+	err = db.DBAddAttrSet(uuid, admin, admingrp, data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1130,6 +1152,10 @@ func delAttrSet(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		admin = "UnknownUser"
 	}
+	admingrp, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		admingrp = "regular"
+	}
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		result.Result = "Add tenant attribute set - HTTP Req Read fail"
@@ -1143,7 +1169,7 @@ func delAttrSet(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBDelAttrSet(uuid, admin, data)
+	err = db.DBDelAttrSet(uuid, admin, admingrp, data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)

@@ -766,9 +766,19 @@ type AttrSet struct {
 	AppliesTo string `bson:"appliesTo" json:"appliesTo"`
 	Type      string `bson:"type" json:"type"`
 	IsArray   string `bson:"isArray" json:"isArray"`
+	Group     string `bson:"group" json:"group"`
 }
 
-func DBAddAttrSet(tenant string, admin string, s AttrSet) error {
+func DBAddAttrSet(tenant string, admin string, admingrp string, s AttrSet) error {
+
+	if (!strings.HasPrefix(admingrp, "admin-")) && (admingrp != "superadmin") {
+		return fmt.Errorf("User does not have privileges for adding an attribute")
+	}
+	if s.Group != "" {
+		if (s.Group != "superadmin") && (s.Group != admingrp) {
+			return fmt.Errorf("User not privileged to update attribute "+s.Name)
+		}
+	}
 	upsert := true
 	after := options.After
 	opt := options.FindOneAndUpdateOptions{
@@ -784,7 +794,7 @@ func DBAddAttrSet(tenant string, admin string, s AttrSet) error {
 		bson.M{"_id": s.Name + ":" + s.AppliesTo},
 		bson.D{
 			{"$set", bson.M{"name": s.Name, "appliesTo": s.AppliesTo,
-				"type": s.Type, "isArray": s.IsArray}},
+				"type": s.Type, "isArray": s.IsArray, "group":admingrp}},
 		},
 		&opt,
 	)
@@ -792,6 +802,7 @@ func DBAddAttrSet(tenant string, admin string, s AttrSet) error {
 		glog.Errorf("AttrSet: Add error - %v", err)
 		return err.Err()
 	}
+	glog.Infof("AddAttrSet: Added %s attribute %s in group %s", s.AppliesTo, s.Name, admingrp)
 	if s.AppliesTo == "Hosts" {
 		if err := DBAddAllHostsOneAttr(tenant, admin, s); err != nil {
 			return err
@@ -810,7 +821,13 @@ func DBAddAttrSet(tenant string, admin string, s AttrSet) error {
 	return nil
 }
 
-func DBDelAttrSet(tenant string, admin string, set AttrSet) error {
+func DBDelAttrSet(tenant string, admin string, admingrp string, set AttrSet) error {
+	if (!strings.HasPrefix(admingrp, "admin-")) && (admingrp != "superadmin") {
+		return fmt.Errorf("User does not have privileges for deleting an attribute")
+	}
+	if (admingrp != "superadmin") && (set.Group != admingrp) {
+		return fmt.Errorf("User not privileged to delete attribute "+set.Name)
+	}
 	Cltn := dbGetCollection(tenant, "NxtAttrSet")
 	if Cltn == nil {
 		return fmt.Errorf("Unknown Collection")
@@ -846,6 +863,23 @@ func DBFindAllAttrSet(tenant string) []AttrSet {
 
 	attrSetCltn := dbGetCollection(tenant, "NxtAttrSet")
 	cursor, err := attrSetCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &set)
+	if err != nil {
+		glog.Errorf("AttrSet: Find all attr sets failed - %v", err)
+		return nil
+	}
+
+	return set
+}
+
+func DBFindGroupAttrSet(tenant string, grp string) []AttrSet {
+	var set []AttrSet
+
+	attrSetCltn := dbGetCollection(tenant, "NxtAttrSet")
+	cursor, err := attrSetCltn.Find(context.TODO(), bson.M{"appliesTo":grp})
 	if err != nil {
 		return nil
 	}
