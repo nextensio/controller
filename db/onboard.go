@@ -862,6 +862,10 @@ func DBFindAllAttrSet(tenant string) []AttrSet {
 	var set []AttrSet
 
 	attrSetCltn := dbGetCollection(tenant, "NxtAttrSet")
+	if attrSetCltn == nil {
+		glog.Errorf("AttrSet: Could not find AttrSet collection")
+		return nil
+	}
 	cursor, err := attrSetCltn.Find(context.TODO(), bson.M{})
 	if err != nil {
 		return nil
@@ -875,11 +879,21 @@ func DBFindAllAttrSet(tenant string) []AttrSet {
 	return set
 }
 
-func DBFindGroupAttrSet(tenant string, grp string) []AttrSet {
+func DBFindSpecificAttrSet(tenant string, atyp string, admingrp string) []AttrSet {
 	var set []AttrSet
+	var err error
+	var cursor *mongo.Cursor
 
 	attrSetCltn := dbGetCollection(tenant, "NxtAttrSet")
-	cursor, err := attrSetCltn.Find(context.TODO(), bson.M{"appliesTo":grp})
+	if attrSetCltn == nil {
+		glog.Errorf("AttrSet: Could not find AttrSet collection")
+		return nil
+	}
+	if admingrp == "superadmin" {
+		cursor, err = attrSetCltn.Find(context.TODO(), bson.M{"appliesTo": atyp})
+	} else {
+		cursor, err = attrSetCltn.Find(context.TODO(), bson.M{"appliesTo": atyp, "group": admingrp})
+	}
 	if err != nil {
 		return nil
 	}

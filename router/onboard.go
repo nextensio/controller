@@ -51,8 +51,8 @@ func rdonlyOnboard() {
 	// This route is used to get all possible attributes for users/bundles/hosts
 	getTenantRoute("/allattrset", "GET", getAllAttrSet)
 
-	// This route is used to get attributes for a specific group - users or bundles or hosts
-	getTenantRoute("/groupattrset/{group}", "GET", getGroupAttrSet)
+	// This route is used to get attributes for a specific type - users or bundles or hosts
+	getTenantRoute("/attrset/{type}", "GET", getSpecificAttrSet)
 
 	// This route is used to get bundle attributes header for a tenant
 	getTenantRoute("/bundleattrhdr", "GET", getBundleAttrHdrHandler)
@@ -1089,12 +1089,16 @@ func getAllAttrSet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Get attribute sets for specified group - "Users", "Bundles", "Hosts"
-func getGroupAttrSet(w http.ResponseWriter, r *http.Request) {
+// Get attribute sets for specified type - "Users", "Bundles", "Hosts"
+func getSpecificAttrSet(w http.ResponseWriter, r *http.Request) {
 	uuid := r.Context().Value("tenant").(string)
+	admingrp, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		admingrp = "regular"
+	}
 	v := mux.Vars(r)
-	grp := v["group"]
-	set := db.DBFindGroupAttrSet(uuid, grp)
+	atyp := v["type"]
+	set := db.DBFindSpecificAttrSet(uuid, atyp, admingrp)
 	if set == nil {
 		result := make([]db.AttrSet, 0)
 		utils.WriteResult(w, result)
