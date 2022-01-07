@@ -51,12 +51,20 @@ func AddUser(API string, TOKEN string, userid string, tenant string, userType st
 			glog.Errorf("User " + userid + "/" + oktaId + " exists but tenant mismatch " + tenant + "/" + oktaTenant)
 			return "", errors.New("User already assigned to another tenant")
 		}
-		e = UpdateUser(client, userid, tenant, oktaUsertype)
+		if (userType == "superadmin") && (oktaUsertype != "superadmin") {
+			glog.Errorf("User " + userid + "/" + oktaId + " type cannot be upgraded to superadmin")
+			return "", errors.New("User type cannot be upgraded to superadmin")
+		}
+		if (userType != "superadmin") && (oktaUsertype == "superadmin") {
+			glog.Errorf("User " + userid + "/" + oktaId + " type cannot be downgraded from superadmin")
+			return "", errors.New("User type cannot be downgraded from superadmin")
+		}
+		e = UpdateUser(client, userid, tenant, userType)
 		if e != nil {
-			glog.Infof("User update failed for " + userid + "/" + oktaId)
+			glog.Errorf("User update failed for " + userid + "/" + oktaId)
 			return "", e
 		}
-		glog.Infof("User with oktaId " + oktaId + " found")
+		glog.Infof("User " + userid + " updated to usertype " + userType)
 		return oktaId, nil
 	} else {
 		glog.Infof("AddUser: user " + userid + " not found; creating...")

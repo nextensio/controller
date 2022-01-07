@@ -159,6 +159,9 @@ func rdwrOnboard() {
 	// docs will be deleted for specified user
 	delTenantRoute("/user/{userid}", "GET", delUserHandler)
 
+	// This route is used to update/change the group admin role of a user
+	addTenantRoute("/user/adminrole/{userid}/{group}", "POST", updUserAdminRole)
+
 	// This route is used to add all possible attributes for users/bundles
 	addTenantRoute("/attrset", "POST", addAttrSet)
 
@@ -1087,6 +1090,59 @@ func getAllAttrSet(w http.ResponseWriter, r *http.Request) {
 		result := set
 		utils.WriteResult(w, result)
 	}
+}
+
+// Set admin role of a group for any user. Can only be done by the
+// superadmin or another admin for the target group. Can also remove
+// a user from group admin role to be a regular user.
+// Attempts to upgrade to or downgrade from superadmin not allowed here.
+// Involves setting usertype for user in Okta.
+func updUserAdminRole(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+	tenant := r.Context().Value("tenant").(string)
+	admingrp, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		admingrp = "regular"
+	}
+	v := mux.Vars(r)
+	grp := v["group"]
+	uid := v["userid"]
+	if (admingrp != "superadmin") && (!strings.HasPrefix(admingrp, "admin-"))  {
+		glog.Errorf("updUserAdminRole: Need admin privileges to change user type")
+		result.Result = " Need admin privileges to change user type"
+		utils.WriteResult(w, result)
+		return
+	}
+	if admingrp != "superadmin" {
+		if strings.HasPrefix(grp, "admin-") && (admingrp != grp) {
+			glog.Errorf("updUserAdminRole: %s cannot set admin role for %s", admingrp, grp)
+			result.Result = admingrp + " cannot set admin role for " + grp
+			utils.WriteResult(w, result)
+			return
+		}
+	}
+	_, idpTenant, _, err := IdpGetUserInfo(API, TOKEN, uid)
+	if err != nil {
+		glog.Errorf("updUserAdminRole: user %s info not found in Idp - %v", uid, err)
+		result.Result = "User info not found in Idp"
+		utils.WriteResult(w, result)
+		return
+	}
+	if idpTenant != tenant {
+		glog.Errorf("updUserAdminRole: user tenant mismatch - %s v/s %s", tenant, idpTenant)
+		result.Result = "User tenant mismatch"
+		utils.WriteResult(w, result)
+		return
+	}
+	_, err = IdpAddUser(API, TOKEN, uid, tenant, grp, false)
+	if err != nil {
+		glog.Errorf("updUserAdminRole: user admin role update failed - %v", err)
+		result.Result = "User admin role update failed"
+		utils.WriteResult(w, result)
+		return
+	}
+	result.Result = "ok"
+	utils.WriteResult(w, result)
 }
 
 // Get attribute sets for specified type - "Users", "Bundles", "Hosts"
