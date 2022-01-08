@@ -775,8 +775,15 @@ func DBAddAttrSet(tenant string, admin string, admingrp string, s AttrSet) error
 		return fmt.Errorf("User does not have privileges for adding an attribute")
 	}
 	if s.Group != "" {
-		if (s.Group != "superadmin") && (s.Group != admingrp) {
-			return fmt.Errorf("User not privileged to update attribute "+s.Name)
+		if s.Group != "superadmin" {
+			if !strings.HasPrefix(s.Group, "admin-") {
+				return fmt.Errorf("Invalid group " + s.Group + " specified for attribute " + s.Name)
+			}
+			if admingrp == "superadmin" {
+				admingrp = s.Group
+			} else if admingrp != s.Group {
+				return fmt.Errorf(admingrp + " admin not privileged to change attribute " + s.Name + " group to " + s.Group)
+			}
 		}
 	}
 	upsert := true
@@ -794,7 +801,7 @@ func DBAddAttrSet(tenant string, admin string, admingrp string, s AttrSet) error
 		bson.M{"_id": s.Name + ":" + s.AppliesTo},
 		bson.D{
 			{"$set", bson.M{"name": s.Name, "appliesTo": s.AppliesTo,
-				"type": s.Type, "isArray": s.IsArray, "group":admingrp}},
+				"type": s.Type, "isArray": s.IsArray, "group": admingrp}},
 		},
 		&opt,
 	)
@@ -826,7 +833,7 @@ func DBDelAttrSet(tenant string, admin string, admingrp string, set AttrSet) err
 		return fmt.Errorf("User does not have privileges for deleting an attribute")
 	}
 	if (admingrp != "superadmin") && (set.Group != admingrp) {
-		return fmt.Errorf("User not privileged to delete attribute "+set.Name)
+		return fmt.Errorf("User not privileged to delete attribute " + set.Name)
 	}
 	Cltn := dbGetCollection(tenant, "NxtAttrSet")
 	if Cltn == nil {
@@ -1466,6 +1473,9 @@ func DBAddUserAttr(uuid string, admin string, user string, Uattr bson.M) error {
 		nattrs := 0
 		for _, a := range attrset {
 			if a.AppliesTo == "Users" {
+				if strings.HasPrefix(a.Name, "_") {
+					continue
+				}
 				nattrs += 1
 				found := false
 				for k := range Uattr {

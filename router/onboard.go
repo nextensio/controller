@@ -218,6 +218,29 @@ func rdwrOnboard() {
 	delTenantRoute("/tracereq/{traceid}", "GET", delTraceReqHandler)
 }
 
+const defDevAttrGroup = "admin-secops"
+
+var devAttrs = []db.AttrSet{
+	db.AttrSet{Name: "_hostname", AppliesTo: "Users", Type: "String", IsArray: "false", Group: defDevAttrGroup},
+	db.AttrSet{Name: "_model", AppliesTo: "Users", Type: "String", IsArray: "false", Group: defDevAttrGroup},
+	db.AttrSet{Name: "_osName", AppliesTo: "Users", Type: "String", IsArray: "false", Group: defDevAttrGroup},
+	db.AttrSet{Name: "_osType", AppliesTo: "Users", Type: "String", IsArray: "false", Group: defDevAttrGroup},
+	db.AttrSet{Name: "_osMajor", AppliesTo: "Users", Type: "Number", IsArray: "false", Group: defDevAttrGroup},
+	db.AttrSet{Name: "_osMinor", AppliesTo: "Users", Type: "Number", IsArray: "false", Group: defDevAttrGroup},
+	db.AttrSet{Name: "_osPatch", AppliesTo: "Users", Type: "String", IsArray: "false", Group: defDevAttrGroup},
+}
+
+func setDeviceAttrSet(tenant string, admin string) error {
+
+	for _, dattr := range devAttrs {
+		err := db.DBAddAttrSet(tenant, admin, defDevAttrGroup, dattr)
+		if err != nil {
+			glog.Errorf("setDeviceAttrSet: error adding %s - %v", dattr.Name, err)
+		}
+	}
+	return nil
+}
+
 func signupWithIdp(w http.ResponseWriter, tenant string, email string) error {
 	var result OpResult
 
@@ -296,6 +319,8 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	setDeviceAttrSet(signup.Tenant, signup.Email)
 
 	var user db.User
 	user.Uid = signup.Email
@@ -389,7 +414,7 @@ func SyncIdp() {
 				idpUid, err = IdpAddUser(API, TOKEN, data.Uid, tenant.ID, usertype, false)
 				if err != nil {
 					userInIdp = false
-					glog.Infof("SyncIdp: failed to add user " + data.Uid + " to Idp - %v", err)
+					glog.Infof("SyncIdp: failed to add user "+data.Uid+" to Idp - %v", err)
 				} else {
 					glog.Infof("SyncIdp: added user " + data.Uid + " to Idp")
 				}
@@ -397,13 +422,13 @@ func SyncIdp() {
 			if userInIdp {
 				err = IdpAddUserToGroup(API, TOKEN, gid, idpUid, data.Uid, false)
 				if err != nil {
-					glog.Infof("SyncIdp: user "+ data.Uid +" add to Idp group failed - %v", err)
+					glog.Infof("SyncIdp: user "+data.Uid+" add to Idp group failed - %v", err)
 				} else {
 					glog.Infof("SyncIdp: user " + data.Uid + " added to Idp group for " + tenant.ID)
 				}
 				data.Usertype = usertype
 				err = db.DBAddUser(tenant.ID, "Nextensio", &data)
-				glog.Infof("SyncIdp: Updated user " + data.Uid + " in DB for usertype - %v", err)
+				glog.Infof("SyncIdp: Updated user "+data.Uid+" in DB for usertype - %v", err)
 			}
 		}
 	}
@@ -500,6 +525,8 @@ func addtenantHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
+
+	setDeviceAttrSet(data.ID, admin)
 
 	result.Result = "ok"
 	utils.WriteResult(w, result)
@@ -1107,7 +1134,7 @@ func updUserAdminRole(w http.ResponseWriter, r *http.Request) {
 	v := mux.Vars(r)
 	grp := v["group"]
 	uid := v["userid"]
-	if (admingrp != "superadmin") && (!strings.HasPrefix(admingrp, "admin-"))  {
+	if (admingrp != "superadmin") && (!strings.HasPrefix(admingrp, "admin-")) {
 		glog.Errorf("updUserAdminRole: Need admin privileges to change user type")
 		result.Result = " Need admin privileges to change user type"
 		utils.WriteResult(w, result)
@@ -1362,7 +1389,6 @@ func updMultiUsersAttrHandler(w http.ResponseWriter, r *http.Request) {
 	result.Result = "ok"
 	utils.WriteResult(w, result)
 }
-
 
 type GetuserAttrResult struct {
 	Result string `json:"Result"`
