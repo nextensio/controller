@@ -2145,7 +2145,15 @@ func dbUpdateBundleServices(tenant string, admin string, app string) {
 		if changed {
 			b.Services = nsvcs
 			DBUpdateBundle(tenant, admin, &b)
+			glog.Infof("dbUpdateBundleServices: updated bundle %s services to %v", b.Bid, nsvcs)
 		}
+	}
+}
+
+func DBUpdateBundleServices(uuid string, admin string, host string, deleted *[]string) {
+	for _, tag := range *deleted {
+		dbUpdateBundleServices(uuid, admin, tag + "." + host)
+		glog.Infof("DBUpdateBundleService: deleted tagged app %s from AppGroup services", tag + "." + host)
 	}
 }
 
@@ -2592,8 +2600,9 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 			}
 		}
 	}
+	// Check if any deleted route is still being referred to in the route policy
 	if DBHostRuleExists(uuid, host, &deleted) {
-		return fmt.Errorf("Please delete policies for the route before deleting the route")
+		return fmt.Errorf("Please update rules/policy for the deleted route(s) of %s first - %v", host, deleted)
 	}
 
 	err = dbAddHostAttr(uuid, host, Hattr, false)
@@ -2603,10 +2612,14 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 	DBUpdateHostAttrHdr(uuid, admin)
 
 	if !found {
+		// Adding a new host, aka App. Add it to tenant's domain list.
 		err = dbaddTenantDomain(uuid, host)
 		if err != nil {
 			return err
 		}
+	} else {
+		// Remove tagged app entries for any deleted routes from AppGroups
+		DBUpdateBundleServices(uuid, admin, host, &deleted)
 	}
 
 	return nil
