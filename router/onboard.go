@@ -795,7 +795,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 
 	data.Userid = r.Context().Value("userid").(string)
 	data.Tenant = r.Context().Value("user-tenant").(string)
-	glog.Error("User/Tenant onboarding", data.Userid, data.Tenant)
+	glog.Infof("User/Tenant onboarding - %s/%s", data.Userid, data.Tenant)
 
 	tenant := db.DBFindTenant(data.Tenant)
 	if tenant == nil {
@@ -809,7 +809,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 		result.Services = user.Services
 		result.Gateway = user.Gateway
 		result.Cluster = db.DBGetClusterName(user.Gateway)
-		result.Version = user.ConfigVersion
+		result.Version = tenant.ConfigVersion
 		result.SplitTunnel = tenant.SplitTunnel
 	} else {
 		bundle := db.DBFindBundle(data.Tenant, data.Userid)
@@ -833,7 +833,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 			result.Services = bundle.Services
 			result.Gateway = bundle.Gateway
 			result.Cluster = db.DBGetClusterName(bundle.Gateway)
-			result.Version = bundle.ConfigVersion
+			result.Version = tenant.ConfigVersion
 		} else {
 			result.Result = "IDP user/bundle not found on controller"
 			utils.WriteResult(w, result)
@@ -897,14 +897,11 @@ func keepaliveHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
+	result.Version = t.ConfigVersion
 	user := db.DBFindUser(tenant, userid)
-	if user != nil {
-		result.Version = user.ConfigVersion
-	} else {
+	if user == nil {
 		bundle := db.DBFindBundle(tenant, userid)
-		if bundle != nil {
-			result.Version = bundle.ConfigVersion
-		} else {
+		if bundle == nil {
 			result.Result = "IDP user/bundle not found on controller"
 			utils.WriteResult(w, result)
 			return
@@ -947,16 +944,14 @@ func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
+	result.Version = t.ConfigVersion
 	user := db.DBFindUser(tenant, userid)
 	if user != nil {
-		result.Version = user.ConfigVersion
 		// We dont check the keepalive return value, keepalives are sent periodically
 		db.UserKeepalive(tenant, user, data)
 	} else {
 		bundle := db.DBFindBundle(tenant, userid)
-		if bundle != nil {
-			result.Version = bundle.ConfigVersion
-		} else {
+		if bundle == nil {
 			result.Result = "IDP user/bundle not found on controller"
 			utils.WriteResult(w, result)
 			return

@@ -136,11 +136,12 @@ type TenantJson struct {
 }
 
 type Tenant struct {
-	ID          string   `json:"_id" bson:"_id"`
-	Name        string   `json:"name" bson:"name"`
-	Domains     []Domain `json:"domains" bson:"domains"`
-	EasyMode    bool     `json:"easymode" bson:"easymode"`
-	SplitTunnel bool     `json:"splittunnel" bson:"splittunnel"`
+	ID            string   `json:"_id" bson:"_id"`
+	Name          string   `json:"name" bson:"name"`
+	Domains       []Domain `json:"domains" bson:"domains"`
+	EasyMode      bool     `json:"easymode" bson:"easymode"`
+	SplitTunnel   bool     `json:"splittunnel" bson:"splittunnel"`
+	ConfigVersion string   `json:"cfgvn" bson:"cfgvn"`
 }
 
 type Domain struct {
@@ -156,7 +157,7 @@ func dbaddTenantDomain(uuid string, host string) error {
 		Name: host,
 	}
 	tenant.Domains = append(tenant.Domains, domain)
-	return dbUpdateTenantDomain(tenant)
+	return dbUpdateTenant(tenant)
 }
 
 func dbdelTenantDomain(uuid string, host string) error {
@@ -170,10 +171,10 @@ func dbdelTenantDomain(uuid string, host string) error {
 			break
 		}
 	}
-	return dbUpdateTenantDomain(tenant)
+	return dbUpdateTenant(tenant)
 }
 
-func dbUpdateTenantDomain(tenant *Tenant) error {
+func dbUpdateTenant(tenant *Tenant) error {
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
@@ -194,6 +195,15 @@ func dbUpdateTenantDomain(tenant *Tenant) error {
 		return err.Err()
 	}
 	return nil
+}
+
+func DBUpdateTenantCfgvn(uuid string, cfgvn uint64) error {
+	tenant := DBFindTenant(uuid)
+	if tenant == nil {
+		return errors.New("Cant find tenant")
+	}
+	tenant.ConfigVersion = strconv.FormatUint(cfgvn, 10)
+	return dbUpdateTenant(tenant)
 }
 
 func validateTenant(tenant string) bool {
@@ -1041,16 +1051,15 @@ func DBDelUserAttrHdr(tenant string) error {
 // The Pod here indicates the "pod set" that this user should
 // connect to, each pod set has its own number of replicas etc..
 type User struct {
-	Uid           string      `json:"uid" bson:"_id"`
-	Username      string      `json:"name" bson:"name"`
-	Email         string      `json:"email" bson:"email"`
-	Gateway       string      `json:"gateway" bson:"gateway"`
-	Usertype      string      `json:"usertype" bson:"usertype"`
-	Pod           int         `json:"pod" bson:"pod"`
-	Connectid     string      `json:"connectid" bson:"connectid"`
-	Services      []string    `json:"services" bson:"services"`
-	ConfigVersion string      `json:"cfgvn" bson:"cfgvn"`
-	Keepalive     []Keepalive `json:"keepalive" bson:"keepalive"`
+	Uid       string      `json:"uid" bson:"_id"`
+	Username  string      `json:"name" bson:"name"`
+	Email     string      `json:"email" bson:"email"`
+	Gateway   string      `json:"gateway" bson:"gateway"`
+	Usertype  string      `json:"usertype" bson:"usertype"`
+	Pod       int         `json:"pod" bson:"pod"`
+	Connectid string      `json:"connectid" bson:"connectid"`
+	Services  []string    `json:"services" bson:"services"`
+	Keepalive []Keepalive `json:"keepalive" bson:"keepalive"`
 }
 
 // This API will add/update a new user
@@ -1113,10 +1122,6 @@ func DBAddUser(uuid string, admin string, data *User) error {
 	if data.Pod == 0 {
 		data.Pod = 1
 	}
-	var cfgvn string
-	if user != nil {
-		cfgvn = user.ConfigVersion
-	}
 	data.Services = []string{}
 
 	// Same user/uuid can login from multiple devices. The connectid will be based on the
@@ -1134,7 +1139,7 @@ func DBAddUser(uuid string, admin string, data *User) error {
 		bson.D{
 			{"$set", bson.M{"name": data.Username, "email": data.Email,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
-				"services": data.Services, "cfgvn": cfgvn, "usertype": data.Usertype}},
+				"services": data.Services, "usertype": data.Usertype}},
 		},
 		&opt,
 	)
@@ -1199,50 +1204,6 @@ func DBFindAllUsers(tenant string) []bson.M {
 		return nil
 	}
 	return nusers[:j]
-}
-
-func DBUpdateAllUsersCfgvn(tenant string, cfgvn uint64) error {
-	userCltn := dbGetCollection(tenant, "NxtUsers")
-	if userCltn == nil {
-		return fmt.Errorf("Cant find tenant")
-	}
-	cursor, err := userCltn.Find(context.TODO(), bson.M{})
-	if err == mongo.ErrNoDocuments {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	upsert := false
-	after := options.After
-	opt := options.FindOneAndUpdateOptions{
-		ReturnDocument: &after,
-		Upsert:         &upsert,
-	}
-
-	defer cursor.Close(context.TODO())
-	for cursor.Next(context.TODO()) {
-		var user User
-		if err = cursor.Decode(&user); err != nil {
-			return err
-		}
-		if user.Uid == HDRKEY {
-			// Skip the header doc
-			continue
-		}
-		result := userCltn.FindOneAndUpdate(
-			context.TODO(),
-			bson.M{"_id": user.Uid},
-			bson.D{
-				{"$set", bson.M{"cfgvn": strconv.FormatUint(cfgvn, 10)}},
-			},
-			&opt,
-		)
-		if result.Err() != nil {
-			return result.Err()
-		}
-	}
-	return nil
 }
 
 func DBDelUser(tenant string, admin string, userid string) error {
@@ -1692,16 +1653,15 @@ func DBDelBundleAttrHdr(tenant string) error {
 // The Pod here indicates the "pod set" that this user should
 // connect to, each pod set has its own number of replicas etc..
 type Bundle struct {
-	Bid           string      `json:"bid" bson:"_id"`
-	Bundlename    string      `json:"name" bson:"name"`
-	Gateway       string      `json:"gateway" bson:"gateway"`
-	Pod           string      `json:"pod" bson:"pod"`
-	Connectid     string      `json:"connectid" bson:"connectid"`
-	Services      []string    `json:"services" bson:"services"`
-	CpodRepl      int         `json:"cpodrepl" bson:"cpodrepl"`
-	ConfigVersion string      `json:"cfgvn" bson:"cfgvn"`
-	SharedKey     string      `json:"sharedkey" bson:"sharedkey"`
-	Keepalive     []Keepalive `json:"keepalive" bson:"keepalive"`
+	Bid        string      `json:"bid" bson:"_id"`
+	Bundlename string      `json:"name" bson:"name"`
+	Gateway    string      `json:"gateway" bson:"gateway"`
+	Pod        string      `json:"pod" bson:"pod"`
+	Connectid  string      `json:"connectid" bson:"connectid"`
+	Services   []string    `json:"services" bson:"services"`
+	CpodRepl   int         `json:"cpodrepl" bson:"cpodrepl"`
+	SharedKey  string      `json:"sharedkey" bson:"sharedkey"`
+	Keepalive  []Keepalive `json:"keepalive" bson:"keepalive"`
 }
 
 // This API will add/update a new bundle
@@ -1770,7 +1730,6 @@ func DBAddBundle(uuid string, admin string, data *Bundle) error {
 			}
 		}
 	}
-	var cfgvn = strconv.FormatUint(uint64(time.Now().Unix()), 10)
 
 	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
 	// not happy with @, minion wants to replace dot with dash, keep everyone happy
@@ -1790,7 +1749,7 @@ func DBAddBundle(uuid string, admin string, data *Bundle) error {
 		bson.D{
 			{"$set", bson.M{"name": data.Bundlename,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
-				"services": data.Services, "cpodrepl": data.CpodRepl, "cfgvn": cfgvn,
+				"services": data.Services, "cpodrepl": data.CpodRepl,
 				"sharedkey": data.SharedKey}},
 		},
 		&opt,
@@ -1924,50 +1883,6 @@ func DBFindAllBundles(tenant string) []bson.M {
 		return nil
 	}
 	return nbundles[:j]
-}
-
-func DBUpdateAllBundlesCfgvn(tenant string, cfgvn uint64) error {
-	appCltn := dbGetCollection(tenant, "NxtApps")
-	if appCltn == nil {
-		return fmt.Errorf("Cant find tenant")
-	}
-	cursor, err := appCltn.Find(context.TODO(), bson.M{})
-	if err == mongo.ErrNoDocuments {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	upsert := false
-	after := options.After
-	opt := options.FindOneAndUpdateOptions{
-		ReturnDocument: &after,
-		Upsert:         &upsert,
-	}
-
-	defer cursor.Close(context.TODO())
-	for cursor.Next(context.TODO()) {
-		var app Bundle
-		if err = cursor.Decode(&app); err != nil {
-			return err
-		}
-		if app.Bid == HDRKEY {
-			// Skip the header doc
-			continue
-		}
-		result := appCltn.FindOneAndUpdate(
-			context.TODO(),
-			bson.M{"_id": app.Bid},
-			bson.D{
-				{"$set", bson.M{"cfgvn": strconv.FormatUint(cfgvn, 10)}},
-			},
-			&opt,
-		)
-		if result.Err() != nil {
-			return result.Err()
-		}
-	}
-	return nil
 }
 
 func DBDelBundle(tenant string, admin string, bundleid string) error {
@@ -2152,8 +2067,8 @@ func dbUpdateBundleServices(tenant string, admin string, app string) {
 
 func DBUpdateBundleServices(uuid string, admin string, host string, deleted *[]string) {
 	for _, tag := range *deleted {
-		dbUpdateBundleServices(uuid, admin, tag + "." + host)
-		glog.Infof("DBUpdateBundleService: deleted tagged app %s from AppGroup services", tag + "." + host)
+		dbUpdateBundleServices(uuid, admin, tag+"."+host)
+		glog.Infof("DBUpdateBundleService: deleted tagged app %s from AppGroup services", tag+"."+host)
 	}
 }
 
@@ -2548,11 +2463,7 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 			return fmt.Errorf(sts)
 		}
 		now := time.Now().Unix()
-		err := DBUpdateAllUsersCfgvn(uuid, uint64(now))
-		if err != nil {
-			return err
-		}
-		err = DBUpdateAllBundlesCfgvn(uuid, uint64(now))
+		err := DBUpdateTenantCfgvn(uuid, uint64(now))
 		if err != nil {
 			return err
 		}
@@ -2639,11 +2550,7 @@ func DBDelHostAttr(tenant string, admin string, hostid string) error {
 	// "private domains" for which agent sends traffic to nextensio gateways
 	// Bundles also need the update for connector to connector traffic
 	now := time.Now().Unix()
-	err := DBUpdateAllUsersCfgvn(tenant, uint64(now))
-	if err != nil {
-		return err
-	}
-	err = DBUpdateAllBundlesCfgvn(tenant, uint64(now))
+	err := DBUpdateTenantCfgvn(tenant, uint64(now))
 	if err != nil {
 		return err
 	}
