@@ -1,8 +1,13 @@
 package okta
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io/ioutil"
+	"net/http"
+	"nextensio/controller/db"
 	"strings"
 
 	"github.com/golang/glog"
@@ -30,7 +35,16 @@ func GetUserInfo(API string, TOKEN string, userid string) (string, string, strin
 	if len(users) != 1 {
 		return "", "", "", err
 	}
-	return users[0].Id, (*users[0].Profile)["organization"].(string), (*users[0].Profile)["userType"].(string), nil
+
+	oktaTenant := ""
+	oktaUserType := "regular"
+	if val, ok := (*users[0].Profile)["organization"]; ok {
+		oktaTenant = val.(string)
+	}
+	if val, ok := (*users[0].Profile)["userType"]; ok {
+		oktaUserType = val.(string)
+	}
+	return users[0].Id, oktaTenant, oktaUserType, nil
 }
 
 // Add user to Okta
@@ -47,7 +61,7 @@ func AddUser(API string, TOKEN string, userid string, tenant string, userType st
 			glog.Infof("Signup - User " + userid + "/" + oktaId + " already exists")
 			return "", errors.New("User " + userid + " already exists")
 		}
-		if oktaTenant != tenant {
+		if oktaTenant != "" && oktaTenant != tenant {
 			glog.Errorf("User " + userid + "/" + oktaId + " exists but tenant mismatch " + tenant + "/" + oktaTenant)
 			return "", errors.New("User already assigned to another tenant")
 		}
@@ -253,8 +267,8 @@ func AddGroup(API string, TOKEN string, group string, signup bool) (string, erro
 	} else {
 		glog.Infof("AddGroup: group already exists for tenant " + group)
 	}
-	_ = AddAppsToGroup(client, gid, signup)
-	return gid, nil
+	err = AddAppsToGroup(client, gid, signup)
+	return gid, err
 }
 
 // Delete group when tenant is deleted.
@@ -284,6 +298,10 @@ func AddAppsToGroup(client *okta.Client, oktaGID string, signup bool) error {
 		return errors.New("No Apps found for adding to group ID " + oktaGID)
 	}
 	grpapps, _, err := client.Group.ListAssignedApplicationsForGroup(context.TODO(), oktaGID, nil)
+	if err != nil {
+		glog.Info("Cannot list groups", oktaGID)
+		return err
+	}
 	glog.Infof("Apps: %v\nGrpApps: %v", apps, grpapps)
 	for i, app := range apps {
 		glog.Infof("Apps[%d] Name: %s, ID: %s, Label: %s, Status: %s, Profile: %v", i,
@@ -316,10 +334,401 @@ func AddAppsToGroup(client *okta.Client, oktaGID string, signup bool) error {
 		appgrp := &okta.ApplicationGroupAssignment{}
 		_, _, err = client.Application.CreateApplicationGroupAssignment(context.TODO(), appid, oktaGID, *appgrp)
 		if err != nil {
+			// TODO: We should be returning error here instead of continuing, but
+			// what we have seen is that even after we delete an app from okta, this
+			// API somehow finds that app and then sys it cant add the app to this group
+			// (because its deleted!). Till we find an answer for that we are just continuing
 			glog.Errorf("AddAppToGroup: Failed to add "+applbl+" to group "+oktaGID+" - %v", err)
 			continue
 		}
 		glog.Infof("AddAppToGroup: Added " + applbl + " to group " + oktaGID)
 	}
+	return nil
+}
+
+func createIdentityProvider(idpj *db.IDP) (*okta.IdentityProvider, error) {
+	jwt := ""
+	if idpj.Jwks != "" {
+		jwt = `
+		"jwks": {
+			"binding": "HTTP-REDIRECT",
+			"url": "` + idpj.Jwks + `"
+		},
+		`
+	}
+	iss := ""
+	if idpj.Issuer != "" {
+		iss = `
+		"issuer": {
+			"url": "` + idpj.Issuer + `"
+		},
+		`
+	}
+	jsonIDP := `
+		{
+			"name": "` + idpj.Name + `",
+			"policy": {
+				"accountLink": {
+				  "action": "AUTO",
+				  "filter": {
+                    "groups": {
+                        "include": [
+                            "` + idpj.Group + `"
+                        ]
+                    }
+                  }
+				},
+				"maxClockSkew": 0,
+				"provisioning": {
+				  "action": "AUTO",
+				  "conditions": {
+					"deprovisioned": {
+					  "action": "NONE"
+					},
+					"suspended": {
+					  "action": "NONE"
+					}
+				  },
+				  "groups": {
+					  "action": "ASSIGN",
+					  "assignments": [
+						  "` + idpj.Group + `"
+					  ]
+				  },
+				  "profileMaster": false
+				},
+				"subject": {
+				  "filter": null,
+				  "matchAttribute": "",
+				  "matchType": "USERNAME",
+				  "userNameTemplate": {
+					"template": "idpuser.email"
+				  }
+				}
+			},  
+			"protocol": {
+			  "credentials": {
+				  "client": {
+					"client_id": "` + idpj.Client + `",
+					"client_secret": "` + idpj.Secret + `"
+				  }
+			  },
+			  "endpoints": {
+				"authorization": {
+				  "binding": "HTTP-REDIRECT",
+				  "url": "` + idpj.Auth + `"
+				},
+				` + jwt + `
+				"token": {
+				  "binding": "HTTP-POST",
+				  "url": "` + idpj.Token + `"
+				}
+			  },
+			  ` + iss + `
+			  "scopes": [
+				"openid",
+				"profile",
+				"email"
+			  ],
+			  "type": "OIDC"
+			},
+			"status": "ACTIVE",
+			"type": "OIDC"	
+		}
+	`
+
+	var idp okta.IdentityProvider
+
+	err := json.Unmarshal([]byte(jsonIDP), &idp)
+	if err != nil {
+		glog.Infof("Error unmarshalling policy json")
+		return nil, err
+	}
+
+	return &idp, nil
+}
+
+func updateProfileMap(client *okta.Client, idpId string) error {
+	params := query.NewQueryParams(query.WithSourceId(idpId))
+	maps, _, err := client.ProfileMapping.ListProfileMappings(context.TODO(), params)
+	if err != nil {
+		glog.Infof("Profile mapping id get failed", err)
+		return err
+	}
+	if len(maps) != 1 {
+		glog.Infof("Profile mapping id get invalid", len(maps))
+		return errors.New("invalid profile map")
+	}
+	m, _, err := client.ProfileMapping.GetProfileMapping(context.TODO(), maps[0].Id)
+	if err != nil {
+		glog.Infof("Profile mapping  get failed", err)
+		return err
+	}
+	// Okta is anal about needing firstName and lastName from the external OIDC when
+	// it does the JIT (Just In Time) creation of users when the login the first  time.
+	// Not everyone returns those in the idToken, and sometimes ive seen even when its
+	// returned in the idToken, okta still complains of missing first/last names and fails
+	// JIT. We dont really care about these fields in okta, just fill it with email, which
+	// we know all OIDCs will give us (scope email will usually be allowed)
+	for k, _ := range m.Properties {
+		if k == "firstName" {
+			m.Properties[k].Expression = "appuser.email"
+		}
+		if k == "lastName" {
+			m.Properties[k].Expression = "appuser.email"
+		}
+	}
+	_, _, err = client.ProfileMapping.UpdateProfileMapping(context.TODO(), maps[0].Id, *m)
+	if err != nil {
+		glog.Infof("Profile mapping  get failed", err)
+		return err
+	}
+
+	return nil
+}
+
+func CreateIDP(API string, TOKEN string, idpj *db.IDP) (string, string, error) {
+	_, client, err := okta.NewClient(context.TODO(), okta.WithOrgUrl(API), okta.WithToken(TOKEN))
+	if err != nil {
+		glog.Infof("Cant get client", err)
+		return "", "", err
+	}
+
+	params := query.Params{Type: "IDP_DISCOVERY"}
+	policies, _, err := client.Policy.ListPolicies(context.TODO(), &params)
+	if err != nil {
+		glog.Infof("Cant get policies", err)
+		return "", "", err
+	}
+	policyId := ""
+	for _, p := range policies {
+		if p.Type == "IDP_DISCOVERY" {
+			policyId = p.Id
+			break
+		}
+	}
+	if policyId == "" {
+		glog.Infof("Cant find IDP_DISCOVERY policy")
+		return "", "", errors.New("cant find idp_discovery policy")
+	}
+	idp, err := createIdentityProvider(idpj)
+	if err != nil {
+		return "", "", err
+	}
+	resultIpd, _, err := client.IdentityProvider.CreateIdentityProvider(context.TODO(), *idp)
+	if err != nil {
+		glog.Infof("Error creating identity provider", err)
+		return "", "", err
+	}
+
+	policy, err := createIDPPolicyRulePost(API, TOKEN, idpj.Name, resultIpd.Id, policyId, idpj.Domain)
+	if err != nil {
+		glog.Infof("IDP Policy failure")
+		ierr := deleteIDPid(client, resultIpd.Id)
+		if ierr != nil {
+			glog.Infof("Attempt IDP deleteion, that too failed", ierr)
+		}
+		return "", "", err
+	}
+
+	err = updateProfileMap(client, resultIpd.Id)
+	if err != nil {
+		glog.Infof("IDP Mapping failure", err)
+		ierr := deleteIDPid(client, resultIpd.Id)
+		if ierr != nil {
+			glog.Infof("Attempt IDP deleteion, that too failed", ierr)
+		}
+		return "", "", err
+	}
+
+	return resultIpd.Id, policy, nil
+}
+
+type PolicyRuleResp struct {
+	Id string `json:"id" bson:"id"`
+}
+
+// The Okta API for PolicyCreate does not have the idp: proviers [...] capability yet, when they have it
+// we can just switch back to the API version
+func createIDPPolicyRulePost(API string, TOKEN string, name string, idpId string, policyId string, domain string) (string, error) {
+
+	jsonRule := []byte(`
+	{
+        "actions": {
+            "idp": {
+                "providers": [
+                    {
+                        "id": "` + idpId + `",
+                        "type": "OIDC"
+                    }
+                ]
+            }
+        },
+        "conditions": {
+            "app": {
+                "exclude": [],
+                "include": []
+            },
+            "network": {
+                "connection": "ANYWHERE"
+            },
+            "platform": {
+                "exclude": [],
+                "include": [
+                    {
+                        "os": {
+                            "type": "ANY"
+                        },
+                        "type": "ANY"
+                    }
+                ]
+            },
+            "userIdentifier": {
+                "patterns": [
+                    {
+                        "matchType": "SUFFIX",
+                        "value": "` + domain + `"
+                    }
+                ],
+                "type": "IDENTIFIER"
+            }
+        },
+        "name": "` + name + `",
+        "priority": 1,
+        "status": "ACTIVE",
+        "system": false,
+        "type": "IDP_DISCOVERY"
+    }
+	`)
+
+	url := API + "/api/v1/policies/" + policyId + "/rules"
+	request, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonRule))
+	if err != nil {
+		glog.Errorf("Policy rule http create fail: " + err.Error())
+		return "", err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Authorization", "SSWS "+TOKEN)
+
+	client := &http.Client{}
+	response, err := client.Do(request)
+	if err != nil {
+		glog.Errorf("Policy rule http request fail: " + err.Error())
+		return "", err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != 200 {
+		glog.Error("Response is not 200: " + response.Status)
+		return "", errors.New("Bad response " + response.Status)
+	}
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		glog.Errorf("Policy create http response fail: " + err.Error())
+		return "", err
+	}
+	var data PolicyRuleResp
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		glog.Errorf("Error parsing policy rule response: " + err.Error())
+		return "", err
+	}
+
+	return data.Id, nil
+}
+
+func createIDPPolicyRuleAPI(client *okta.Client, name string, idpId string, policyId string, domain string) (string, error) {
+
+	jsonRule := `
+	{
+        "actions": {
+            "idp": {
+                "providers": [
+                    {
+                        "id": "` + idpId + `",
+                        "type": "OIDC"
+                    }
+                ]
+            }
+        },
+        "conditions": {
+            "app": {
+                "exclude": [],
+                "include": []
+            },
+            "network": {
+                "connection": "ANYWHERE"
+            },
+            "platform": {
+                "exclude": [],
+                "include": [
+                    {
+                        "os": {
+                            "type": "ANY"
+                        },
+                        "type": "ANY"
+                    }
+                ]
+            },
+            "userIdentifier": {
+                "patterns": [
+                    {
+                        "matchType": "SUFFIX",
+                        "value": "` + domain + `"
+                    }
+                ],
+                "type": "IDENTIFIER"
+            }
+        },
+        "name": "` + name + `",
+        "priority": 1,
+        "status": "ACTIVE",
+        "system": false,
+        "type": "IDP_DISCOVERY"
+    }
+	`
+
+	var policy okta.PolicyRule
+
+	err := json.Unmarshal([]byte(jsonRule), &policy)
+	if err != nil {
+		glog.Infof("Error unmarshalling policy json")
+		return "", err
+	}
+
+	p, _, err := client.Policy.CreatePolicyRule(context.TODO(), policyId, policy)
+	if err != nil {
+		glog.Infof("Error creating policy", err)
+		return "", err
+	}
+
+	return p.Id, nil
+}
+
+func deleteIDPid(client *okta.Client, idpId string) error {
+	return nil
+}
+
+func deletePolicyRule(client *okta.Client, policyId string) error {
+	return nil
+}
+
+func DeleteIDP(API string, TOKEN string, idpj *db.IDP) error {
+	_, client, err := okta.NewClient(context.TODO(), okta.WithOrgUrl(API), okta.WithToken(TOKEN))
+	if err != nil {
+		return err
+	}
+
+	err = deleteIDPid(client, idpj.Idp)
+	if err != nil {
+		return err
+	}
+
+	err = deletePolicyRule(client, idpj.Policy)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }

@@ -128,24 +128,66 @@ type Keepalive struct {
 	Seen    int64  `bson:"seen"`
 }
 
+type IDP struct {
+	Provider string `json:"provider" bson:"provider"`
+	Name     string `json:"name" bson:"name"`
+	Idp      string `json:"idp" bson:"idp"`
+	Policy   string `json:"policy" bson:"policy"`
+	Domain   string `json:"domain" bson:"domain"`
+	Group    string `json:"group" bson:"group"`
+	Auth     string `json:"auth" bson:"auth"`
+	Jwks     string `json:"jwks" bson:"jwks"`
+	Token    string `json:"token" bson:"token"`
+	Issuer   string `json:"issuer" bson:"issuer"`
+	Client   string `json:"client" bson:"client"`
+	Secret   string `json:"secret" bson:"secret"`
+}
+
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type TenantJson struct {
 	ID       string  `json:"_id"`
 	Name     *string `json:"name"`
+	Group    string  `json:"group" bson:"group"`
 	EasyMode *bool   `json:"easymode"`
 }
 
 type Tenant struct {
 	ID            string   `json:"_id" bson:"_id"`
 	Name          string   `json:"name" bson:"name"`
+	Group         string   `json:"group" bson:"group"`
 	Domains       []Domain `json:"domains" bson:"domains"`
 	EasyMode      bool     `json:"easymode" bson:"easymode"`
 	SplitTunnel   bool     `json:"splittunnel" bson:"splittunnel"`
 	ConfigVersion string   `json:"cfgvn" bson:"cfgvn"`
+	Idps          []IDP    `json:"idps" bson:"idps"`
 }
 
 type Domain struct {
 	Name string `json:"name" bson:"name"`
+}
+
+func DBaddTenantIdp(tenant *Tenant, new IDP) error {
+	found := false
+	for i, d := range tenant.Idps {
+		if d.Name == new.Name {
+			tenant.Idps[i] = new
+			found = true
+		}
+	}
+	if !found {
+		tenant.Idps = append(tenant.Idps, new)
+	}
+	return dbUpdateTenant(tenant)
+}
+
+func DBdelTenantIDP(tenant *Tenant, name string) error {
+	for i, d := range tenant.Idps {
+		if d.Name == name {
+			tenant.Idps = append(tenant.Idps[:i], tenant.Idps[i+1:]...)
+			break
+		}
+	}
+	return dbUpdateTenant(tenant)
 }
 
 func dbaddTenantDomain(uuid string, host string) error {
@@ -226,6 +268,7 @@ func dbTenantUpdateJson(tenant *Tenant, data *TenantJson) *Tenant {
 		} else {
 			t.EasyMode = *data.EasyMode
 		}
+		t.Group = data.Group
 		t.Domains = []Domain{}
 		return &t
 	} else {
