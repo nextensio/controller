@@ -2,6 +2,7 @@ package router
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -252,27 +253,22 @@ func setDeviceAttrSet(tenant string, admin string) error {
 	return nil
 }
 func signupWithIdp(w http.ResponseWriter, tenant string, email string) (string, error) {
-	var result OpResult
 
 	gid, err := IdpAddGroup(API, TOKEN, tenant, true)
 	if err != nil {
 		errmsg := fmt.Sprintf("Group creation failed for tenant %s - %v", tenant, err)
-		result.Result = errmsg
-		utils.WriteResult(w, result)
-		return "", err
+		return "", errors.New(errmsg)
 	}
 	uid, err := IdpAddUser(API, TOKEN, email, tenant, "admin", true)
 	if err != nil {
-		result.Result = "Failure adding user, please try again: " + err.Error()
-		utils.WriteResult(w, result)
-		return "", err
+		errmsg := "Failure adding user, please try again: " + err.Error()
+		return "", errors.New(errmsg)
 	}
 
 	err = IdpAddUserToGroup(API, TOKEN, gid, uid, email, true)
 	if err != nil {
-		result.Result = "Failed to add user to group, please try again: " + err.Error()
-		utils.WriteResult(w, result)
-		return "", err
+		errmsg := "Failed to add user to group, please try again: " + err.Error()
+		return "", errors.New(errmsg)
 	}
 	return gid, nil
 }
@@ -303,7 +299,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 
 	gid, gerr := signupWithIdp(w, signup.Tenant, signup.Email)
 	if gerr != nil {
-		errmsg := fmt.Sprintf("Group creation failed for tenant %s - %v", signup.Tenant, gerr)
+		errmsg := fmt.Sprintf("Tenant %s error: %v", signup.Tenant, gerr)
 		result.Result = errmsg
 		utils.WriteResult(w, result)
 		return
@@ -555,6 +551,16 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
+
+	// First get stuff cleaned out from okta, if thats not done we cant
+	// delete stuff from our database
+	err = IdpDelGroup(API, TOKEN, uuid)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
 	for _, gw := range gws {
 		err := db.DBDelTenantCluster(uuid, db.DBGetClusterName(gw.Name))
 		if err != nil {
@@ -562,12 +568,6 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 			utils.WriteResult(w, result)
 			return
 		}
-	}
-	err = IdpDelGroup(API, TOKEN, uuid)
-	if err != nil {
-		result.Result = err.Error()
-		utils.WriteResult(w, result)
-		return
 	}
 
 	// DBDelTenant() will remove all header docs for tenant collections
