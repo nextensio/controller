@@ -272,7 +272,6 @@ func ServeRoutes() {
 	TOKEN = utils.GetEnv("API_TOKEN", "none")
 	cert := utils.GetEnv("TLS_CRT", "unknown")
 	key := utils.GetEnv("TLS_KEY", "unknown")
-	SyncIdp()
 	if cert == "unknown" || key == "unknown" {
 		http.ListenAndServe(":8080", handlers.CORS(originsOk, headersOk, methodsOk)(nroni))
 	} else {

@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"nextensio/controller/db"
+	"nextensio/controller/okta"
 	"nextensio/controller/utils"
 	"strings"
 	"time"
@@ -113,6 +114,10 @@ func rdonlyOnboard() {
 
 	// This route is used to get keepalive information for a user
 	getTenantRoute("/bundlestatus/{bid}", "GET", getBundleStatus)
+
+	// This route is used to get all Identity Providers for a tenant
+	getTenantRoute("/allidps", "GET", getAllIDPsHandler)
+
 }
 
 func rdwrOnboard() {
@@ -192,6 +197,12 @@ func rdwrOnboard() {
 	// This route is used to add a new app-bundle with basic info
 	addTenantRoute("/bundle", "POST", addBundleHandler)
 
+	// This route is used to add a new Identity Provider
+	addTenantRoute("/idp", "POST", addIDPHandler)
+
+	// This route is used to delete an Identity Provider
+	delTenantRoute("/idp/{name}", "GET", delIDPHandler)
+
 	// This route is used to delete a specific app-bundle
 	// Both app-bundle info and app-bundle attribute docs will be deleted
 	delTenantRoute("/bundle/{bid}", "GET", delBundleHandler)
@@ -240,8 +251,7 @@ func setDeviceAttrSet(tenant string, admin string) error {
 	}
 	return nil
 }
-
-func signupWithIdp(w http.ResponseWriter, tenant string, email string) error {
+func signupWithIdp(w http.ResponseWriter, tenant string, email string) (string, error) {
 	var result OpResult
 
 	gid, err := IdpAddGroup(API, TOKEN, tenant, true)
@@ -249,22 +259,22 @@ func signupWithIdp(w http.ResponseWriter, tenant string, email string) error {
 		errmsg := fmt.Sprintf("Group creation failed for tenant %s - %v", tenant, err)
 		result.Result = errmsg
 		utils.WriteResult(w, result)
-		return err
+		return "", err
 	}
 	uid, err := IdpAddUser(API, TOKEN, email, tenant, "admin", true)
 	if err != nil {
 		result.Result = "Failure adding user, please try again: " + err.Error()
 		utils.WriteResult(w, result)
-		return err
+		return "", err
 	}
 
 	err = IdpAddUserToGroup(API, TOKEN, gid, uid, email, true)
 	if err != nil {
 		result.Result = "Failed to add user to group, please try again: " + err.Error()
 		utils.WriteResult(w, result)
-		return err
+		return "", err
 	}
-	return nil
+	return gid, nil
 }
 
 func signupHandler(w http.ResponseWriter, r *http.Request) {
@@ -291,12 +301,17 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if signupWithIdp(w, signup.Tenant, signup.Email) != nil {
+	gid, gerr := signupWithIdp(w, signup.Tenant, signup.Email)
+	if gerr != nil {
+		errmsg := fmt.Sprintf("Group creation failed for tenant %s - %v", signup.Tenant, gerr)
+		result.Result = errmsg
+		utils.WriteResult(w, result)
 		return
 	}
 
 	var data db.TenantJson
 	data.ID = signup.Tenant
+	data.Group = gid
 	err = db.DBAddTenant(&data, signup.Email, false)
 	if err != nil {
 		result.Result = err.Error()
@@ -378,62 +393,6 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-// This function syncs tenants and their users with the Idp to create a group per
-// tenant and add tenants's users to the group. If a user does not exist in the
-// Idp, the user is added to the Idp first before assigning to the group.
-// Finally, the usertype is updated in the user record in our DB. It is taken
-// from the Idp if the user existed there, else usertype is treated as "regular".
-func SyncIdp() {
-	var data db.User
-
-	// Find all tenants. For each tenant, get all users
-	tenants := db.DBFindAllTenants()
-	glog.Infof("SyncIdp: found %d tenants", len(tenants))
-	for _, tenant := range tenants {
-		glog.Infof("SyncIdp: syncing tenant " + tenant.ID)
-		gid, err := IdpAddGroup(API, TOKEN, tenant.ID, false)
-		if err != nil {
-			glog.Infof("SyncIdp: group creation for tenant "+tenant.ID+" failed - %v", err)
-			continue
-		}
-		users := db.DBFindAllUsers(tenant.ID)
-		for _, user := range users {
-			body, err := json.Marshal(user)
-			if err != nil {
-				continue
-			}
-			err = json.Unmarshal(body, &data)
-			if err != nil {
-				continue
-			}
-			userInIdp := true
-			idpUid, _, usertype, err := IdpGetUserInfo(API, TOKEN, data.Uid)
-			if err != nil {
-				// User doesn't exist, so add user
-				usertype = "regular"
-				idpUid, err = IdpAddUser(API, TOKEN, data.Uid, tenant.ID, usertype, false)
-				if err != nil {
-					userInIdp = false
-					glog.Infof("SyncIdp: failed to add user "+data.Uid+" to Idp - %v", err)
-				} else {
-					glog.Infof("SyncIdp: added user " + data.Uid + " to Idp")
-				}
-			}
-			if userInIdp {
-				err = IdpAddUserToGroup(API, TOKEN, gid, idpUid, data.Uid, false)
-				if err != nil {
-					glog.Infof("SyncIdp: user "+data.Uid+" add to Idp group failed - %v", err)
-				} else {
-					glog.Infof("SyncIdp: user " + data.Uid + " added to Idp group for " + tenant.ID)
-				}
-				data.Usertype = usertype
-				err = db.DBAddUser(tenant.ID, "Nextensio", &data)
-				glog.Infof("SyncIdp: Updated user "+data.Uid+" in DB for usertype - %v", err)
-			}
-		}
-	}
-}
-
 type GetTenantResult struct {
 	Result string `json:"Result"`
 	Tenant db.Tenant
@@ -512,15 +471,18 @@ func addtenantHandler(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		admin = "UnknownUser"
 	}
-	_, err = IdpAddGroup(API, TOKEN, data.ID, false)
-	if err != nil {
-		errmsg := fmt.Sprintf("Group creation failed for tenant %s - %v", data.ID, err)
+	gid, gerr := IdpAddGroup(API, TOKEN, data.ID, false)
+	if gerr != nil {
+		errmsg := fmt.Sprintf("Group creation failed for tenant %s - %v", data.ID, gerr)
+		glog.Errorf(errmsg)
 		result.Result = errmsg
 		utils.WriteResult(w, result)
 		return
 	}
+	data.Group = gid
 	err = db.DBAddTenant(&data, admin, false)
 	if err != nil {
+		glog.Errorf("DB tenant fail " + err.Error())
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
 		return
@@ -2061,4 +2023,99 @@ func getBundleStatus(w http.ResponseWriter, r *http.Request) {
 	uuid := r.Context().Value("tenant").(string)
 	result := db.DBFindBundleStatus(uuid, bid)
 	utils.WriteResult(w, result)
+}
+
+func addIDPHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+	var data db.IDP
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Add IDP info - Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		result.Result = "Add IDP info - Error parsing json"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	uuid := r.Context().Value("tenant").(string)
+	tenant := db.DBFindTenant(uuid)
+	if tenant == nil {
+		result.Result = "Cant find tenant: " + uuid
+		utils.WriteResult(w, result)
+		return
+	}
+
+	data.Name = tenant.Name + "-" + data.Name
+	data.Group = tenant.Group
+	idp, policy, ierr := okta.CreateIDP(API, TOKEN, &data)
+	if ierr != nil {
+		result.Result = ierr.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	data.Idp = idp
+	data.Policy = policy
+	err = db.DBaddTenantIdp(tenant, data)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+func delIDPHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+
+	v := mux.Vars(r)
+	name := v["name"]
+	uuid := r.Context().Value("tenant").(string)
+	tenant := db.DBFindTenant(uuid)
+	if tenant == nil {
+		result.Result = "Cant find tenant: " + uuid
+		utils.WriteResult(w, result)
+		return
+	}
+	for _, idp := range tenant.Idps {
+		if idp.Name == name {
+			err := okta.DeleteIDP(API, TOKEN, &idp)
+			if err != nil {
+				result.Result = err.Error()
+				utils.WriteResult(w, result)
+				return
+			}
+			err = db.DBdelTenantIDP(tenant, name)
+			if err != nil {
+				result.Result = err.Error()
+				utils.WriteResult(w, result)
+				return
+			}
+			break
+		}
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+func getAllIDPsHandler(w http.ResponseWriter, r *http.Request) {
+	uuid := r.Context().Value("tenant").(string)
+	tenant := db.DBFindTenant(uuid)
+	if tenant == nil {
+		var result OpResult
+		result.Result = "Cant find tenant: " + uuid
+		utils.WriteResult(w, result)
+		return
+	}
+
+	utils.WriteResult(w, tenant.Idps)
 }
