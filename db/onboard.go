@@ -160,6 +160,7 @@ type Tenant struct {
 	SplitTunnel   bool     `json:"splittunnel" bson:"splittunnel"`
 	ConfigVersion string   `json:"cfgvn" bson:"cfgvn"`
 	Idps          []IDP    `json:"idps" bson:"idps"`
+	AdmGroups     []string `json:"admgroups" bson:"admgroups"`
 }
 
 type Domain struct {
@@ -214,6 +215,85 @@ func dbdelTenantDomain(uuid string, host string) error {
 		}
 	}
 	return dbUpdateTenant(tenant)
+}
+
+type AdminGroups struct {
+	Tenant    string   `json:"_id" bson:"_id"`
+	AdmGroups []string `json:"admgroups" bson:"admgroups"` // array of group names
+}
+
+func DBFindTenantAdminGroups(id string) *[]string {
+	var admingrps AdminGroups
+	err := tenantCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": id},
+	).Decode(&admingrps)
+	if err != nil {
+		glog.Errorf("FindAdminGroups: Error - %v", err)
+		return nil
+	}
+	return &admingrps.AdmGroups
+}
+
+func DBAddTenantAdminGroup(uuid string, admin string, grp string) error {
+
+	if grp == "" {
+		return errors.New("AddAdminGroup: Group not specified")
+	}
+	if (admin != "superadmin") && !strings.HasPrefix(admin, "admin-") {
+		return errors.New("AddAdminGroup: Not privileged to create admin group")
+	}
+	if admin != "superadmin" {
+		// admin-<group> - get group and compare
+		splitg := strings.SplitN(grp, "-", 2)
+		if splitg[1] != grp {
+			return errors.New("AddAdminGroup: Group %s not privileged to create this admin group")
+		}
+	}
+	tenant := DBFindTenant(uuid)
+	if tenant == nil {
+		return errors.New("AddAdminGroup: Could not find tenant")
+	}
+	found := false
+	for _, g := range tenant.AdmGroups {
+		if g == grp {
+			found = true
+			break
+		}
+	}
+	if !found {
+		tenant.AdmGroups = append(tenant.AdmGroups, grp)
+		return dbUpdateTenant(tenant)
+	}
+	return errors.New("AddAdminGroup: Admin group " + grp + " already exists")
+}
+
+func DBDelTenantAdminGroup(uuid string, admin string, grp string) error {
+
+	if grp == "" {
+		return errors.New("DelAdminGroup: Group not specified")
+	}
+	if (admin != "superadmin") && !strings.HasPrefix(admin, "admin-") {
+		return errors.New("DelAdminGroup: Not privileged to delete admin group")
+	}
+	if admin != "superadmin" {
+		// admin-<group> - get group and compare
+		splitg := strings.SplitN(grp, "-", 2)
+		if splitg[1] != grp {
+			return errors.New("DelAdminGroup: Group %s not privileged to delete this admin group")
+		}
+	}
+	tenant := DBFindTenant(uuid)
+	if tenant == nil {
+		return errors.New("DelAdminGroup: Cant find tenant")
+	}
+	for i, g := range tenant.AdmGroups {
+		if g == grp {
+			tenant.AdmGroups = append(tenant.AdmGroups[:i], tenant.AdmGroups[i+1:]...)
+			return dbUpdateTenant(tenant)
+		}
+	}
+	return errors.New("DelAdminGroup: Admin group " + grp + " not found")
 }
 
 func dbUpdateTenant(tenant *Tenant) error {
@@ -822,7 +902,7 @@ type AttrSet struct {
 	Group     string `bson:"group" json:"group"`
 }
 
-func DBAddAttrSet(tenant string, admin string, admingrp string, s AttrSet) error {
+func DBAddAttrSet(tenant string, admin string, admingrp string, s AttrSet, rsrvd bool) error {
 
 	if (!strings.HasPrefix(admingrp, "admin-")) && (admingrp != "superadmin") {
 		return fmt.Errorf("User does not have privileges for adding an attribute")
@@ -839,6 +919,14 @@ func DBAddAttrSet(tenant string, admin string, admingrp string, s AttrSet) error
 			}
 		}
 	}
+	uscore := strings.HasPrefix(s.Name, "_")
+	if rsrvd && !uscore {
+		return fmt.Errorf("Attribute name does not conform to reserved attributes")
+	}
+	if !rsrvd && uscore {
+		return fmt.Errorf("Attribute name indicates reserved attribute")
+	}
+
 	upsert := true
 	after := options.After
 	opt := options.FindOneAndUpdateOptions{

@@ -47,6 +47,9 @@ func rdonlyOnboard() {
 	// This route is used by the tenant admin to get the tenant parameters
 	getTenantRoute("/tenant", "GET", gettenantHandler)
 
+	// This route is used to get all admin groups for a tenant
+	getTenantRoute("/alladmgroups", "GET", getAllAdminGroupsHandler)
+
 	// This route is used to get all users for a tenant
 	getTenantRoute("/allusers", "GET", getAllUsersHandler)
 
@@ -158,6 +161,12 @@ func rdwrOnboard() {
 	// This route is used by the tenant admin to modify the tenant parameters
 	addTenantRoute("/tenant", "POST", modifytenantHandler)
 
+	// This route is used by the tenant admin to add a tenant admin group
+	addTenantRoute("/admgroups/{group}", "POST", addAdminGroupsHandler)
+
+	// This route is used by the tenant admin to delete a tenant admin group
+	delTenantRoute("/admgroups/{group}", "GET", delAdminGroupsHandler)
+
 	// This route is used to add new users with basic user info
 	addTenantRoute("/user", "POST", addUserHandler)
 
@@ -245,7 +254,7 @@ var devAttrs = []db.AttrSet{
 func setDeviceAttrSet(tenant string, admin string) error {
 
 	for _, dattr := range devAttrs {
-		err := db.DBAddAttrSet(tenant, admin, defDevAttrGroup, dattr)
+		err := db.DBAddAttrSet(tenant, admin, defDevAttrGroup, dattr, true)
 		if err != nil {
 			glog.Errorf("setDeviceAttrSet: error adding %s - %v", dattr.Name, err)
 		}
@@ -392,6 +401,11 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 type GetTenantResult struct {
 	Result string `json:"Result"`
 	Tenant db.Tenant
+}
+
+type GetTenantAdminGroupsResult struct {
+	Result    string `json:"Result"`
+	AdmGroups []string
 }
 
 // Get existing tenant's parameters
@@ -577,6 +591,68 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		result.Result = "ok"
 	}
+	utils.WriteResult(w, result)
+}
+
+// Add a tenant's admin group
+func addAdminGroupsHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+
+	tenant := r.Context().Value("tenant").(string)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	v := mux.Vars(r)
+	grp := v["group"]
+	err := db.DBAddTenantAdminGroup(tenant, admin, grp)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+// Delete existing tenant's admin group
+func delAdminGroupsHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+
+	tenant := r.Context().Value("tenant").(string)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	v := mux.Vars(r)
+	grp := v["group"]
+	err := db.DBDelTenantAdminGroup(tenant, admin, grp)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+// Get tenant's existing admin groups
+func getAllAdminGroupsHandler(w http.ResponseWriter, r *http.Request) {
+	var result GetTenantAdminGroupsResult
+
+	tenant := r.Context().Value("tenant").(string)
+	admgrps := db.DBFindTenantAdminGroups(tenant)
+	if admgrps != nil {
+		for _, grp := range *admgrps {
+			result.AdmGroups = append(result.AdmGroups, grp)
+		}
+		result.Result = "ok"
+		utils.WriteResult(w, result)
+		return
+	}
+	result.Result = "Could not find any admin groups"
 	utils.WriteResult(w, result)
 }
 
@@ -1089,8 +1165,9 @@ func updUserAdminRole(w http.ResponseWriter, r *http.Request) {
 		admingrp = "regular"
 	}
 	v := mux.Vars(r)
-	grp := v["group"]
 	uid := v["userid"]
+	// group is tenant defined. We prefix "admin-" to it when setting usertype.
+	grp := v["group"]
 	if (admingrp != "superadmin") && (!strings.HasPrefix(admingrp, "admin-")) {
 		glog.Errorf("updUserAdminRole: Need admin privileges to change user type")
 		result.Result = " Need admin privileges to change user type"
@@ -1098,7 +1175,8 @@ func updUserAdminRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if admingrp != "superadmin" {
-		if strings.HasPrefix(grp, "admin-") && (admingrp != grp) {
+		splitg := strings.SplitN(admingrp, "-", 2)
+		if splitg[1] != grp {
 			glog.Errorf("updUserAdminRole: %s cannot set admin role for %s", admingrp, grp)
 			result.Result = admingrp + " cannot set admin role for " + grp
 			utils.WriteResult(w, result)
@@ -1118,6 +1196,7 @@ func updUserAdminRole(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
+	grp = "admin-" + grp
 	_, err = IdpAddUser(API, TOKEN, uid, tenant, grp, false)
 	if err != nil {
 		glog.Errorf("updUserAdminRole: user admin role update failed - %v", err)
@@ -1175,7 +1254,7 @@ func addAttrSet(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBAddAttrSet(uuid, admin, admingrp, data)
+	err = db.DBAddAttrSet(uuid, admin, admingrp, data, false)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
