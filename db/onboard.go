@@ -235,15 +235,15 @@ func DBFindTenantAdminGroups(id string) *[]string {
 	return &admingrps.AdmGroups
 }
 
-func DBAddTenantAdminGroup(uuid string, admin string, grp string) error {
+func DBAddTenantAdminGroup(uuid string, admintype string, grp string) error {
 
 	if grp == "" {
 		return errors.New("AddAdminGroup: Group not specified")
 	}
-	if (admin != "superadmin") && !strings.HasPrefix(admin, "admin-") {
+	if (admintype != "superadmin") && !strings.HasPrefix(admintype, "admin-") {
 		return errors.New("AddAdminGroup: Not privileged to create admin group")
 	}
-	if admin != "superadmin" {
+	if admintype != "superadmin" {
 		// admin-<group> - get group and compare
 		splitg := strings.SplitN(grp, "-", 2)
 		if splitg[1] != grp {
@@ -268,15 +268,15 @@ func DBAddTenantAdminGroup(uuid string, admin string, grp string) error {
 	return errors.New("AddAdminGroup: Admin group " + grp + " already exists")
 }
 
-func DBDelTenantAdminGroup(uuid string, admin string, grp string) error {
+func DBDelTenantAdminGroup(uuid string, admintype string, grp string) error {
 
 	if grp == "" {
 		return errors.New("DelAdminGroup: Group not specified")
 	}
-	if (admin != "superadmin") && !strings.HasPrefix(admin, "admin-") {
+	if (admintype != "superadmin") && !strings.HasPrefix(admintype, "admin-") {
 		return errors.New("DelAdminGroup: Not privileged to delete admin group")
 	}
-	if admin != "superadmin" {
+	if admintype != "superadmin" {
 		// admin-<group> - get group and compare
 		splitg := strings.SplitN(grp, "-", 2)
 		if splitg[1] != grp {

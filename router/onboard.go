@@ -599,13 +599,13 @@ func addAdminGroupsHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 
 	tenant := r.Context().Value("tenant").(string)
-	admin, ok := r.Context().Value("userid").(string)
+	admintype, ok := r.Context().Value("usertype").(string)
 	if !ok {
-		admin = "UnknownUser"
+		admintype = "regular"
 	}
 	v := mux.Vars(r)
 	grp := v["group"]
-	err := db.DBAddTenantAdminGroup(tenant, admin, grp)
+	err := db.DBAddTenantAdminGroup(tenant, admintype, grp)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -621,13 +621,13 @@ func delAdminGroupsHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 
 	tenant := r.Context().Value("tenant").(string)
-	admin, ok := r.Context().Value("userid").(string)
+	admintype, ok := r.Context().Value("usertype").(string)
 	if !ok {
-		admin = "UnknownUser"
+		admintype = "regular"
 	}
 	v := mux.Vars(r)
 	grp := v["group"]
-	err := db.DBDelTenantAdminGroup(tenant, admin, grp)
+	err := db.DBDelTenantAdminGroup(tenant, admintype, grp)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
