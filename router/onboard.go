@@ -2130,6 +2130,8 @@ func addIDPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// To make sure the names are unique in okta, prefix the tenant name
+	origName := data.Name
 	data.Name = tenant.Name + "-" + data.Name
 	data.Group = tenant.Group
 	idp, policy, ierr := okta.CreateIDP(API, TOKEN, &data)
@@ -2139,6 +2141,8 @@ func addIDPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// In our own DB we just create the name without tenant prefix
+	data.Name = origName
 	data.Idp = idp
 	data.Policy = policy
 	err = db.DBaddTenantIdp(tenant, data)
