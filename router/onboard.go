@@ -50,6 +50,9 @@ func rdonlyOnboard() {
 	// This route is used to get all admin groups for a tenant
 	getTenantRoute("/alladmgroups", "GET", getAllAdminGroupsHandler)
 
+	// This route is used to get the group admin role (usertype) of a user
+	getTenantRoute("/user/adminrole/{userid}", "GET", getUserAdminRole)
+
 	// This route is used to get all users for a tenant
 	getTenantRoute("/allusers", "GET", getAllUsersHandler)
 
@@ -1152,6 +1155,44 @@ func getAllAttrSet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type GetAdminRoleResult struct {
+	UserRole string `json:"UserRole"`
+}
+
+// Get usertype of a specific user
+func getUserAdminRole(w http.ResponseWriter, r *http.Request) {
+	var result GetAdminRoleResult
+
+	tenant := r.Context().Value("tenant").(string)
+	admingrp, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		admingrp = "regular"
+	}
+	v := mux.Vars(r)
+	uid := v["userid"]
+	if (admingrp != "superadmin") && (!strings.HasPrefix(admingrp, "admin-")) {
+		glog.Errorf("getUserAdminRole: Need admin privileges to get user type")
+		result.UserRole = "Error-NotPrivileged"
+		utils.WriteResult(w, result)
+		return
+	}
+	_, idpTenant, usertype, err := IdpGetUserInfo(API, TOKEN, uid)
+	if err != nil {
+		glog.Errorf("getUserAdminRole: user %s info not found in Idp - %v", uid, err)
+		result.UserRole = "Error-UnknownUser"
+		utils.WriteResult(w, result)
+		return
+	}
+	if idpTenant != tenant {
+		glog.Errorf("getUserAdminRole: user tenant mismatch - %s v/s %s", tenant, idpTenant)
+		result.UserRole = "Error-TenantMismatch"
+		utils.WriteResult(w, result)
+		return
+	}
+	result.UserRole = usertype
+	utils.WriteResult(w, result)
+}
+
 // Set admin role of a group for any user. Can only be done by the
 // superadmin or another admin for the target group. Can also remove
 // a user from group admin role to be a regular user.
@@ -1183,7 +1224,7 @@ func updUserAdminRole(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	_, idpTenant, _, err := IdpGetUserInfo(API, TOKEN, uid)
+	_, idpTenant, utype, err := IdpGetUserInfo(API, TOKEN, uid)
 	if err != nil {
 		glog.Errorf("updUserAdminRole: user %s info not found in Idp - %v", uid, err)
 		result.Result = "User info not found in Idp"
@@ -1193,6 +1234,12 @@ func updUserAdminRole(w http.ResponseWriter, r *http.Request) {
 	if idpTenant != tenant {
 		glog.Errorf("updUserAdminRole: user tenant mismatch - %s v/s %s", tenant, idpTenant)
 		result.Result = "User tenant mismatch"
+		utils.WriteResult(w, result)
+		return
+	}
+	if utype == "superadmin" {
+		glog.Errorf("updUserAdminRole: cannot change superadmin usertype")
+		result.Result = "User is superadmin. Cannot change usertype"
 		utils.WriteResult(w, result)
 		return
 	}
