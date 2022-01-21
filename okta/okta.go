@@ -395,7 +395,7 @@ func createIdentityProvider(idpj *db.IDP) (*okta.IdentityProvider, error) {
 						  "` + idpj.Group + `"
 					  ]
 				  },
-				  "profileMaster": false
+				  "profileMaster": true
 				},
 				"subject": {
 				  "filter": null,
