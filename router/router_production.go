@@ -54,3 +54,7 @@ func IdpAddGroup(API string, TOKEN string, tenant string, signup bool) (string, 
 func IdpDelGroup(API string, TOKEN string, tenant string) error {
 	return okta.DelGroup(API, TOKEN, tenant)
 }
+
+func IdpGetUsersByType(API string, TOKEN string, tenant string, usertype string) ([]string, error) {
+	return okta.GetUsersByType(API, TOKEN, tenant, usertype)
+}

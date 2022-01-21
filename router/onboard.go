@@ -50,6 +50,9 @@ func rdonlyOnboard() {
 	// This route is used to get all admin groups for a tenant
 	getTenantRoute("/alladmgroups", "GET", getAllAdminGroupsHandler)
 
+	// This route is used to get all admins for a group for a tenant
+	getTenantRoute("/groupadms/{group}", "GET", getAdminsForGroupHandler)
+
 	// This route is used to get the group admin role (usertype) of a user
 	getTenantRoute("/user/adminrole/{userid}", "GET", getUserAdminRole)
 
@@ -411,6 +414,11 @@ type GetTenantAdminGroupsResult struct {
 	AdmGroups []string
 }
 
+type GetTenantGroupAdminsResult struct {
+	Result    string `json:"Result"`
+	GrpAdmins []string
+}
+
 // Get existing tenant's parameters
 func gettenantHandler(w http.ResponseWriter, r *http.Request) {
 	var result GetTenantResult
@@ -657,6 +665,40 @@ func getAllAdminGroupsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	result.Result = "Could not find any admin groups"
 	utils.WriteResult(w, result)
+}
+
+// This function gets all admins for a specific attributes group
+// usertype of admin for the group is obtained by prefixing "admin-" to group.
+func getAdminsForGroupHandler(w http.ResponseWriter, r *http.Request) {
+	var result GetTenantGroupAdminsResult
+	var err error
+
+	tenant := r.Context().Value("tenant").(string)
+	admintype, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		admintype = "regular"
+	}
+	v := mux.Vars(r)
+	grp := v["group"]
+	utype := "admin-" + grp
+
+	grpadmin := strings.HasPrefix(admintype, "admin-")
+	if (admintype != "superadmin") && (admintype != "admin") && (!grpadmin) {
+		glog.Errorf("getAdminsForGroupHandler: Need admin privileges to get group admins")
+		result.Result = "Error-NotPrivileged"
+		utils.WriteResult(w, result)
+		return
+	}
+	result.GrpAdmins, err = IdpGetUsersByType(API, TOKEN, tenant, utype)
+	if err != nil {
+		glog.Errorf("getAdminsForGroupHandler: failed to get admins of type %s - %v", utype, err)
+		result.Result = "Error-GetFailure"
+		utils.WriteResult(w, result)
+		return
+	}
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+	glog.Infof("getAdminsForGroupHandler: %d admins found with usertype %s in Idp", len(result.GrpAdmins), utype)
 }
 
 type AddgatewayResult struct {
