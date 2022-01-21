@@ -200,6 +200,46 @@ func CheckGroupUser(client *okta.Client, gid string, uid string, ulogin string) 
 	return "", errors.New("Group " + gid + " does not have user " + ulogin)
 }
 
+// Get users of a tenant for a specific usertype
+func GetUsersByType(API string, TOKEN string, tenant string, usertype string) ([]string, error) {
+	var users []string
+	_, client, err := okta.NewClient(context.TODO(), okta.WithOrgUrl(API), okta.WithToken(TOKEN))
+	if err != nil {
+		glog.Errorf("GetUsersByType: failed to get client - %v", err)
+		return users, err
+	}
+	gid, err := CheckGroup(client, tenant)
+	if err != nil {
+		glog.Errorf("GetUsersByType: checkgroup for tenant %s returned error - %v", tenant, err)
+		return users, err
+	}
+	return GetGroupUsersByType(client, gid, usertype)
+}
+
+// Group here refers to an Okta group which represents a tenant.
+// This is a generic low-level function to get users of a tenant by usertype
+func GetGroupUsersByType(client *okta.Client, gid string, usertype string) ([]string, error) {
+	var users []string
+	// Need to add filter
+	// TODO: figure out why filter on userType is not working. Until then, we get all
+	// users in group and filter later when adding to the users array.
+	//filter := query.NewQueryParams(query.WithFilter("profile.userType eq \"" + utype + "\""))
+	//usrlist, _, err := client.Group.ListGroupUsers(context.TODO(), gid, filter)
+	usrlist, _, err := client.Group.ListGroupUsers(context.TODO(), gid, nil)
+	if err != nil {
+		glog.Errorf("GetGroupUsersByType: search failed in group %s for usertype %s - %v", gid, usertype, err)
+		return users, err
+	}
+	for _, usr := range usrlist {
+		if (*usr.Profile)["userType"].(string) == usertype {
+			users = append(users, (*usr.Profile)["login"].(string))
+		}
+	}
+	cnt := len(users)
+	glog.Infof("GetGroupUsersByType: found %d users in group %s with usertype %s", cnt, gid, usertype)
+	return users, nil
+}
+
 //-------------------------------------Group API functions-----------------------------------
 
 // Check if group is valid/exists and if so, return its ID.

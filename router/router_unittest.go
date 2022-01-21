@@ -39,3 +39,8 @@ func IdpAddGroup(API string, TOKEN string, tenant string, signup bool) (string, 
 func IdpDelGroup(API string, TOKEN string, tenant string) error {
 	return nil
 }
+
+func IdpGetUsersByType(API string, TOKEN string, tenant string, usertype string) ([]string, error) {
+	var users []string
+	return users, nil
+}
