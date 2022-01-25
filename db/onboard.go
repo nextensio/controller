@@ -139,8 +139,11 @@ type IDP struct {
 	Jwks     string `json:"jwks" bson:"jwks"`
 	Token    string `json:"token" bson:"token"`
 	Issuer   string `json:"issuer" bson:"issuer"`
+	Sso      string `json:"sso" bson:"sso"`
+	Audience string `json:"audience" bson:"audience"`
 	Client   string `json:"client" bson:"client"`
 	Secret   string `json:"secret" bson:"secret"`
+	Keyid    string `json:"keyid" bson:"keyid"`
 }
 
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case

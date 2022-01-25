@@ -386,7 +386,7 @@ func AddAppsToGroup(client *okta.Client, oktaGID string, signup bool) error {
 	return nil
 }
 
-func createIdentityProvider(idpj *db.IDP) (*okta.IdentityProvider, error) {
+func createIdentityProviderOIDC(idpj *db.IDP) (*okta.IdentityProvider, error) {
 	jwt := ""
 	if idpj.Jwks != "" {
 		jwt = `
@@ -488,6 +488,881 @@ func createIdentityProvider(idpj *db.IDP) (*okta.IdentityProvider, error) {
 	return &idp, nil
 }
 
+func createIdentityProviderGoogle(idpj *db.IDP) (*okta.IdentityProvider, error) {
+	idpj.Auth = "https://accounts.google.com/o/oauth2/auth"
+	idpj.Token = "https://www.googleapis.com/oauth2/v3/token"
+
+	jwt := ""
+	if idpj.Jwks != "" {
+		jwt = `
+		"jwks": {
+			"binding": "HTTP-REDIRECT",
+			"url": "` + idpj.Jwks + `"
+		},
+		`
+	}
+	iss := ""
+	if idpj.Issuer != "" {
+		iss = `
+		"issuer": {
+			"url": "` + idpj.Issuer + `"
+		},
+		`
+	}
+	jsonIDP := `
+		{
+			"name": "` + idpj.Name + `",
+			"policy": {
+				"accountLink": {
+				  "action": "AUTO",
+				  "filter": {
+                    "groups": {
+                        "include": [
+                            "` + idpj.Group + `"
+                        ]
+                    }
+                  }
+				},
+				"maxClockSkew": 0,
+				"provisioning": {
+				  "action": "AUTO",
+				  "conditions": {
+					"deprovisioned": {
+					  "action": "NONE"
+					},
+					"suspended": {
+					  "action": "NONE"
+					}
+				  },
+				  "groups": {
+					  "action": "ASSIGN",
+					  "assignments": [
+						  "` + idpj.Group + `"
+					  ]
+				  },
+				  "profileMaster": true
+				},
+				"subject": {
+				  "filter": null,
+				  "matchAttribute": "",
+				  "matchType": "USERNAME",
+				  "userNameTemplate": {
+					"template": "idpuser.email"
+				  }
+				}
+			},  
+			"protocol": {
+			  "credentials": {
+				  "client": {
+					"client_id": "` + idpj.Client + `",
+					"client_secret": "` + idpj.Secret + `"
+				  }
+			  },
+			  "endpoints": {
+				"authorization": {
+				  "binding": "HTTP-REDIRECT",
+				  "url": "` + idpj.Auth + `"
+				},
+				` + jwt + `
+				"token": {
+				  "binding": "HTTP-POST",
+				  "url": "` + idpj.Token + `"
+				}
+			  },
+			  ` + iss + `
+			  "scopes": [
+				"openid",
+				"profile",
+				"email"
+			  ],
+			  "type": "OIDC"
+			},
+			"status": "ACTIVE",
+			"type": "GOOGLE"	
+		}
+	`
+
+	var idp okta.IdentityProvider
+
+	err := json.Unmarshal([]byte(jsonIDP), &idp)
+	if err != nil {
+		glog.Infof("Error unmarshalling policy json")
+		return nil, err
+	}
+
+	return &idp, nil
+}
+
+func createIdentityProviderAzure(idpj *db.IDP) (*okta.IdentityProvider, error) {
+	idpj.Auth = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+	idpj.Token = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+
+	jwt := ""
+	if idpj.Jwks != "" {
+		jwt = `
+		"jwks": {
+			"binding": "HTTP-REDIRECT",
+			"url": "` + idpj.Jwks + `"
+		},
+		`
+	}
+	iss := ""
+	if idpj.Issuer != "" {
+		iss = `
+		"issuer": {
+			"url": "` + idpj.Issuer + `"
+		},
+		`
+	}
+	jsonIDP := `
+		{
+			"name": "` + idpj.Name + `",
+			"policy": {
+				"accountLink": {
+				  "action": "AUTO",
+				  "filter": {
+                    "groups": {
+                        "include": [
+                            "` + idpj.Group + `"
+                        ]
+                    }
+                  }
+				},
+				"maxClockSkew": 0,
+				"provisioning": {
+				  "action": "AUTO",
+				  "conditions": {
+					"deprovisioned": {
+					  "action": "NONE"
+					},
+					"suspended": {
+					  "action": "NONE"
+					}
+				  },
+				  "groups": {
+					  "action": "ASSIGN",
+					  "assignments": [
+						  "` + idpj.Group + `"
+					  ]
+				  },
+				  "profileMaster": true
+				},
+				"subject": {
+				  "filter": null,
+				  "matchAttribute": "",
+				  "matchType": "USERNAME",
+				  "userNameTemplate": {
+					"template": "idpuser.userPrincipalName"
+				  }
+				}
+			},  
+			"protocol": {
+			  "credentials": {
+				  "client": {
+					"client_id": "` + idpj.Client + `",
+					"client_secret": "` + idpj.Secret + `"
+				  }
+			  },
+			  "endpoints": {
+				"authorization": {
+				  "binding": "HTTP-REDIRECT",
+				  "url": "` + idpj.Auth + `"
+				},
+				` + jwt + `
+				"token": {
+				  "binding": "HTTP-POST",
+				  "url": "` + idpj.Token + `"
+				}
+			  },
+			  ` + iss + `
+			  "scopes": [
+				"https://graph.microsoft.com/User.Read",
+				"openid",
+				"profile",
+				"email"
+			  ],
+			  "type": "OIDC"
+			},
+			"status": "ACTIVE",
+			"type": "MICROSOFT"	
+		}
+	`
+
+	var idp okta.IdentityProvider
+
+	err := json.Unmarshal([]byte(jsonIDP), &idp)
+	if err != nil {
+		glog.Infof("Error unmarshalling policy json")
+		return nil, err
+	}
+
+	return &idp, nil
+}
+
+func createIdentityProviderLinkedin(idpj *db.IDP) (*okta.IdentityProvider, error) {
+	idpj.Auth = "https://www.linkedin.com/uas/oauth2/authorization"
+	idpj.Token = "https://www.linkedin.com/uas/oauth2/accessToken"
+
+	jwt := ""
+	if idpj.Jwks != "" {
+		jwt = `
+		"jwks": {
+			"binding": "HTTP-REDIRECT",
+			"url": "` + idpj.Jwks + `"
+		},
+		`
+	}
+	iss := ""
+	if idpj.Issuer != "" {
+		iss = `
+		"issuer": {
+			"url": "` + idpj.Issuer + `"
+		},
+		`
+	}
+	jsonIDP := `
+		{
+			"name": "` + idpj.Name + `",
+			"policy": {
+				"accountLink": {
+				  "action": "AUTO",
+				  "filter": {
+                    "groups": {
+                        "include": [
+                            "` + idpj.Group + `"
+                        ]
+                    }
+                  }
+				},
+				"maxClockSkew": 0,
+				"provisioning": {
+				  "action": "AUTO",
+				  "conditions": {
+					"deprovisioned": {
+					  "action": "NONE"
+					},
+					"suspended": {
+					  "action": "NONE"
+					}
+				  },
+				  "groups": {
+					  "action": "ASSIGN",
+					  "assignments": [
+						  "` + idpj.Group + `"
+					  ]
+				  },
+				  "profileMaster": true
+				},
+				"subject": {
+				  "filter": null,
+				  "matchAttribute": "",
+				  "matchType": "USERNAME",
+				  "userNameTemplate": {
+					"template": "idpuser.email"
+				  }
+				}
+			},  
+			"protocol": {
+			  "credentials": {
+				  "client": {
+					"client_id": "` + idpj.Client + `",
+					"client_secret": "` + idpj.Secret + `"
+				  }
+			  },
+			  "endpoints": {
+				"authorization": {
+				  "binding": "HTTP-REDIRECT",
+				  "url": "` + idpj.Auth + `"
+				},
+				` + jwt + `
+				"token": {
+				  "binding": "HTTP-POST",
+				  "url": "` + idpj.Token + `"
+				}
+			  },
+			  ` + iss + `
+			  "scopes": [
+				"r_emailaddress",
+                "r_liteprofile"
+			  ],
+			  "type": "OAUTH2"
+			},
+			"status": "ACTIVE",
+			"type": "LINKEDIN"	
+		}
+	`
+
+	var idp okta.IdentityProvider
+
+	err := json.Unmarshal([]byte(jsonIDP), &idp)
+	if err != nil {
+		glog.Infof("Error unmarshalling policy json")
+		return nil, err
+	}
+
+	return &idp, nil
+}
+
+func createIdentityProviderGithub(idpj *db.IDP) (*okta.IdentityProvider, error) {
+	idpj.Auth = "https://github.com/login/oauth/authorize"
+	idpj.Token = "https://github.com/login/oauth/access_token"
+
+	jwt := ""
+	if idpj.Jwks != "" {
+		jwt = `
+		"jwks": {
+			"binding": "HTTP-REDIRECT",
+			"url": "` + idpj.Jwks + `"
+		},
+		`
+	}
+	iss := ""
+	if idpj.Issuer != "" {
+		iss = `
+		"issuer": {
+			"url": "` + idpj.Issuer + `"
+		},
+		`
+	}
+	jsonIDP := `
+		{
+			"name": "` + idpj.Name + `",
+			"policy": {
+				"accountLink": {
+				  "action": "AUTO",
+				  "filter": {
+                    "groups": {
+                        "include": [
+                            "` + idpj.Group + `"
+                        ]
+                    }
+                  }
+				},
+				"maxClockSkew": 0,
+				"provisioning": {
+				  "action": "AUTO",
+				  "conditions": {
+					"deprovisioned": {
+					  "action": "NONE"
+					},
+					"suspended": {
+					  "action": "NONE"
+					}
+				  },
+				  "groups": {
+					  "action": "ASSIGN",
+					  "assignments": [
+						  "` + idpj.Group + `"
+					  ]
+				  },
+				  "profileMaster": true
+				},
+				"subject": {
+				  "filter": null,
+				  "matchAttribute": "",
+				  "matchType": "USERNAME",
+				  "userNameTemplate": {
+					"template": "idpuser.email"
+				  }
+				}
+			},  
+			"protocol": {
+			  "credentials": {
+				  "client": {
+					"client_id": "` + idpj.Client + `",
+					"client_secret": "` + idpj.Secret + `"
+				  }
+			  },
+			  "endpoints": {
+				"authorization": {
+				  "binding": "HTTP-REDIRECT",
+				  "url": "` + idpj.Auth + `"
+				},
+				` + jwt + `
+				"token": {
+				  "binding": "HTTP-POST",
+				  "url": "` + idpj.Token + `"
+				}
+			  },
+			  ` + iss + `
+			  "scopes": [
+				"user"
+			  ],
+			  "type": "OIDC"
+			},
+			"status": "ACTIVE",
+			"type": "GITHUB"	
+		}
+	`
+
+	var idp okta.IdentityProvider
+
+	err := json.Unmarshal([]byte(jsonIDP), &idp)
+	if err != nil {
+		glog.Infof("Error unmarshalling policy json")
+		return nil, err
+	}
+
+	return &idp, nil
+}
+
+func createIdentityProviderAmazon(idpj *db.IDP) (*okta.IdentityProvider, error) {
+	idpj.Auth = "https://www.amazon.com/ap/oa"
+	idpj.Token = "https://api.amazon.com/auth/o2/token"
+
+	jwt := ""
+	if idpj.Jwks != "" {
+		jwt = `
+		"jwks": {
+			"binding": "HTTP-REDIRECT",
+			"url": "` + idpj.Jwks + `"
+		},
+		`
+	}
+	iss := ""
+	if idpj.Issuer != "" {
+		iss = `
+		"issuer": {
+			"url": "` + idpj.Issuer + `"
+		},
+		`
+	}
+	jsonIDP := `
+		{
+			"name": "` + idpj.Name + `",
+			"policy": {
+				"accountLink": {
+				  "action": "AUTO",
+				  "filter": {
+                    "groups": {
+                        "include": [
+                            "` + idpj.Group + `"
+                        ]
+                    }
+                  }
+				},
+				"maxClockSkew": 0,
+				"provisioning": {
+				  "action": "AUTO",
+				  "conditions": {
+					"deprovisioned": {
+					  "action": "NONE"
+					},
+					"suspended": {
+					  "action": "NONE"
+					}
+				  },
+				  "groups": {
+					  "action": "ASSIGN",
+					  "assignments": [
+						  "` + idpj.Group + `"
+					  ]
+				  },
+				  "profileMaster": true
+				},
+				"subject": {
+				  "filter": null,
+				  "matchAttribute": "",
+				  "matchType": "USERNAME",
+				  "userNameTemplate": {
+					"template": "idpuser.email"
+				  }
+				}
+			},  
+			"protocol": {
+			  "credentials": {
+				  "client": {
+					"client_id": "` + idpj.Client + `",
+					"client_secret": "` + idpj.Secret + `"
+				  }
+			  },
+			  "endpoints": {
+				"authorization": {
+				  "binding": "HTTP-REDIRECT",
+				  "url": "` + idpj.Auth + `"
+				},
+				` + jwt + `
+				"token": {
+				  "binding": "HTTP-POST",
+				  "url": "` + idpj.Token + `"
+				}
+			  },
+			  ` + iss + `
+			  "scopes": [
+                "profile",
+                "profile:user_id"
+			  ],
+			  "type": "OIDC"
+			},
+			"status": "ACTIVE",
+			"type": "AMAZON"	
+		}
+	`
+
+	var idp okta.IdentityProvider
+
+	err := json.Unmarshal([]byte(jsonIDP), &idp)
+	if err != nil {
+		glog.Infof("Error unmarshalling policy json")
+		return nil, err
+	}
+
+	return &idp, nil
+}
+
+func createIdentityProviderSalesForce(idpj *db.IDP) (*okta.IdentityProvider, error) {
+	idpj.Auth = "https://login.salesforce.com/services/oauth2/authorize"
+	idpj.Token = "https://login.salesforce.com/services/oauth2/token"
+
+	jwt := ""
+	if idpj.Jwks != "" {
+		jwt = `
+		"jwks": {
+			"binding": "HTTP-REDIRECT",
+			"url": "` + idpj.Jwks + `"
+		},
+		`
+	}
+	iss := ""
+	if idpj.Issuer != "" {
+		iss = `
+		"issuer": {
+			"url": "` + idpj.Issuer + `"
+		},
+		`
+	}
+	jsonIDP := `
+		{
+			"name": "` + idpj.Name + `",
+			"policy": {
+				"accountLink": {
+				  "action": "AUTO",
+				  "filter": {
+                    "groups": {
+                        "include": [
+                            "` + idpj.Group + `"
+                        ]
+                    }
+                  }
+				},
+				"maxClockSkew": 0,
+				"provisioning": {
+				  "action": "AUTO",
+				  "conditions": {
+					"deprovisioned": {
+					  "action": "NONE"
+					},
+					"suspended": {
+					  "action": "NONE"
+					}
+				  },
+				  "groups": {
+					  "action": "ASSIGN",
+					  "assignments": [
+						  "` + idpj.Group + `"
+					  ]
+				  },
+				  "profileMaster": true
+				},
+				"subject": {
+				  "filter": null,
+				  "matchAttribute": "",
+				  "matchType": "USERNAME",
+				  "userNameTemplate": {
+					"template": "idpuser.email"
+				  }
+				}
+			},  
+			"protocol": {
+			  "credentials": {
+				  "client": {
+					"client_id": "` + idpj.Client + `",
+					"client_secret": "` + idpj.Secret + `"
+				  }
+			  },
+			  "endpoints": {
+				"authorization": {
+				  "binding": "HTTP-REDIRECT",
+				  "url": "` + idpj.Auth + `"
+				},
+				` + jwt + `
+				"token": {
+				  "binding": "HTTP-POST",
+				  "url": "` + idpj.Token + `"
+				}
+			  },
+			  ` + iss + `
+			  "scopes": [
+                "profile",
+                "id",
+                "email"
+			  ],
+			  "type": "OIDC"
+			},
+			"status": "ACTIVE",
+			"type": "SALESFORCE"	
+		}
+	`
+
+	var idp okta.IdentityProvider
+
+	err := json.Unmarshal([]byte(jsonIDP), &idp)
+	if err != nil {
+		glog.Infof("Error unmarshalling policy json")
+		return nil, err
+	}
+
+	return &idp, nil
+}
+
+func createIdentityProviderFacebook(idpj *db.IDP) (*okta.IdentityProvider, error) {
+	idpj.Auth = "https://www.facebook.com/dialog/oauth"
+	idpj.Token = "https://graph.facebook.com/v2.8/oauth/access_token"
+
+	jwt := ""
+	if idpj.Jwks != "" {
+		jwt = `
+		"jwks": {
+			"binding": "HTTP-REDIRECT",
+			"url": "` + idpj.Jwks + `"
+		},
+		`
+	}
+	iss := ""
+	if idpj.Issuer != "" {
+		iss = `
+		"issuer": {
+			"url": "` + idpj.Issuer + `"
+		},
+		`
+	}
+	jsonIDP := `
+		{
+			"name": "` + idpj.Name + `",
+			"policy": {
+				"accountLink": {
+				  "action": "AUTO",
+				  "filter": {
+                    "groups": {
+                        "include": [
+                            "` + idpj.Group + `"
+                        ]
+                    }
+                  }
+				},
+				"maxClockSkew": 0,
+				"provisioning": {
+				  "action": "AUTO",
+				  "conditions": {
+					"deprovisioned": {
+					  "action": "NONE"
+					},
+					"suspended": {
+					  "action": "NONE"
+					}
+				  },
+				  "groups": {
+					  "action": "ASSIGN",
+					  "assignments": [
+						  "` + idpj.Group + `"
+					  ]
+				  },
+				  "profileMaster": true
+				},
+				"subject": {
+				  "filter": null,
+				  "matchAttribute": "",
+				  "matchType": "USERNAME",
+				  "userNameTemplate": {
+					"template": "idpuser.email"
+				  }
+				}
+			},  
+			"protocol": {
+			  "credentials": {
+				  "client": {
+					"client_id": "` + idpj.Client + `",
+					"client_secret": "` + idpj.Secret + `"
+				  }
+			  },
+			  "endpoints": {
+				"authorization": {
+				  "binding": "HTTP-REDIRECT",
+				  "url": "` + idpj.Auth + `"
+				},
+				` + jwt + `
+				"token": {
+				  "binding": "HTTP-POST",
+				  "url": "` + idpj.Token + `"
+				}
+			  },
+			  ` + iss + `
+			  "scopes": [
+                "public_profile",
+                "email"
+			  ],
+			  "type": "OAUTH2"
+			},
+			"status": "ACTIVE",
+			"type": "FACEBOOK"	
+		}
+	`
+
+	var idp okta.IdentityProvider
+
+	err := json.Unmarshal([]byte(jsonIDP), &idp)
+	if err != nil {
+		glog.Infof("Error unmarshalling policy json")
+		return nil, err
+	}
+
+	return &idp, nil
+}
+
+func createIdentityProviderSAML(idpj *db.IDP) (*okta.IdentityProvider, error) {
+	jsonIDP := `
+	{
+        "name": "` + idpj.Name + `",
+        "policy": {
+            "accountLink": {
+                "action": "AUTO",
+				"filter": {
+                    "groups": {
+                        "include": [
+                            "` + idpj.Group + `"
+                        ]
+                    }
+                }
+            },
+            "maxClockSkew": 120000,
+            "provisioning": {
+                "action": "AUTO",
+                "conditions": {
+                    "deprovisioned": {
+                        "action": "NONE"
+                    },
+                    "suspended": {
+                        "action": "NONE"
+                    }
+                },
+				"groups": {
+					"action": "ASSIGN",
+					"assignments": [
+						"` + idpj.Group + `"
+					]
+				},
+				"profileMaster": true
+            },
+            "subject": {
+                "filter": "",
+                "matchAttribute": null,
+                "matchType": "USERNAME",
+                "userNameTemplate": {
+                    "template": "idpuser.subjectSpProvidedId"
+                }
+            }
+        },
+        "protocol": {
+            "algorithms": {
+                "request": {
+                    "signature": {
+                        "algorithm": "SHA-256",
+                        "scope": "REQUEST"
+                    }
+                },
+                "response": {
+                    "signature": {
+                        "algorithm": "SHA-256",
+                        "scope": "ANY"
+                    }
+                }
+            },
+            "credentials": {
+                "signing": {
+                    "kid": "` + idpj.Keyid + `"
+                },
+                "trust": {
+                    "audience": "` + idpj.Audience + `",
+                    "issuer": "` + idpj.Issuer + `",
+                    "kid": "71842ebd-d6dc-4aaa-bad5-29dba10fcf50",
+                    "revocation": null,
+                    "revocationCacheLifetime": 0
+                }
+            },
+            "endpoints": {
+                "acs": {
+                    "binding": "HTTP-POST",
+                    "type": "INSTANCE"
+                },
+                "sso": {
+                    "binding": "HTTP-POST",
+                    "destination": "` + idpj.Sso + `",
+                    "url": "` + idpj.Sso + `"
+                }
+            },
+            "settings": {
+                "honorPersistentNameId": false,
+                "nameFormat": "urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified"
+            },
+            "type": "SAML2"
+        },
+        "status": "ACTIVE",
+        "type": "SAML2"
+    }
+	`
+	var idp okta.IdentityProvider
+
+	err := json.Unmarshal([]byte(jsonIDP), &idp)
+	if err != nil {
+		glog.Infof("Error unmarshalling policy json")
+		return nil, err
+	}
+
+	return &idp, nil
+}
+
+func createIdentityProvider(client *okta.Client, idpj *db.IDP) (*okta.IdentityProvider, error) {
+	switch idpj.Provider {
+	case "GOOGLE":
+		return createIdentityProviderGoogle(idpj)
+	case "MICROSOFT":
+		return createIdentityProviderAzure(idpj)
+	case "LINKEDIN":
+		return createIdentityProviderLinkedin(idpj)
+	case "GITHUB":
+		return createIdentityProviderGithub(idpj)
+	case "AMAZON":
+		return createIdentityProviderAmazon(idpj)
+	case "SALESFORCE":
+		return createIdentityProviderSalesForce(idpj)
+	case "FACEBOOK":
+		return createIdentityProviderFacebook(idpj)
+	case "SAML2":
+		jwkey := `
+		{
+			"x5c": ["` + idpj.Secret + `"]
+		}
+		`
+		var jwk okta.JsonWebKey
+		err := json.Unmarshal([]byte(jwkey), &jwk)
+		if err != nil {
+			glog.Infof("Error unmarshalling jwkey json")
+			return nil, err
+		}
+		keyid, _, err := client.IdentityProvider.CreateIdentityProviderKey(context.TODO(), jwk)
+		if err != nil {
+			glog.Infof("Error creating idp key", err)
+			return nil, err
+		}
+		idpj.Keyid = keyid.Kid
+		return createIdentityProviderSAML(idpj)
+	case "OIDC":
+		return createIdentityProviderOIDC(idpj)
+	default:
+		return nil, errors.New("unsupported idp provider " + idpj.Provider)
+	}
+}
+
 func updateProfileMap(client *okta.Client, idpId string) error {
 	params := query.NewQueryParams(query.WithSourceId(idpId))
 	maps, _, err := client.ProfileMapping.ListProfileMappings(context.TODO(), params)
@@ -551,20 +1426,28 @@ func CreateIDP(API string, TOKEN string, idpj *db.IDP) (string, string, error) {
 		glog.Infof("Cant find IDP_DISCOVERY policy")
 		return "", "", errors.New("cant find idp_discovery policy")
 	}
-	idp, err := createIdentityProvider(idpj)
+	idp, err := createIdentityProvider(client, idpj)
 	if err != nil {
+		ierr := deleteIDPid(client, idpj)
+		if ierr != nil {
+			glog.Infof("Deleting keyid failed in IDP failure path ", ierr)
+		}
 		return "", "", err
 	}
 	resultIpd, _, err := client.IdentityProvider.CreateIdentityProvider(context.TODO(), *idp)
 	if err != nil {
 		glog.Infof("Error creating identity provider", err)
+		ierr := deleteIDPid(client, idpj)
+		if ierr != nil {
+			glog.Infof("Deleting keyid failed in IDP failure path ", ierr)
+		}
 		return "", "", err
 	}
 
 	policy, err := createIDPPolicyRulePost(API, TOKEN, idpj.Name, resultIpd.Id, policyId, idpj.Domain)
 	if err != nil {
 		glog.Infof("IDP Policy failure")
-		ierr := deleteIDPid(client, resultIpd.Id)
+		ierr := deleteIDPid(client, idpj)
 		if ierr != nil {
 			glog.Infof("Attempt IDP deleteion, that too failed", ierr)
 		}
@@ -574,7 +1457,7 @@ func CreateIDP(API string, TOKEN string, idpj *db.IDP) (string, string, error) {
 	err = updateProfileMap(client, resultIpd.Id)
 	if err != nil {
 		glog.Infof("IDP Mapping failure", err)
-		ierr := deleteIDPid(client, resultIpd.Id)
+		ierr := deleteIDPid(client, idpj)
 		if ierr != nil {
 			glog.Infof("Attempt IDP deleteion, that too failed", ierr)
 		}
@@ -746,19 +1629,25 @@ func createIDPPolicyRuleAPI(client *okta.Client, name string, idpId string, poli
 	return p.Id, nil
 }
 
-func deleteIDPid(client *okta.Client, idpId string) error {
-	_, err := client.IdentityProvider.DeleteIdentityProvider(context.TODO(), idpId)
-	if err != nil {
-		glog.Infof("Error deleteing identity provider", err)
-		return err
+func deleteIDPid(client *okta.Client, idpj *db.IDP) error {
+
+	if idpj.Provider == "SAML2" {
+		if idpj.Keyid != "" {
+			_, err := client.IdentityProvider.DeleteIdentityProviderKey(context.TODO(), idpj.Keyid)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
-	return nil
-}
+	if idpj.Idp != "" {
+		_, err := client.IdentityProvider.DeleteIdentityProvider(context.TODO(), idpj.Idp)
+		if err != nil {
+			glog.Infof("Error deleteing identity provider", err)
+			return err
+		}
+	}
 
-// It looks like deleting the IDP also ends up deleting the routing policy, so nothing
-// special to be done here
-func deletePolicyRule(client *okta.Client, policyId string) error {
 	return nil
 }
 
@@ -768,12 +1657,7 @@ func DeleteIDP(API string, TOKEN string, idpj *db.IDP) error {
 		return err
 	}
 
-	err = deleteIDPid(client, idpj.Idp)
-	if err != nil {
-		return err
-	}
-
-	err = deletePolicyRule(client, idpj.Policy)
+	err = deleteIDPid(client, idpj)
 	if err != nil {
 		return err
 	}
