@@ -1278,13 +1278,10 @@ func createIdentityProviderSAML(idpj *db.IDP) (*okta.IdentityProvider, error) {
                 }
             },
             "credentials": {
-                "signing": {
-                    "kid": "` + idpj.Keyid + `"
-                },
                 "trust": {
                     "audience": "` + idpj.Audience + `",
                     "issuer": "` + idpj.Issuer + `",
-                    "kid": "71842ebd-d6dc-4aaa-bad5-29dba10fcf50",
+                    "kid": "` + idpj.Keyid + `",
                     "revocation": null,
                     "revocationCacheLifetime": 0
                 }
