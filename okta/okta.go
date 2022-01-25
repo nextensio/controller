@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"nextensio/controller/db"
@@ -1335,17 +1336,9 @@ func createIdentityProvider(client *okta.Client, idpj *db.IDP) (*okta.IdentityPr
 	case "FACEBOOK":
 		return createIdentityProviderFacebook(idpj)
 	case "SAML2":
-		jwkey := `
-		{
-			"x5c": ["` + idpj.Secret + `"]
-		}
-		`
 		var jwk okta.JsonWebKey
-		err := json.Unmarshal([]byte(jwkey), &jwk)
-		if err != nil {
-			glog.Infof("Error unmarshalling jwkey json")
-			return nil, err
-		}
+		jwk.X5c = append(jwk.X5c, idpj.Cert)
+		fmt.Println(jwk)
 		keyid, _, err := client.IdentityProvider.CreateIdentityProviderKey(context.TODO(), jwk)
 		if err != nil {
 			glog.Infof("Error creating idp key", err)
@@ -1360,8 +1353,12 @@ func createIdentityProvider(client *okta.Client, idpj *db.IDP) (*okta.IdentityPr
 	}
 }
 
-func updateProfileMap(client *okta.Client, idpId string) error {
-	params := query.NewQueryParams(query.WithSourceId(idpId))
+func updateProfileMap(client *okta.Client, idpj *db.IDP) error {
+	// TODO: Maybe we need to do this for SAML2 also ?
+	if idpj.Provider != "OIDC" {
+		return nil
+	}
+	params := query.NewQueryParams(query.WithSourceId(idpj.Idp))
 	maps, _, err := client.ProfileMapping.ListProfileMappings(context.TODO(), params)
 	if err != nil {
 		glog.Infof("Profile mapping id get failed", err)
@@ -1376,6 +1373,7 @@ func updateProfileMap(client *okta.Client, idpId string) error {
 		glog.Infof("Profile mapping  get failed", err)
 		return err
 	}
+
 	// Okta is anal about needing firstName and lastName from the external OIDC when
 	// it does the JIT (Just In Time) creation of users when the login the first  time.
 	// Not everyone returns those in the idToken, and sometimes ive seen even when its
@@ -1399,18 +1397,18 @@ func updateProfileMap(client *okta.Client, idpId string) error {
 	return nil
 }
 
-func CreateIDP(API string, TOKEN string, idpj *db.IDP) (string, string, error) {
+func CreateIDP(API string, TOKEN string, idpj *db.IDP) error {
 	_, client, err := okta.NewClient(context.TODO(), okta.WithOrgUrl(API), okta.WithToken(TOKEN))
 	if err != nil {
 		glog.Infof("Cant get client", err)
-		return "", "", err
+		return err
 	}
 
 	params := query.Params{Type: "IDP_DISCOVERY"}
 	policies, _, err := client.Policy.ListPolicies(context.TODO(), &params)
 	if err != nil {
 		glog.Infof("Cant get policies", err)
-		return "", "", err
+		return err
 	}
 	policyId := ""
 	for _, p := range policies {
@@ -1421,7 +1419,7 @@ func CreateIDP(API string, TOKEN string, idpj *db.IDP) (string, string, error) {
 	}
 	if policyId == "" {
 		glog.Infof("Cant find IDP_DISCOVERY policy")
-		return "", "", errors.New("cant find idp_discovery policy")
+		return errors.New("cant find idp_discovery policy")
 	}
 	idp, err := createIdentityProvider(client, idpj)
 	if err != nil {
@@ -1429,7 +1427,7 @@ func CreateIDP(API string, TOKEN string, idpj *db.IDP) (string, string, error) {
 		if ierr != nil {
 			glog.Infof("Deleting keyid failed in IDP failure path ", ierr)
 		}
-		return "", "", err
+		return err
 	}
 	resultIpd, _, err := client.IdentityProvider.CreateIdentityProvider(context.TODO(), *idp)
 	if err != nil {
@@ -1438,8 +1436,9 @@ func CreateIDP(API string, TOKEN string, idpj *db.IDP) (string, string, error) {
 		if ierr != nil {
 			glog.Infof("Deleting keyid failed in IDP failure path ", ierr)
 		}
-		return "", "", err
+		return err
 	}
+	idpj.Idp = resultIpd.Id
 
 	policy, err := createIDPPolicyRulePost(API, TOKEN, idpj.Name, resultIpd.Id, policyId, idpj.Domain)
 	if err != nil {
@@ -1448,20 +1447,21 @@ func CreateIDP(API string, TOKEN string, idpj *db.IDP) (string, string, error) {
 		if ierr != nil {
 			glog.Infof("Attempt IDP deleteion, that too failed", ierr)
 		}
-		return "", "", err
+		return err
 	}
+	idpj.Policy = policy
 
-	err = updateProfileMap(client, resultIpd.Id)
+	err = updateProfileMap(client, idpj)
 	if err != nil {
 		glog.Infof("IDP Mapping failure", err)
 		ierr := deleteIDPid(client, idpj)
 		if ierr != nil {
 			glog.Infof("Attempt IDP deleteion, that too failed", ierr)
 		}
-		return "", "", err
+		return err
 	}
 
-	return resultIpd.Id, policy, nil
+	return nil
 }
 
 type PolicyRuleResp struct {
@@ -1628,20 +1628,20 @@ func createIDPPolicyRuleAPI(client *okta.Client, name string, idpId string, poli
 
 func deleteIDPid(client *okta.Client, idpj *db.IDP) error {
 
+	if idpj.Idp != "" {
+		_, err := client.IdentityProvider.DeleteIdentityProvider(context.TODO(), idpj.Idp)
+		if err != nil {
+			glog.Infof("Error deleteing identity provider", err)
+			return err
+		}
+	}
+
 	if idpj.Provider == "SAML2" {
 		if idpj.Keyid != "" {
 			_, err := client.IdentityProvider.DeleteIdentityProviderKey(context.TODO(), idpj.Keyid)
 			if err != nil {
 				return err
 			}
-		}
-	}
-
-	if idpj.Idp != "" {
-		_, err := client.IdentityProvider.DeleteIdentityProvider(context.TODO(), idpj.Idp)
-		if err != nil {
-			glog.Infof("Error deleteing identity provider", err)
-			return err
 		}
 	}
 

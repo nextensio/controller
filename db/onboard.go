@@ -143,6 +143,7 @@ type IDP struct {
 	Audience string `json:"audience" bson:"audience"`
 	Client   string `json:"client" bson:"client"`
 	Secret   string `json:"secret" bson:"secret"`
+	Cert     string `json:"cert" bson:"cert"`
 	Keyid    string `json:"keyid" bson:"keyid"`
 }
 
