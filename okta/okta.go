@@ -747,9 +747,17 @@ func createIDPPolicyRuleAPI(client *okta.Client, name string, idpId string, poli
 }
 
 func deleteIDPid(client *okta.Client, idpId string) error {
+	_, err := client.IdentityProvider.DeleteIdentityProvider(context.TODO(), idpId)
+	if err != nil {
+		glog.Infof("Error deleteing identity provider", err)
+		return err
+	}
+
 	return nil
 }
 
+// It looks like deleting the IDP also ends up deleting the routing policy, so nothing
+// special to be done here
 func deletePolicyRule(client *okta.Client, policyId string) error {
 	return nil
 }
