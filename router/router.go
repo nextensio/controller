@@ -263,7 +263,7 @@ func RouterInit(readonly bool) {
 
 func ServeRoutes() {
 	// TODO: The CORS policy allowing "*" needs fixing once we get closer to production
-	headersOk := handlers.AllowedHeaders([]string{"X-Requested-With", "Content-Type", "Referer", "Authorization"})
+	headersOk := handlers.AllowedHeaders([]string{"X-Requested-With", "Content-Type", "Referer", "Authorization", "X-Nextensio-Group"})
 	originsOk := handlers.AllowedOrigins([]string{"*"})
 	methodsOk := handlers.AllowedMethods([]string{"GET", "HEAD", "POST", "PUT", "OPTIONS"})
 
