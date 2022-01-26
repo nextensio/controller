@@ -9,6 +9,7 @@ import (
 	"nextensio/controller/db"
 	"nextensio/controller/okta"
 	"nextensio/controller/utils"
+	"regexp"
 	"strings"
 	"time"
 
@@ -1554,6 +1555,15 @@ func addBundleHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
+
+	var isNameValid = regexp.MustCompile(`^[a-z][a-z0-9-]*$`).MatchString
+
+	if !isNameValid(data.Bid) {
+		result.Result = "Add app-bundle info - Invalid AppGroup-id. Id should be any of `[a-z0-9-]` starting with [a-z]"
+		utils.WriteResult(w, result)
+		return
+	}
+
 	uuid := r.Context().Value("tenant").(string)
 	admin, ok := r.Context().Value("userid").(string)
 	if !ok {

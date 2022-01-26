@@ -243,6 +243,11 @@ func DBAddTenantAdminGroup(uuid string, admintype string, grp string) error {
 
 	if grp == "" {
 		return errors.New("AddAdminGroup: Group not specified")
+	} else {
+		var isNameValid = regexp.MustCompile(`^[a-zA-Z]*$`).MatchString
+		if !isNameValid(grp) {
+			return errors.New("AddAdminGroup: Invalid group name. Name should be any of `[a-zA-Z]`")
+		}
 	}
 	if (admintype != "superadmin") && (admintype != "admin") {
 		return errors.New("AddAdminGroup: Not privileged to create admin group")
