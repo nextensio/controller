@@ -2,13 +2,13 @@ package router
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"nextensio/controller/db"
 	"nextensio/controller/utils"
 	"regexp"
 	"strings"
 
+	"github.com/golang/glog"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	verifier "github.com/okta/okta-jwt-verifier-golang"
@@ -92,7 +92,7 @@ func oktaJwt(r *http.Request, bearerToken string, cid string) *context.Context {
 
 	token, err := jv.New().VerifyAccessToken(bearerToken)
 	if err != nil {
-		fmt.Println("Not verified", cid, err)
+		glog.Infof("Not verified", cid, err)
 		return nil
 	}
 	// TODO: The access token presented in bearer is supposed to be an opaque entity
@@ -101,9 +101,45 @@ func oktaJwt(r *http.Request, bearerToken string, cid string) *context.Context {
 	// we move to say Azure as IDP, we might run into trouble here at which point we
 	// will have to somehow send the ID token also to get these values
 	uuid := token.Claims["tenant"].(string)
+	usertype := token.Claims["usertype"].(string)
 	ctx := context.WithValue(r.Context(), "user-tenant", uuid)
 	ctx = context.WithValue(ctx, "userid", token.Claims["sub"])
-	ctx = context.WithValue(ctx, "usertype", token.Claims["usertype"])
+	ctx = context.WithValue(ctx, "usertype", usertype)
+
+	// "superadmin" and "admin" can assume any group, so they HAVE to set which group
+	// they are acting on behalf of in the X-Nextensio-Group header. But for admin-<group>
+	// users, the group is already in the usertype so they dont have to set the
+	// http header, but if they do set then it better match. For "regular" users, they
+	// cant call any write APIs, so wherever they call read APIs and we want to restrict
+	// them from reading admin stuff, we have to check in those APIs specifically that
+	// regular users are disallowed. Infact it might be a good idea (TODO) to demarcate
+	// the read-APIs that regular users can call into a different space like
+	// /api/v1/regular/tenant/.. something and disallow everything else ?
+	if usertype == "superadmin" || usertype == "admin" {
+		group := r.Header.Get("X-Nextensio-Group")
+		if group == "" {
+			glog.Errorf("Group not set")
+			return nil
+		}
+		if group != "superadmin" && group != "admin" && !strings.HasPrefix(group, "admin-") {
+			glog.Errorf("Bad group name", group)
+			return nil
+		}
+		ctx = context.WithValue(ctx, "group", group)
+	} else if strings.HasPrefix(usertype, "admin-") {
+		ctx = context.WithValue(ctx, "group", usertype)
+		group := r.Header.Get("X-Nextensio-Group")
+		if group != "" && group != usertype {
+			glog.Errorf("Invalid group", group, usertype)
+			return nil
+		}
+	} else if usertype == "regular" {
+		// Regular is not part of any group
+	} else {
+		glog.Errorf("Bad usertype", usertype)
+		return nil
+	}
+
 	return &ctx
 }
 

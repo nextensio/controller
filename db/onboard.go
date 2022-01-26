@@ -244,16 +244,10 @@ func DBAddTenantAdminGroup(uuid string, admintype string, grp string) error {
 	if grp == "" {
 		return errors.New("AddAdminGroup: Group not specified")
 	}
-	if (admintype != "superadmin") && !strings.HasPrefix(admintype, "admin-") {
+	if (admintype != "superadmin") && (admintype != "admin") {
 		return errors.New("AddAdminGroup: Not privileged to create admin group")
 	}
-	if admintype != "superadmin" {
-		// admin-<group> - get group and compare
-		splitg := strings.SplitN(grp, "-", 2)
-		if splitg[1] != grp {
-			return errors.New("AddAdminGroup: Group %s not privileged to create this admin group")
-		}
-	}
+
 	tenant := DBFindTenant(uuid)
 	if tenant == nil {
 		return errors.New("AddAdminGroup: Could not find tenant")
@@ -277,16 +271,10 @@ func DBDelTenantAdminGroup(uuid string, admintype string, grp string) error {
 	if grp == "" {
 		return errors.New("DelAdminGroup: Group not specified")
 	}
-	if (admintype != "superadmin") && !strings.HasPrefix(admintype, "admin-") {
+	if (admintype != "superadmin") && (admintype != "admin") {
 		return errors.New("DelAdminGroup: Not privileged to delete admin group")
 	}
-	if admintype != "superadmin" {
-		// admin-<group> - get group and compare
-		splitg := strings.SplitN(grp, "-", 2)
-		if splitg[1] != grp {
-			return errors.New("DelAdminGroup: Group %s not privileged to delete this admin group")
-		}
-	}
+
 	tenant := DBFindTenant(uuid)
 	if tenant == nil {
 		return errors.New("DelAdminGroup: Cant find tenant")
@@ -906,23 +894,8 @@ type AttrSet struct {
 	Group     string `bson:"group" json:"group"`
 }
 
-func DBAddAttrSet(tenant string, admin string, admingrp string, s AttrSet, rsrvd bool) error {
-
-	if (!strings.HasPrefix(admingrp, "admin-")) && (admingrp != "superadmin") {
-		return fmt.Errorf("User does not have privileges for adding an attribute")
-	}
-	if s.Group != "" {
-		if s.Group != "superadmin" {
-			if !strings.HasPrefix(s.Group, "admin-") {
-				return fmt.Errorf("Invalid group " + s.Group + " specified for attribute " + s.Name)
-			}
-			if admingrp == "superadmin" {
-				admingrp = s.Group
-			} else if admingrp != s.Group {
-				return fmt.Errorf(admingrp + " admin not privileged to change attribute " + s.Name + " group to " + s.Group)
-			}
-		}
-	}
+func DBAddAttrSet(tenant string, admin string, group string, s AttrSet, rsrvd bool) error {
+	s.Group = group
 	uscore := strings.HasPrefix(s.Name, "_")
 	if rsrvd && !uscore {
 		return fmt.Errorf("Attribute name does not conform to reserved attributes")
@@ -946,7 +919,7 @@ func DBAddAttrSet(tenant string, admin string, admingrp string, s AttrSet, rsrvd
 		bson.M{"_id": s.Name + ":" + s.AppliesTo},
 		bson.D{
 			{"$set", bson.M{"name": s.Name, "appliesTo": s.AppliesTo,
-				"type": s.Type, "isArray": s.IsArray, "group": admingrp}},
+				"type": s.Type, "isArray": s.IsArray, "group": group}},
 		},
 		&opt,
 	)
@@ -954,7 +927,7 @@ func DBAddAttrSet(tenant string, admin string, admingrp string, s AttrSet, rsrvd
 		glog.Errorf("AttrSet: Add error - %v", err)
 		return err.Err()
 	}
-	glog.Infof("AddAttrSet: Added %s attribute %s in group %s", s.AppliesTo, s.Name, admingrp)
+	glog.Infof("AddAttrSet: Added %s attribute %s in group %s", s.AppliesTo, s.Name, group)
 	if s.AppliesTo == "Hosts" {
 		if err := DBAddAllHostsOneAttr(tenant, admin, s); err != nil {
 			return err
@@ -973,16 +946,20 @@ func DBAddAttrSet(tenant string, admin string, admingrp string, s AttrSet, rsrvd
 	return nil
 }
 
-func DBDelAttrSet(tenant string, admin string, admingrp string, set AttrSet) error {
-	if (!strings.HasPrefix(admingrp, "admin-")) && (admingrp != "superadmin") {
-		return fmt.Errorf("User does not have privileges for deleting an attribute")
-	}
-	if (admingrp != "superadmin") && (set.Group != admingrp) {
-		return fmt.Errorf("User not privileged to delete attribute " + set.Name)
-	}
+func DBDelAttrSet(tenant string, admin string, group string, set AttrSet) error {
+	set.Group = group
 	Cltn := dbGetCollection(tenant, "NxtAttrSet")
 	if Cltn == nil {
 		return fmt.Errorf("Unknown Collection")
+	}
+
+	var curSet AttrSet
+	err := Cltn.FindOne(context.TODO(), bson.M{"_id": set.Name + ":" + set.AppliesTo}).Decode(&curSet)
+	if err != nil {
+		return err
+	}
+	if curSet.Group != group {
+		return fmt.Errorf("Admin group not matching attribute group")
 	}
 	if set.AppliesTo == "Hosts" {
 		if err := DBDelAllHostsOneAttr(tenant, admin, set.Name); err != nil {
@@ -999,7 +976,7 @@ func DBDelAttrSet(tenant string, admin string, admingrp string, set AttrSet) err
 			return err
 		}
 	}
-	_, err := Cltn.DeleteOne(
+	_, err = Cltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": set.Name + ":" + set.AppliesTo},
 	)
@@ -1031,7 +1008,7 @@ func DBFindAllAttrSet(tenant string) []AttrSet {
 	return set
 }
 
-func DBFindSpecificAttrSet(tenant string, atyp string, admingrp string) []AttrSet {
+func DBFindSpecificAttrSet(tenant string, atyp string, group string) []AttrSet {
 	var set []AttrSet
 	var err error
 	var cursor *mongo.Cursor
@@ -1041,11 +1018,8 @@ func DBFindSpecificAttrSet(tenant string, atyp string, admingrp string) []AttrSe
 		glog.Errorf("AttrSet: Could not find AttrSet collection")
 		return nil
 	}
-	if admingrp == "superadmin" {
-		cursor, err = attrSetCltn.Find(context.TODO(), bson.M{"appliesTo": atyp})
-	} else {
-		cursor, err = attrSetCltn.Find(context.TODO(), bson.M{"appliesTo": atyp, "group": admingrp})
-	}
+
+	cursor, err = attrSetCltn.Find(context.TODO(), bson.M{"appliesTo": atyp, "group": group})
 	if err != nil {
 		return nil
 	}

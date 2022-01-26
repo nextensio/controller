@@ -619,10 +619,8 @@ func addAdminGroupsHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 
 	tenant := r.Context().Value("tenant").(string)
-	admintype, ok := r.Context().Value("usertype").(string)
-	if !ok {
-		admintype = "regular"
-	}
+	admintype := r.Context().Value("group").(string)
+
 	v := mux.Vars(r)
 	grp := v["group"]
 	err := db.DBAddTenantAdminGroup(tenant, admintype, grp)
@@ -641,10 +639,8 @@ func delAdminGroupsHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 
 	tenant := r.Context().Value("tenant").(string)
-	admintype, ok := r.Context().Value("usertype").(string)
-	if !ok {
-		admintype = "regular"
-	}
+	admintype := r.Context().Value("group").(string)
+
 	v := mux.Vars(r)
 	grp := v["group"]
 	err := db.DBDelTenantAdminGroup(tenant, admintype, grp)
@@ -1215,15 +1211,13 @@ func getUserAdminRole(w http.ResponseWriter, r *http.Request) {
 	var result GetAdminRoleResult
 
 	tenant := r.Context().Value("tenant").(string)
-	admingrp, ok := r.Context().Value("usertype").(string)
-	if !ok {
-		admingrp = "regular"
-	}
+	group := r.Context().Value("group").(string)
+
 	v := mux.Vars(r)
 	uid := v["userid"]
-	if (admingrp != "superadmin") && (!strings.HasPrefix(admingrp, "admin-")) {
+	if group == "regular" {
 		glog.Errorf("getUserAdminRole: Need admin privileges to get user type")
-		result.UserRole = "Error-NotPrivileged"
+		result.UserRole = "Only Admin users can query roles of other users"
 		utils.WriteResult(w, result)
 		return
 	}
@@ -1252,29 +1246,21 @@ func getUserAdminRole(w http.ResponseWriter, r *http.Request) {
 func updUserAdminRole(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 	tenant := r.Context().Value("tenant").(string)
-	admingrp, ok := r.Context().Value("usertype").(string)
-	if !ok {
-		admingrp = "regular"
-	}
+	group := r.Context().Value("group").(string)
+
 	v := mux.Vars(r)
 	uid := v["userid"]
+	newgrp := v["group"]
+
 	// group is tenant defined. We prefix "admin-" to it when setting usertype.
-	grp := v["group"]
-	if (admingrp != "superadmin") && (!strings.HasPrefix(admingrp, "admin-")) {
-		glog.Errorf("updUserAdminRole: Need admin privileges to change user type")
-		result.Result = " Need admin privileges to change user type"
+	splitg := strings.SplitN(group, "-", 2)
+	if splitg[1] != newgrp {
+		glog.Errorf("updUserAdminRole: %s cannot set admin role for %s", group, newgrp)
+		result.Result = group + " cannot set admin role for " + newgrp
 		utils.WriteResult(w, result)
 		return
 	}
-	if admingrp != "superadmin" {
-		splitg := strings.SplitN(admingrp, "-", 2)
-		if splitg[1] != grp {
-			glog.Errorf("updUserAdminRole: %s cannot set admin role for %s", admingrp, grp)
-			result.Result = admingrp + " cannot set admin role for " + grp
-			utils.WriteResult(w, result)
-			return
-		}
-	}
+
 	_, idpTenant, utype, err := IdpGetUserInfo(API, TOKEN, uid)
 	if err != nil {
 		glog.Errorf("updUserAdminRole: user %s info not found in Idp - %v", uid, err)
@@ -1294,8 +1280,8 @@ func updUserAdminRole(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	grp = "admin-" + grp
-	_, err = IdpAddUser(API, TOKEN, uid, tenant, grp, false)
+	newgrp = "admin-" + newgrp
+	_, err = IdpAddUser(API, TOKEN, uid, tenant, newgrp, false)
 	if err != nil {
 		glog.Errorf("updUserAdminRole: user admin role update failed - %v", err)
 		result.Result = "User admin role update failed"
@@ -1309,13 +1295,11 @@ func updUserAdminRole(w http.ResponseWriter, r *http.Request) {
 // Get attribute sets for specified type - "Users", "Bundles", "Hosts"
 func getSpecificAttrSet(w http.ResponseWriter, r *http.Request) {
 	uuid := r.Context().Value("tenant").(string)
-	admingrp, ok := r.Context().Value("usertype").(string)
-	if !ok {
-		admingrp = "regular"
-	}
+	group := r.Context().Value("group").(string)
+
 	v := mux.Vars(r)
 	atyp := v["type"]
-	set := db.DBFindSpecificAttrSet(uuid, atyp, admingrp)
+	set := db.DBFindSpecificAttrSet(uuid, atyp, group)
 	if set == nil {
 		result := make([]db.AttrSet, 0)
 		utils.WriteResult(w, result)
@@ -1335,10 +1319,8 @@ func addAttrSet(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		admin = "UnknownUser"
 	}
-	admingrp, ok := r.Context().Value("usertype").(string)
-	if !ok {
-		admingrp = "regular"
-	}
+	group := r.Context().Value("group").(string)
+
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		result.Result = "Add tenant attribute set - HTTP Req Read fail"
@@ -1352,7 +1334,7 @@ func addAttrSet(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBAddAttrSet(uuid, admin, admingrp, data, false)
+	err = db.DBAddAttrSet(uuid, admin, group, data, false)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1373,10 +1355,8 @@ func delAttrSet(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		admin = "UnknownUser"
 	}
-	admingrp, ok := r.Context().Value("usertype").(string)
-	if !ok {
-		admingrp = "regular"
-	}
+	group := r.Context().Value("group").(string)
+
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		result.Result = "Add tenant attribute set - HTTP Req Read fail"
@@ -1390,7 +1370,7 @@ func delAttrSet(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBDelAttrSet(uuid, admin, admingrp, data)
+	err = db.DBDelAttrSet(uuid, admin, group, data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
