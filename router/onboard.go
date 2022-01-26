@@ -245,7 +245,7 @@ func rdwrOnboard() {
 	delTenantRoute("/tracereq/{traceid}", "GET", delTraceReqHandler)
 }
 
-const defDevAttrGroup = "admin-secops"
+const defDevAttrGroup = "admin"
 
 var devAttrs = []db.AttrSet{
 	db.AttrSet{Name: "_hostname", AppliesTo: "Users", Type: "String", IsArray: "false", Group: defDevAttrGroup},
