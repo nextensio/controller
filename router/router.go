@@ -125,6 +125,10 @@ func oktaJwt(r *http.Request, bearerToken string, cid string) *context.Context {
 			glog.Errorf("Bad group name", group)
 			return nil
 		}
+		if usertype == "admin" && group == "superadmin" {
+			glog.Error("admin cannot assume superadmin role")
+			return nil
+		}
 		ctx = context.WithValue(ctx, "group", group)
 	} else if strings.HasPrefix(usertype, "admin-") {
 		ctx = context.WithValue(ctx, "group", usertype)
