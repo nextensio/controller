@@ -194,7 +194,7 @@ func GlobalMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 		allowed = (match[1] == "add" && strings.HasPrefix(match[2], "keepaliverequest"))
 	}
 	usertype := (*ctx).Value("usertype").(string)
-	if usertype != "superadmin" && !allowed {
+	if usertype != "superadmin" && usertype != "admin" && !allowed {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("User unauthorized to global resources"))
 		return
@@ -233,28 +233,21 @@ func TenantMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 	}
 	uuid := match[1]
 	usertype := (*ctx).Value("usertype").(string)
-	if usertype != "superadmin" {
-		userTenant := (*ctx).Value("user-tenant").(string)
-		if userTenant != uuid {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte("User unauthorized to access this tenant"))
-			return
-		}
-	}
 
 	// support user, only read-only access allowed
-	if usertype == "support" {
-		if match[2] != "get" {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte("User unauthorized to modify this tenant"))
-			return
-		}
-	}
+	// temporarily disable this until we decide if we need this usertype
+	//if usertype == "support" {
+	//	if match[2] != "get" {
+	//		w.WriteHeader(http.StatusUnauthorized)
+	//		w.Write([]byte("User unauthorized to modify this tenant"))
+	//		return
+	//	}
+	//}
 
 	// regular user, not allowed anything
-	if usertype == "regular" {
+	if usertype != "superadmin" && usertype != "admin" && !strings.HasPrefix(usertype, "admin-") {
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("User not authorized acess to this tenant"))
+		w.Write([]byte("User not authorized access to this tenant"))
 		return
 	}
 

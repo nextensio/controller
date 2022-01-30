@@ -54,6 +54,9 @@ func rdonlyOnboard() {
 	// This route is used to get all admins for a group for a tenant
 	getTenantRoute("/groupadms/{group}", "GET", getAdminsForGroupHandler)
 
+	// This route is used to get MSP-managed tenants for an MSP tenant
+	getTenantRoute("/tenant/mgdtenants", "GET", getManagedTenants)
+
 	// This route is used to get the group admin role (usertype) of a user
 	getTenantRoute("/user/adminrole/{userid}", "GET", getUserAdminRole)
 
@@ -168,6 +171,15 @@ func rdwrOnboard() {
 	// This route is used by the tenant admin to modify the tenant parameters
 	addTenantRoute("/tenant", "POST", modifytenantHandler)
 
+	// This route is used to change the type of tenant
+	addTenantRoute("/tenant/type/{type}", "POST", updTenantType)
+
+	// This route is used to add a MSP-managed tenant to a MSP tenant
+	addTenantRoute("/tenant/msp/{mgdtenant}", "POST", addManagedTenant)
+
+	// This route is used to remove a MSP-managed tenant from a MSP tenant
+	delTenantRoute("/tenant/msp/{mgdtenant}", "GET", delManagedTenant)
+
 	// This route is used by the tenant admin to add a tenant admin group
 	addTenantRoute("/admgroups/{group}", "POST", addAdminGroupsHandler)
 
@@ -181,8 +193,11 @@ func rdwrOnboard() {
 	// docs will be deleted for specified user
 	delTenantRoute("/user/{userid}", "GET", delUserHandler)
 
-	// This route is used to update/change the group admin role of a user
-	addTenantRoute("/user/adminrole/{userid}/{group}", "POST", updUserAdminRole)
+	// This route is used to update/change the admin role of a user
+	// {role} = "admin-<group-name>" for attr group admin, or
+	//        = "admin" for tenant admin, or
+	//        = "regular" for regular user (remove a user from admin role)
+	addTenantRoute("/user/adminrole/{userid}/{role}", "POST", updUserAdminRole)
 
 	// This route is used to add all possible attributes for users/bundles
 	addTenantRoute("/attrset", "POST", addAttrSet)
@@ -268,6 +283,152 @@ func setDeviceAttrSet(tenant string, admin string) error {
 	}
 	return nil
 }
+
+// Check for superadmin only
+func allowSuperAdminOnly(r *http.Request) bool {
+	role, ok := r.Context().Value("group").(string)
+	if !ok {
+		role = "regular"
+	}
+
+	if role == "superadmin" {
+		return true
+	}
+	return false
+}
+
+// Basic check for any user with any admin privileges.
+// If grp specified, then admin must be for specified group (role).
+// If grp is an empty string, then admin match with group (role) is skipped.
+func allowAnyAdminAccess(r *http.Request, grp string) bool {
+	// If caller is superadmin, allow access
+	// If caller is admin of self-managed tenant, allow access
+	// if caller is admin in MSP tenant, and target is authorized MSP-managed tenant,
+	// allow access
+	// if caller is group admin of target tenant, allow access
+	// grp is optional. If specified and caller is group admin, ensure caller
+	// is admin of same group.
+
+	role, ok := r.Context().Value("group").(string)
+	if !ok {
+		role = "regular"
+	}
+	// superadmin can access anything anywhere.
+	if role == "superadmin" {
+		return true
+	}
+
+	grpadmin := strings.HasPrefix(role, "admin-")
+	if (role != "admin") && (!grpadmin) {
+		return false
+	}
+	// >>> At this point, caller is either "admin" or a group admin. <<<
+	// If tenant is self managed or MSP, all admins must be from same tenant.
+	// If tenant is MSP managed, "admin" must be in the MSP managing the tenant,
+	// but group admins can be in the MSP-managed tenant or the MSP managing
+	// the tenant.
+	tenant, ok := r.Context().Value("tenant").(string)
+	if !ok {
+		tenant = "UnknownTenant"
+	}
+	usrtenant, ok := r.Context().Value("user-tenant").(string)
+	if !ok {
+		usrtenant = "UnknownTenant"
+	}
+	t := db.DBFindTenant(tenant)
+	if t == nil {
+		glog.Errorf("allowAnyAdminAccess: invalid tenant " + tenant)
+		return false
+	}
+	switch t.Type {
+	case "self-managed":
+		// caller has to be from same tenant
+		if tenant != usrtenant {
+			return false
+		}
+	case "MSP-managed":
+		// Caller can be
+		// 1. "admin" in role of "admin" - caller from MSP tenant
+		// 2. "admin" in role of group admin - caller from MSP tenant
+		// 3. group admin in role of group admin - caller from MSP-managed tenant
+		if role == "admin" && t.MspID != usrtenant {
+			return false
+		}
+		// If caller is a group admin from a different tenant, then caller must be in the MSP tenant
+		if grpadmin && (tenant != usrtenant) && (t.MspID != usrtenant) {
+			return false
+		}
+	case "MSP":
+		// Caller has to be from same MSP tenant.
+		if tenant != usrtenant {
+			return false
+		}
+	default:
+		// Invalid type
+		return false
+	}
+	if grp == "" {
+		// Assume no group check required
+		return true
+	}
+	// Check if admin is for specified group
+	if grpadmin && (role != grp) {
+		return false
+	}
+	return true
+}
+
+// Checks if user has tenant admin or higher privileges. Group admins not allowed.
+func allowTenantAdminOnly(r *http.Request) bool {
+	// If caller is superadmin, allow access
+	// If caller is admin of self-managed tenant accessing self-managed tenant, allow access
+	// If caller is admin of MSP tenant accessing MSP tenant, allow access
+	// If caller is admin of MSP tenant accessing authorized MSP-managed tenant, allow access
+
+	role, ok := r.Context().Value("group").(string)
+	if !ok {
+		role = "regular"
+	}
+	// superadmin can access anything anywhere
+	if role == "superadmin" {
+		return true
+	}
+	if role != "admin" {
+		return false
+	}
+
+	// At this point, caller is in the role of a tenant admin.
+	// Ensure the tenant admin has privileges to access the tenant.
+
+	tenant := r.Context().Value("tenant").(string)
+	usrtenant := r.Context().Value("user-tenant").(string)
+	// If tenant is self managed or MSP, admin must be from same tenant
+	// If tenant is MSP managed, admin must be in the MSP managing the tenant
+	t := db.DBFindTenant(tenant)
+	if t == nil {
+		glog.Errorf("allowTenantAdminOnly: invalid tenant " + tenant)
+		return false
+	}
+	switch t.Type {
+	case "self-managed":
+		if tenant != usrtenant {
+			return false
+		}
+	case "MSP-managed":
+		if t.MspID != usrtenant {
+			return false
+		}
+	case "MSP":
+		if tenant != usrtenant {
+			return false
+		}
+	default:
+		// Invalid type
+		return false
+	}
+	return true
+}
+
 func signupWithIdp(w http.ResponseWriter, tenant string, email string) (string, error) {
 
 	gid, err := IdpAddGroup(API, TOKEN, tenant, true)
@@ -472,6 +633,103 @@ func modifytenantHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
+// Update type of tenant
+func updTenantType(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+	if !allowSuperAdminOnly(r) {
+		result.Result = "Not privileged to change tenant type"
+		utils.WriteResult(w, result)
+		return
+	}
+	tenant := r.Context().Value("tenant").(string)
+	v := mux.Vars(r)
+	typ := v["type"]
+	if typ != "self-managed" && typ != "MSP" && typ != "MSP-managed" {
+		result.Result = "Error-InvalidTenantType"
+		utils.WriteResult(w, result)
+		return
+	}
+	err := db.DBUpdTenantType(tenant, typ)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+// Add a managed tenant to an MSP
+func addManagedTenant(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+	if !allowSuperAdminOnly(r) {
+		result.Result = "Not privileged to add managed tenant"
+		utils.WriteResult(w, result)
+		return
+	}
+	tenant := r.Context().Value("tenant").(string)
+	v := mux.Vars(r)
+	mgdtenant := v["mgdtenant"]
+	err := db.DBAddManagedTenant(tenant, mgdtenant)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+// Delete a managed tenant from an MSP
+func delManagedTenant(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+	if !allowSuperAdminOnly(r) {
+		result.Result = "Not privileged to remove a managed tenant"
+		utils.WriteResult(w, result)
+		return
+	}
+	tenant := r.Context().Value("tenant").(string)
+	v := mux.Vars(r)
+	mgdtenant := v["mgdtenant"]
+	err := db.DBDelManagedTenant(tenant, mgdtenant)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+type GetMgdTenantsResult struct {
+	Result  string `json:"Result"`
+	Tenants []string
+}
+
+// Get managed tenants for an MSP
+func getManagedTenants(w http.ResponseWriter, r *http.Request) {
+	var result GetMgdTenantsResult
+	if !allowTenantAdminOnly(r) {
+		result.Result = "Not privileged to get managed tenants"
+		utils.WriteResult(w, result)
+		return
+	}
+	tenant := r.Context().Value("tenant").(string)
+	mgdt := db.DBGetManagedTenants(tenant)
+	if mgdt == nil {
+		result.Result = "Error getting managed tenants"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	result.Tenants = *mgdt
+	utils.WriteResult(w, result)
+}
+
 // Add a new tenant, with information like the SSO engine used by the
 // customers/agents in the tenant
 func addtenantHandler(w http.ResponseWriter, r *http.Request) {
@@ -619,12 +877,15 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 func addAdminGroupsHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 
+	if !allowTenantAdminOnly(r) {
+		result.Result = "Not privileged to add attribute admin group"
+		utils.WriteResult(w, result)
+		return
+	}
 	tenant := r.Context().Value("tenant").(string)
-	admintype := r.Context().Value("group").(string)
-
 	v := mux.Vars(r)
 	grp := v["group"]
-	err := db.DBAddTenantAdminGroup(tenant, admintype, grp)
+	err := db.DBAddTenantAdminGroup(tenant, grp)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -639,12 +900,15 @@ func addAdminGroupsHandler(w http.ResponseWriter, r *http.Request) {
 func delAdminGroupsHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 
+	if !allowTenantAdminOnly(r) {
+		result.Result = "Not privileged to delete attribute admin group"
+		utils.WriteResult(w, result)
+		return
+	}
 	tenant := r.Context().Value("tenant").(string)
-	admintype := r.Context().Value("group").(string)
-
 	v := mux.Vars(r)
 	grp := v["group"]
-	err := db.DBDelTenantAdminGroup(tenant, admintype, grp)
+	err := db.DBDelTenantAdminGroup(tenant, grp)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -679,22 +943,20 @@ func getAdminsForGroupHandler(w http.ResponseWriter, r *http.Request) {
 	var result GetTenantGroupAdminsResult
 	var err error
 
-	tenant := r.Context().Value("tenant").(string)
-	admintype, ok := r.Context().Value("usertype").(string)
-	if !ok {
-		admintype = "regular"
+	if !allowAnyAdminAccess(r, "") {
+		glog.Errorf("getAdminsForGroupHandler: Need admin privileges to get group admins")
+		result.Result = "Not privileged to get group admins"
+		utils.WriteResult(w, result)
+		return
 	}
+	tenant := r.Context().Value("tenant").(string)
 	v := mux.Vars(r)
 	grp := v["group"]
 	utype := "admin-" + grp
 
-	grpadmin := strings.HasPrefix(admintype, "admin-")
-	if (admintype != "superadmin") && (admintype != "admin") && (!grpadmin) {
-		glog.Errorf("getAdminsForGroupHandler: Need admin privileges to get group admins")
-		result.Result = "Error-NotPrivileged"
-		utils.WriteResult(w, result)
-		return
-	}
+	// Need to see whether we should track admins in our mongoDB for more optimized
+	// access or go to Idp as is done here.
+	// Don't want to replicate info that might lead to inconsistencies.
 	result.GrpAdmins, err = IdpGetUsersByType(API, TOKEN, tenant, utype)
 	if err != nil {
 		glog.Errorf("getAdminsForGroupHandler: failed to get admins of type %s - %v", utype, err)
@@ -1211,27 +1473,18 @@ type GetAdminRoleResult struct {
 func getUserAdminRole(w http.ResponseWriter, r *http.Request) {
 	var result GetAdminRoleResult
 
-	tenant := r.Context().Value("tenant").(string)
-	group := r.Context().Value("group").(string)
-
 	v := mux.Vars(r)
 	uid := v["userid"]
-	if group == "regular" {
+	if !allowAnyAdminAccess(r, "") {
 		glog.Errorf("getUserAdminRole: Need admin privileges to get user type")
 		result.UserRole = "Only Admin users can query roles of other users"
 		utils.WriteResult(w, result)
 		return
 	}
-	_, idpTenant, usertype, err := IdpGetUserInfo(API, TOKEN, uid)
+	_, _, usertype, err := IdpGetUserInfo(API, TOKEN, uid)
 	if err != nil {
 		glog.Errorf("getUserAdminRole: user %s info not found in Idp - %v", uid, err)
 		result.UserRole = "Error-UnknownUser"
-		utils.WriteResult(w, result)
-		return
-	}
-	if idpTenant != tenant {
-		glog.Errorf("getUserAdminRole: user tenant mismatch - %s v/s %s", tenant, idpTenant)
-		result.UserRole = "Error-TenantMismatch"
 		utils.WriteResult(w, result)
 		return
 	}
@@ -1239,50 +1492,107 @@ func getUserAdminRole(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-// Set admin role of a group for any user. Can only be done by the
-// superadmin or another admin for the target group. Can also remove
-// a user from group admin role to be a regular user.
-// Attempts to upgrade to or downgrade from superadmin not allowed here.
-// Involves setting usertype for user in Okta.
+// Set admin role for any user.
+// Can be called by any admin authorized to access tenant. If caller is
+// a group admin, add has to be for same {group}.
+// Can also remove a user from group admin role to be a regular user.
+// Attempts to upgrade to or downgrade from superadmin not allowed here
+// as that can only be done from the Idp portal (eg Okta portal).
+// Changes possible are:
+// "regular" -> group admin
+// group admin -> "regular"
+// group admin to "admin" (by a tenant admin or superadmin only)
+// "regular" to "admin" (by a tenant admin or superadmin only)
+// "admin" to "regular" (by a tenant admin or superadmin only)
+// "admin" to group admin
 func updUserAdminRole(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
-	tenant := r.Context().Value("tenant").(string)
-	group := r.Context().Value("group").(string)
-
-	v := mux.Vars(r)
-	uid := v["userid"]
-	newgrp := v["group"]
-
-	// group is tenant defined. We prefix "admin-" to it when setting usertype.
-	splitg := strings.SplitN(group, "-", 2)
-	if splitg[1] != newgrp {
-		glog.Errorf("updUserAdminRole: %s cannot set admin role for %s", group, newgrp)
-		result.Result = group + " cannot set admin role for " + newgrp
+	if !allowAnyAdminAccess(r, "") {
+		glog.Errorf("updUserAdminRole: Need admin privileges to change user admin role")
+		result.Result = "Not privileged to change user admin role"
 		utils.WriteResult(w, result)
 		return
 	}
+	tenant := r.Context().Value("tenant").(string)
+	role := r.Context().Value("group").(string)
 
-	_, idpTenant, utype, err := IdpGetUserInfo(API, TOKEN, uid)
+	v := mux.Vars(r)
+	uid := v["userid"]
+	newrole := v["role"]
+
+	_, _, utype, err := IdpGetUserInfo(API, TOKEN, uid)
 	if err != nil {
 		glog.Errorf("updUserAdminRole: user %s info not found in Idp - %v", uid, err)
 		result.Result = "User info not found in Idp"
 		utils.WriteResult(w, result)
 		return
 	}
-	if idpTenant != tenant {
-		glog.Errorf("updUserAdminRole: user tenant mismatch - %s v/s %s", tenant, idpTenant)
-		result.Result = "User tenant mismatch"
+	if utype == "superadmin" || newrole == "superadmin" {
+		glog.Errorf("updUserAdminRole: cannot upgrade/downgrade to/from superadmin")
+		result.Result = "Cannot upgrade/downgrade superadmin"
 		utils.WriteResult(w, result)
 		return
 	}
-	if utype == "superadmin" {
-		glog.Errorf("updUserAdminRole: cannot change superadmin usertype")
-		result.Result = "User is superadmin. Cannot change usertype"
+	errstr := ""
+	grpadmin := strings.HasPrefix(role, "admin-")
+	switch newrole {
+	case "regular":
+		// group admin to regular or admin to regular
+		switch utype {
+		case "admin":
+			// admin to regular can only be done by another tenant admin or superadmin
+			if role != "superadmin" && role != "admin" {
+				errstr = "Not authorized to downgrade admin to regular user"
+			}
+		case "regular":
+			errstr = "Attempt to Change role from regular to regular"
+		default:
+			// group admin to regular can be done by any admin, but if group admin,
+			// then group admin has to be for same group
+			if grpadmin && role != utype {
+				errstr = "Not authorized to downgrade group admin to regular user"
+			}
+		}
+	case "admin":
+		// regular to admin or group admin to admin by tenant admin or superadmin only
+		if role != "superadmin" && role != "admin" {
+			errstr = "Not authorized to upgrade regular user to admin"
+		}
+	default:
+		newgrpadmin := strings.HasPrefix(newrole, "admin-")
+		if !newgrpadmin {
+			newrole = "admin-" + newrole
+		}
+
+		// regular to group admin or admin to group admin
+		switch utype {
+		case "admin":
+			// tenant admin to group admin by another tenant admin or superadmin only
+			if role != "superadmin" && role != "admin" {
+				errstr = "Not authorized to downgrade admin to group admin"
+			}
+		case "regular":
+			// regular to group admin can be done by any admin. If group admin, has
+			// to be for same group
+			if grpadmin && role != utype {
+				errstr = "Not authorized to upgrade regular user to group admin"
+			}
+		default:
+			// one group admin to another group admin can be done by any admin. If
+			// group admin, has to be for original group, not target group
+			if grpadmin && role != utype {
+				errstr = "Not authorized to change group admin to another group"
+			}
+		}
+	}
+
+	if errstr != "" {
+		glog.Errorf("updUserAdminRole: %s", errstr)
+		result.Result = errstr
 		utils.WriteResult(w, result)
 		return
 	}
-	newgrp = "admin-" + newgrp
-	_, err = IdpAddUser(API, TOKEN, uid, tenant, newgrp, false)
+	_, err = IdpAddUser(API, TOKEN, uid, tenant, newrole, false)
 	if err != nil {
 		glog.Errorf("updUserAdminRole: user admin role update failed - %v", err)
 		result.Result = "User admin role update failed"
@@ -1335,6 +1645,13 @@ func addAttrSet(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
+	// If data.Group is not set, we will set it to group of caller.
+	// If it is set, ensure it matches group of caller.
+	if !allowAnyAdminAccess(r, data.Group) {
+		result.Result = "User does not have privileges for adding an attribute"
+		utils.WriteResult(w, result)
+		return
+	}
 	err = db.DBAddAttrSet(uuid, admin, group, data, false)
 	if err != nil {
 		result.Result = err.Error()
@@ -1368,6 +1685,13 @@ func delAttrSet(w http.ResponseWriter, r *http.Request) {
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		result.Result = "Add tenant attribute set - Error parsing json"
+		utils.WriteResult(w, result)
+		return
+	}
+	// If data.Group is not set, we will set it to group of caller.
+	// If it is set, ensure it matches group of caller.
+	if !allowAnyAdminAccess(r, data.Group) {
+		result.Result = "User does not have privileges for deleting this attribute"
 		utils.WriteResult(w, result)
 		return
 	}
