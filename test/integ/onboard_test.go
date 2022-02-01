@@ -1113,10 +1113,17 @@ func testAttrSetAdd_v1(t *testing.T, tenant bool, name string, total int) {
 	}
 	dbTenants := db.DBFindAllTenants()
 
+	attrcnt := 0
+	defAttr := db.DBFindAllAttrSet(dbTenants[0].ID)
+	if defAttr != nil {
+		attrcnt = len(defAttr)
+	}
 	attr := db.AttrSet{
 		Name:      name,
 		AppliesTo: "Users",
 		Type:      "string",
+		IsArray:   "false",
+		Group:     "superadmin",
 	}
 
 	body, err := json.Marshal(attr)
@@ -1152,6 +1159,7 @@ func testAttrSetAdd_v1(t *testing.T, tenant bool, name string, total int) {
 		return
 	}
 
+	total = attrcnt + 1  // we just added one more attribute above
 	dbAttr := db.DBFindAllAttrSet(dbTenants[0].ID)
 	if dbAttr == nil {
 		t.Error()
@@ -1180,10 +1188,16 @@ func TestAttrSetAdd_v1(t *testing.T) {
 }
 
 func TestAttrSetGet_v1(t *testing.T) {
+	const attrnm = "foobar"
 	db.DBReinit()
-	testAttrSetAdd_v1(t, true, "foobar", 1)
+	testAttrSetAdd_v1(t, true, attrnm, 1)
 	dbTenants := db.DBFindAllTenants()
 
+	attrcnt := 0
+	defAttr := db.DBFindAllAttrSet(dbTenants[0].ID)
+	if defAttr != nil {
+		attrcnt = len(defAttr)
+	}
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allattrset", nil)
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
@@ -1205,7 +1219,18 @@ func TestAttrSetGet_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	if len(dbAttr) != 1 || dbAttr[0].Name != "foobar" {
+	if len(dbAttr) != attrcnt {
+		t.Error()
+		return
+	}
+	found := false
+	for i := 0; i < attrcnt; i++ {
+		if dbAttr[i].Name == attrnm {
+			found = true
+			break
+		}
+	}
+	if !found {
 		t.Error()
 		return
 	}
@@ -1216,15 +1241,24 @@ type AttrDelResult struct {
 }
 
 func TestAttrSetDel_v1(t *testing.T) {
+	const attrnm1 = "foobar"
+	const attrnm2 = "abcd"
 	db.DBReinit()
-	testAttrSetAdd_v1(t, true, "foobar", 1)
-	testAttrSetAdd_v1(t, false, "abcd", 2)
+	testAttrSetAdd_v1(t, true, attrnm1, 1)
+	testAttrSetAdd_v1(t, false, attrnm2, 2)
 	dbTenants := db.DBFindAllTenants()
 
+	attrcnt := 0
+	defAttr := db.DBFindAllAttrSet(dbTenants[0].ID)
+	if defAttr != nil {
+		attrcnt = len(defAttr)
+	}
 	attr := db.AttrSet{
-		Name:      "foobar",
+		Name:      attrnm1,
 		AppliesTo: "Users",
 		Type:      "string",
+		IsArray:   "false",
+		Group:     "superadmin",
 	}
 	body, err := json.Marshal(attr)
 	if err != nil {
@@ -1257,13 +1291,25 @@ func TestAttrSetDel_v1(t *testing.T) {
 		t.Error()
 		return
 	}
+	attrcnt = attrcnt - 1  // we just deleted one above
 	dbAttr := db.DBFindAllAttrSet(dbTenants[0].ID)
 	if dbAttr == nil {
 		t.Error()
 		return
 	}
 
-	if len(dbAttr) != 1 || dbAttr[0].Name != "abcd" {
+	if len(dbAttr) != attrcnt {
+		t.Error()
+		return
+	}
+	found := false
+	for i := 0; i < attrcnt; i++ {
+		if dbAttr[i].Name == attrnm2 {  // remaining one since we deleted "foobar"
+			found = true
+			break
+		}
+	}
+	if !found {
 		t.Error()
 		return
 	}
@@ -1279,8 +1325,8 @@ type HostAttr_v1 struct {
 	Routeattrs []HostAttrs_v1 `bson:"routeattrs" json:"routeattrs"`
 }
 
-func testHostAttrAdd_v1(t *testing.T, tenantadd bool, host string) {
-	testAttrSetAdd_v1(t, tenantadd, "location", 1)
+func testHostAttrAdd_v1(t *testing.T, tenantadd bool, host string, attrnm string) {
+	testAttrSetAdd_v1(t, tenantadd, attrnm, 1)
 	dbTenants := db.DBFindAllTenants()
 
 	attr := HostAttr_v1{
@@ -1344,12 +1390,12 @@ func testHostAttrAdd_v1(t *testing.T, tenantadd bool, host string) {
 
 func TestHostAttrAdd_v1(t *testing.T) {
 	db.DBReinit()
-	testHostAttrAdd_v1(t, true, "google.com")
+	testHostAttrAdd_v1(t, true, "google.com", "doodle")
 }
 
 func TestHostAttrGet_v1(t *testing.T) {
 	db.DBReinit()
-	testHostAttrAdd_v1(t, true, "google.com")
+	testHostAttrAdd_v1(t, true, "google.com", "fiddle")
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/hostattr/google.com", nil)
@@ -1403,7 +1449,7 @@ func TestHostAttrDel_v1(t *testing.T) {
 	// This should remove the services based on the App from the AppGroup
 	// Confirm that the AppGroup does not have the services
 	db.DBReinit()
-	testHostAttrAdd_v1(t, true, "google.com")
+	testHostAttrAdd_v1(t, true, "google.com", "riddle")
 	testBundleAdd_v1(t, false, "youtube", []string{"v1.google.com", "v2.google.com"})
 	dbTenants := db.DBFindAllTenants()
 
@@ -1460,8 +1506,8 @@ func TestHostAttrDel_v1(t *testing.T) {
 
 func TestHostAttrGetAll_v1(t *testing.T) {
 	db.DBReinit()
-	testHostAttrAdd_v1(t, true, "google.com")
-	testHostAttrAdd_v1(t, false, "yahoo.com")
+	testHostAttrAdd_v1(t, true, "google.com", "middle")
+	testHostAttrAdd_v1(t, false, "yahoo.com", "muddle")
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allhostattr", nil)
@@ -1510,7 +1556,7 @@ type HostAttrHdr_v1 struct {
 }
 
 func testHostAttrHdrAdd_v1(t *testing.T) {
-	testHostAttrAdd_v1(t, true, "google.com")
+	testHostAttrAdd_v1(t, true, "google.com", "saddle")
 	dbTenants := db.DBFindAllTenants()
 	attr := BundleAttrHdr_v1{
 		Majver: 2,

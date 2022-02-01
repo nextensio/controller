@@ -155,6 +155,10 @@ type TenantJson struct {
 	EasyMode *bool   `json:"easymode"`
 }
 
+// Tenant Type : "self-managed" | "MSP" | "MSP-managed"
+// If MSP-managed, MspID will contain tenant ID of MSP
+// If MSP, MgdTenants will contain tenant IDs of MSP-managed tenants
+// A self-managed tenant should not have any values in MspID or MgdTenants
 type Tenant struct {
 	ID            string   `json:"_id" bson:"_id"`
 	Name          string   `json:"name" bson:"name"`
@@ -165,6 +169,9 @@ type Tenant struct {
 	ConfigVersion string   `json:"cfgvn" bson:"cfgvn"`
 	Idps          []IDP    `json:"idps" bson:"idps"`
 	AdmGroups     []string `json:"admgroups" bson:"admgroups"`
+	Type          string   `json:"type" bson:"type"`
+	MspID         string   `json:"mspid" bson:"mspid"`
+	MgdTenants    []string `json:"mgdtenants" bson:"mgdtenants"`
 }
 
 type Domain struct {
@@ -239,7 +246,7 @@ func DBFindTenantAdminGroups(id string) *[]string {
 	return &admingrps.AdmGroups
 }
 
-func DBAddTenantAdminGroup(uuid string, admintype string, grp string) error {
+func DBAddTenantAdminGroup(uuid string, grp string) error {
 
 	if grp == "" {
 		return errors.New("AddAdminGroup: Group not specified")
@@ -249,10 +256,6 @@ func DBAddTenantAdminGroup(uuid string, admintype string, grp string) error {
 			return errors.New("AddAdminGroup: Invalid group name. Name should be any of `[a-zA-Z]`")
 		}
 	}
-	if (admintype != "superadmin") && (admintype != "admin") {
-		return errors.New("AddAdminGroup: Not privileged to create admin group")
-	}
-
 	tenant := DBFindTenant(uuid)
 	if tenant == nil {
 		return errors.New("AddAdminGroup: Could not find tenant")
@@ -271,15 +274,11 @@ func DBAddTenantAdminGroup(uuid string, admintype string, grp string) error {
 	return errors.New("AddAdminGroup: Admin group " + grp + " already exists")
 }
 
-func DBDelTenantAdminGroup(uuid string, admintype string, grp string) error {
+func DBDelTenantAdminGroup(uuid string, grp string) error {
 
 	if grp == "" {
 		return errors.New("DelAdminGroup: Group not specified")
 	}
-	if (admintype != "superadmin") && (admintype != "admin") {
-		return errors.New("DelAdminGroup: Not privileged to delete admin group")
-	}
-
 	tenant := DBFindTenant(uuid)
 	if tenant == nil {
 		return errors.New("DelAdminGroup: Cant find tenant")
@@ -291,6 +290,113 @@ func DBDelTenantAdminGroup(uuid string, admintype string, grp string) error {
 		}
 	}
 	return errors.New("DelAdminGroup: Admin group " + grp + " not found")
+}
+
+// Update type of tenant. Can be done by superadmin only.
+func DBUpdTenantType(tnt string, typ string) error {
+
+	tenant := DBFindTenant(tnt)
+	if tenant == nil {
+		return errors.New("Cant find tenant")
+	}
+	tenant.Type = typ
+	return dbUpdateTenant(tenant)
+}
+
+// Add a managed tenant to MSP. Can be done by superadmin only.
+func DBAddManagedTenant(tnt string, mgdtnt string) error {
+
+	tenant := DBFindTenant(tnt)
+	if tenant == nil {
+		return errors.New("Cant find MSP tenant")
+	}
+	mgdtenant := DBFindTenant(mgdtnt)
+	if mgdtenant == nil {
+		return errors.New("Cant find managed tenant")
+	}
+	if tenant.Type != "MSP" {
+		return errors.New("Tenant is not an MSP")
+	}
+	if mgdtenant.Type != "MSP-managed" {
+		return errors.New("Target Tenant is not a managed tenant")
+	}
+	mgdtenant.MspID = tnt
+	// Add managed tenant ID to MSP's list of managed tenants
+	// Update both tenants
+	found := false
+	for _, tid := range tenant.MgdTenants {
+		if tid == mgdtenant.ID {
+			found = true
+			break
+		}
+	}
+	var err error
+	if !found {
+		tenant.MgdTenants = append(tenant.MgdTenants, mgdtenant.ID)
+		err = dbUpdateTenant(tenant)
+		if err != nil {
+			return errors.New("MSP Tenant could not be updated")
+		}
+	}
+	return dbUpdateTenant(mgdtenant)
+}
+
+// Delete a managed tenant from MSP. Can be done by superadmin only.
+func DBDelManagedTenant(tnt string, mgdtnt string) error {
+
+	tenant := DBFindTenant(tnt)
+	if tenant == nil {
+		return errors.New("Cant find MSP tenant")
+	}
+	mgdtenant := DBFindTenant(mgdtnt)
+	if mgdtenant == nil {
+		return errors.New("Cant find managed tenant")
+	}
+	if tenant.Type != "MSP" {
+		return errors.New("Tenant is not an MSP")
+	}
+	if mgdtenant.Type != "MSP-managed" {
+		return errors.New("Target Tenant is not a managed tenant")
+	}
+	// Remove managed tenant ID from MSP's list of managed tenants
+	// Update both tenants
+	found := false
+	for i, tid := range tenant.MgdTenants {
+		if tid == mgdtenant.ID {
+			found = true
+			tenant.MgdTenants = append(tenant.MgdTenants[:i], tenant.MgdTenants[i+1:]...)
+			break
+		}
+	}
+	var err error
+	if mgdtenant.MspID == tnt {
+		mgdtenant.MspID = ""
+		err = dbUpdateTenant(mgdtenant)
+		if err != nil {
+			return err
+		}
+	}
+	if found {
+		return dbUpdateTenant(tenant)
+	}
+	return nil
+}
+
+// Get managed tenants for an MSP.
+func DBGetManagedTenants(tnt string) *[]string {
+	var mgdt []string
+
+	tenant := DBFindTenant(tnt)
+	if tenant == nil {
+		return nil
+	}
+	if tenant.Type != "MSP" {
+		return nil
+	}
+	for _, tid := range tenant.MgdTenants {
+		mgdt = append(mgdt, tid)
+	}
+	return &mgdt
 }
 
 func dbUpdateTenant(tenant *Tenant) error {
@@ -347,6 +453,7 @@ func dbTenantUpdateJson(tenant *Tenant, data *TenantJson) *Tenant {
 		}
 		t.Group = data.Group
 		t.Domains = []Domain{}
+		t.Type = "self-managed"
 		return &t
 	} else {
 		if data.Name != nil {
@@ -952,7 +1059,7 @@ func DBAddAttrSet(tenant string, admin string, group string, s AttrSet, rsrvd bo
 }
 
 func DBDelAttrSet(tenant string, admin string, group string, set AttrSet) error {
-	set.Group = group
+
 	Cltn := dbGetCollection(tenant, "NxtAttrSet")
 	if Cltn == nil {
 		return fmt.Errorf("Unknown Collection")
@@ -963,7 +1070,7 @@ func DBDelAttrSet(tenant string, admin string, group string, set AttrSet) error 
 	if err != nil {
 		return err
 	}
-	if curSet.Group != group {
+	if curSet.Group != "" && curSet.Group != group {
 		return fmt.Errorf("Admin group not matching attribute group")
 	}
 	if set.AppliesTo == "Hosts" {
