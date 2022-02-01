@@ -843,6 +843,50 @@ func DBFindAllCerts() []Certificate {
 	return certs
 }
 
+//---------------------------Clientid functions---------------------------
+
+// NOTE: The bson decoder will not work if the structure field names dont start with upper case
+type ClientId struct {
+	Clientid string `json:"clientid" bson:"clientid"`
+}
+
+// This API will add a new certificate or update a certificate if it already exists
+func DBAddClientId(data *ClientId) error {
+
+	// The upsert option asks the DB to add if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	err := clientIdCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": "SPA"},
+		bson.D{
+			{"$set", bson.M{"_id": "SPA", "clientid": data.Clientid}},
+		},
+		&opt,
+	)
+
+	if err.Err() != nil {
+		return err.Err()
+	}
+	return nil
+}
+
+func DBFindClientId() *ClientId {
+	var clientid ClientId
+	err := clientIdCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": "SPA"},
+	).Decode(&clientid)
+	if err != nil {
+		return nil
+	}
+	return &clientid
+}
+
 //----------------------------Gateway functions--------------------------
 
 type Gateway struct {

@@ -19,6 +19,7 @@ var dbClient *mongo.Client
 
 var tenantCltn *mongo.Collection
 var certCltn *mongo.Collection
+var clientIdCltn *mongo.Collection
 var gatewayCltn *mongo.Collection
 
 var nxtDB *mongo.Database
@@ -76,6 +77,7 @@ func dbCollections() {
 	nxtDB = dbClient.Database("NxtDB")
 	tenantCltn = nxtDB.Collection("NxtTenants")
 	certCltn = nxtDB.Collection("NxtCerts")
+	clientIdCltn = nxtDB.Collection("NxtClientId")
 	gatewayCltn = nxtDB.Collection("NxtGateways")
 }
 

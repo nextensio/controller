@@ -169,14 +169,12 @@ func IsAuthenticated(r *http.Request, cid string) *context.Context {
 // etc.. is quite clunky below, need to make that code flow more modular/simpler
 // The logic is that if the request is onboarding, then we allow that regardless of
 // the user privilege. Other requests are denied unless the user is superadmin, the
-// "global" nextensio resources can be add/mod/del only by nextensio superadmin
+// "global" nextensio resources can be add/mod/del only by nextensio superadmin.
+// After writing the above, there are two more "special cases" that have crept in,
+// "regular" users are allowed to publish keepalives and ANY user is allowed to query
+// for client_id. TODO: We should maybe move out all these three to a seperate API
+// space like "/api/v1/regular" and "/api/v1/any" ?
 func GlobalMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	ctx := Authenticate(w, r)
-	if ctx == nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("401 - You are not authorized for this request"))
-		return
-	}
 	url := r.URL.String()
 	reg, _ := regexp.Compile("/api/v1/global/(add|get|del)/([a-zA-Z0-9]+).*")
 	match := reg.FindStringSubmatch(url)
@@ -185,19 +183,27 @@ func GlobalMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 		w.Write([]byte("Bad request url"))
 		return
 	}
-	allowed := (match[1] == "get" && match[2] == "onboard")
-	if !allowed {
-		// TODO: DEPRECATE THIS
-		allowed = (match[1] == "get" && strings.HasPrefix(match[2], "keepalive"))
-	}
-	if !allowed {
-		allowed = (match[1] == "add" && strings.HasPrefix(match[2], "keepaliverequest"))
-	}
-	usertype := (*ctx).Value("usertype").(string)
-	if usertype != "superadmin" && usertype != "admin" && !allowed {
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("User unauthorized to global resources"))
-		return
+	ctx := Authenticate(w, r)
+	if ctx == nil {
+		allowed := (match[1] == "get" && match[2] == "clientid")
+		if !allowed {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("401 - You are not authorized for this request"))
+			return
+		}
+		c := context.WithValue(r.Context(), "", "")
+		ctx = &c
+	} else {
+		allowed := (match[1] == "get" && match[2] == "onboard")
+		if !allowed {
+			allowed = (match[1] == "add" && strings.HasPrefix(match[2], "keepaliverequest"))
+		}
+		usertype := (*ctx).Value("usertype").(string)
+		if usertype != "superadmin" && !allowed {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("User unauthorized to global resources"))
+			return
+		}
 	}
 	next.ServeHTTP(w, r.WithContext(*ctx))
 }

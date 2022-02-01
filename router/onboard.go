@@ -35,6 +35,8 @@ func rdonlyOnboard() {
 	// This route is used to retrieve a certificate
 	getGlobalRoute("/cert/{certid}", "GET", getcertHandler)
 
+	getGlobalRoute("/clientid/{key}", "GET", getclientIdHandler)
+
 	// This route is used to get all certificates
 	getGlobalRoute("/allcerts", "GET", getAllCertsHandler)
 
@@ -146,6 +148,8 @@ func rdwrOnboard() {
 
 	// This route is used to add new certificates
 	addGlobalRoute("/cert", "POST", addcertHandler)
+
+	addGlobalRoute("/clientid", "POST", addclientIdHandler)
 
 	// This route deletes a gateway that is not in use by any tenant
 	delGlobalRoute("/cert/{certid}", "GET", delcertHandler)
@@ -1049,7 +1053,7 @@ type AddcertResult struct {
 	Result string `json:"Result"`
 }
 
-// Add a Nextensio gateway
+// Add a Nextensio certificate
 func addcertHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 	var data db.Certificate
@@ -1082,7 +1086,7 @@ type DelcertResult struct {
 	Result string `json:"Result"`
 }
 
-// Delete a Nextensio gateway
+// Delete a Nextensio certificate
 func delcertHandler(w http.ResponseWriter, r *http.Request) {
 	var result DelcertResult
 
@@ -1129,6 +1133,65 @@ func getAllCertsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	utils.WriteResult(w, certs)
 
+}
+
+// Add a Nextensio clientid
+func addclientIdHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+	var data db.ClientId
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		result.Result = "Error parsing json"
+		utils.WriteResult(w, result)
+		return
+	}
+	err = db.DBAddClientId(&data)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+type GetclientIdResult struct {
+	Result string `json:"Result"`
+	db.ClientId
+}
+
+// Get clientid
+// NOTE NOTE NOTE: The r.Context().Value() will have NOTHING here because
+// this api can be called by ANYONE without being part of a tenant and without
+// logging in etc.., so DO NOT use r.Context().Value and try to find keys in
+// there like user-tenant or userid etc..
+func getclientIdHandler(w http.ResponseWriter, r *http.Request) {
+	var result GetclientIdResult
+
+	v := mux.Vars(r)
+	key := v["key"]
+	if key != "09876432087648932147823456123768" {
+		result.Result = "Access to clientid denied"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	clientid := db.DBFindClientId()
+	if clientid == nil {
+		result.Result = "Cannot find clientid"
+	} else {
+		result = GetclientIdResult{Result: "ok", ClientId: *clientid}
+	}
+	utils.WriteResult(w, result)
 }
 
 type onboardData struct {
