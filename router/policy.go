@@ -41,11 +41,15 @@ func rdwrPolicy() {
 	// This route is used by the tenant admin to add a new bundle ID rule
 	addTenantRoute("/bundlerule/", "POST", addBundleRuleHandler)
 
+	addTenantRoute("/lockbundlerule/", "POST", lockBundleRuleHandler)
+
 	// This route is used by the tenant admin to delete a bundle ID rule
 	delTenantRoute("/bundlerule/{bid}/{rid}", "GET", delBundleRuleHandler)
 
 	// This route is used by the tenant admin to add a new host ID rule
 	addTenantRoute("/hostrule/", "POST", addHostRuleHandler)
+
+	addTenantRoute("/lockhostrule/", "POST", lockHostRuleHandler)
 
 	// This route is used by the tenant admin to delete a host ID rule
 	delTenantRoute("/hostrule/{host}/{rid}", "GET", delHostRuleHandler)
@@ -160,6 +164,43 @@ type RuleOpResult struct {
 	Result string `json:"Result"`
 }
 
+func lockBundleRuleHandler(w http.ResponseWriter, r *http.Request) {
+	var result RuleOpResult
+	var data db.LockBundleAccessRule
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		fmt.Println(err)
+		result.Result = fmt.Sprintf("%v", err)
+		utils.WriteResult(w, result)
+		return
+	}
+	uuid := r.Context().Value("tenant").(string)
+	group := r.Context().Value("group").(string)
+	usertype := r.Context().Value("usertype").(string)
+	if usertype != "admin" && usertype != "superadmin" {
+		result.Result = fmt.Sprintf("Only admins or superadmins can lock/unlock the rule")
+		utils.WriteResult(w, result)
+		return
+	}
+	err = db.DBLockBundleRule(uuid, group, &data)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
 // {"bid": "<value>", "rid": "<value>", "rule":
 //      [ ["lefttoken", "operator", "righttoken", "type", "isArray"],
 //        ["lefttoken", "operator", "righttoken", "type", "isArray"],
@@ -185,7 +226,8 @@ func addBundleRuleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(string)
-	err = db.DBAddBundleRule(uuid, &data)
+	group := r.Context().Value("group").(string)
+	err = db.DBAddBundleRule(uuid, group, &data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -220,7 +262,8 @@ func delBundleRuleHandler(w http.ResponseWriter, r *http.Request) {
 	bid := v["bid"]
 	ruleid := v["rid"]
 	uuid := r.Context().Value("tenant").(string)
-	err := db.DBDelBundleRule(uuid, bid, ruleid)
+	group := r.Context().Value("group").(string)
+	err := db.DBDelBundleRule(uuid, group, bid, ruleid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {
@@ -254,7 +297,45 @@ func addHostRuleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(string)
-	err = db.DBAddHostRule(uuid, &data)
+	group := r.Context().Value("group").(string)
+	err = db.DBAddHostRule(uuid, group, &data)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+func lockHostRuleHandler(w http.ResponseWriter, r *http.Request) {
+	var result RuleOpResult
+	var data db.LockHostRouteRule
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		fmt.Println(err)
+		result.Result = fmt.Sprintf("%v", err)
+		utils.WriteResult(w, result)
+		return
+	}
+	uuid := r.Context().Value("tenant").(string)
+	group := r.Context().Value("group").(string)
+	usertype := r.Context().Value("usertype").(string)
+	if usertype != "admin" && usertype != "superadmin" {
+		result.Result = fmt.Sprintf("Only admins or superadmins can lock/unlock the rule")
+		utils.WriteResult(w, result)
+		return
+	}
+	err = db.DBLockHostRule(uuid, group, &data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -289,7 +370,8 @@ func delHostRuleHandler(w http.ResponseWriter, r *http.Request) {
 	hostid := v["host"]
 	ruleid := v["rid"]
 	uuid := r.Context().Value("tenant").(string)
-	err := db.DBDelHostRule(uuid, hostid, ruleid)
+	group := r.Context().Value("group").(string)
+	err := db.DBDelHostRule(uuid, group, hostid, ruleid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {
