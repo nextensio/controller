@@ -134,7 +134,7 @@ func TestGetAllPolicies_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	if len(data) != 2 {
+	if len(data) != 6 { // 4 default policies + 2 new added ones
 		t.Error()
 		return
 	}
@@ -181,9 +181,13 @@ func PolicyDel_v1(t *testing.T, name string) {
 		t.Error()
 		return
 	}
-	if db.DBFindAllPolicies(dbTenants[0].ID) != nil {
-		t.Error()
-		return
+
+	policies := db.DBFindAllPolicies(dbTenants[0].ID)
+	for _, policy := range policies {
+		if policy.PolicyId == name {
+			t.Error()
+			return
+		}
 	}
 }
 
