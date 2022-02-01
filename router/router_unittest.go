@@ -9,6 +9,8 @@ import (
 
 func Authenticate(w http.ResponseWriter, r *http.Request) *context.Context {
 	ctx := context.WithValue(r.Context(), "usertype", "superadmin")
+	ctx = context.WithValue(ctx, "group", "superadmin")
+	ctx = context.WithValue(ctx, "user-tenant", "nextensio")
 	return &ctx
 }
 

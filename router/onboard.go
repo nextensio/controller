@@ -286,9 +286,13 @@ func setDeviceAttrSet(tenant string, admin string) error {
 
 // Check for superadmin only
 func allowSuperAdminOnly(r *http.Request) bool {
+	usertype, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		usertype = "regular"
+	}
 	role, ok := r.Context().Value("group").(string)
 	if !ok {
-		role = "regular"
+		role = usertype
 	}
 
 	if role == "superadmin" {
@@ -309,9 +313,13 @@ func allowAnyAdminAccess(r *http.Request, grp string) bool {
 	// grp is optional. If specified and caller is group admin, ensure caller
 	// is admin of same group.
 
+	usertype, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		usertype = "regular"
+	}
 	role, ok := r.Context().Value("group").(string)
 	if !ok {
-		role = "regular"
+		role = usertype
 	}
 	// superadmin can access anything anywhere.
 	if role == "superadmin" {
@@ -385,9 +393,13 @@ func allowTenantAdminOnly(r *http.Request) bool {
 	// If caller is admin of MSP tenant accessing MSP tenant, allow access
 	// If caller is admin of MSP tenant accessing authorized MSP-managed tenant, allow access
 
+	usertype, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		usertype = "regular"
+	}
 	role, ok := r.Context().Value("group").(string)
 	if !ok {
-		role = "regular"
+		role = usertype
 	}
 	// superadmin can access anything anywhere
 	if role == "superadmin" {
@@ -1514,7 +1526,14 @@ func updUserAdminRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tenant := r.Context().Value("tenant").(string)
-	role := r.Context().Value("group").(string)
+	usertype, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		usertype = "regular"
+	}
+	role, ok := r.Context().Value("group").(string)
+	if !ok {
+		role = usertype
+	}
 
 	v := mux.Vars(r)
 	uid := v["userid"]
@@ -1606,7 +1625,14 @@ func updUserAdminRole(w http.ResponseWriter, r *http.Request) {
 // Get attribute sets for specified type - "Users", "Bundles", "Hosts"
 func getSpecificAttrSet(w http.ResponseWriter, r *http.Request) {
 	uuid := r.Context().Value("tenant").(string)
-	group := r.Context().Value("group").(string)
+	usertype, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		usertype = "regular"
+	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = usertype
+	}
 
 	v := mux.Vars(r)
 	atyp := v["type"]
@@ -1630,7 +1656,14 @@ func addAttrSet(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		admin = "UnknownUser"
 	}
-	group := r.Context().Value("group").(string)
+	usertype, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		usertype = "regular"
+	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = usertype
+	}
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -1673,7 +1706,14 @@ func delAttrSet(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		admin = "UnknownUser"
 	}
-	group := r.Context().Value("group").(string)
+	usertype, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		usertype = "regular"
+	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = usertype
+	}
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
