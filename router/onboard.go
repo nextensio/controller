@@ -23,9 +23,6 @@ func rdonlyOnboard() {
 	// tenant-id and expects to get information like the gateway in response
 	getGlobalRoute("/onboard", "GET", onboardHandler)
 
-	// TODO: DEPRECATE the GET /keepalive, we need only the POST /keepaliverequest
-	getGlobalRoute("/keepalive/{version}/{uuid}", "GET", keepaliveHandler)
-
 	//*******************************************************************/
 	//            In Nextensio DB
 	//*******************************************************************/
@@ -1302,39 +1299,9 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 type KeepaliveResponse struct {
-	Result  string `json:"Result"`
-	Version string `json:"version"`
-}
-
-// TODO: WILL BE DEPRECATED
-func keepaliveHandler(w http.ResponseWriter, r *http.Request) {
-	var result KeepaliveResponse
-
-	v := mux.Vars(r)
-	version := v["version"]
-	uuid := v["uuid"]
-	userid := r.Context().Value("userid").(string)
-	tenant := r.Context().Value("user-tenant").(string)
-	glog.Error("USer/Tenant keepalive", userid, uuid, tenant, version)
-
-	t := db.DBFindTenant(tenant)
-	if t == nil {
-		result.Result = "Tenant not found"
-		utils.WriteResult(w, result)
-		return
-	}
-	result.Version = t.ConfigVersion
-	user := db.DBFindUser(tenant, userid)
-	if user == nil {
-		bundle := db.DBFindBundle(tenant, userid)
-		if bundle == nil {
-			result.Result = "IDP user/bundle not found on controller"
-			utils.WriteResult(w, result)
-			return
-		}
-	}
-	result.Result = "ok"
-	utils.WriteResult(w, result)
+	Result   string `json:"Result"`
+	Version  string `json:"version"`
+	Clientid string `json:"clientid"`
 }
 
 // TODO NOTE: THIS will be the biggest scale bottleneck for the controller
@@ -1375,6 +1342,13 @@ func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
 	if user != nil {
 		// We dont check the keepalive return value, keepalives are sent periodically
 		db.UserKeepalive(tenant, user, data)
+		// If clientid changes while users are connected, this will ensure users will
+		// have minimal impact, the next keepalive will restore sanity, otherwise we
+		// will have to call them up on phone and ask them to restart the agent etc..
+		client_id := db.DBFindClientId()
+		if client_id != nil {
+			result.Clientid = client_id.Clientid
+		}
 	} else {
 		bundle := db.DBFindBundle(tenant, userid)
 		if bundle == nil {
