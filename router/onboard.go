@@ -302,9 +302,14 @@ func allowSuperAdminOnly(r *http.Request) bool {
 	return false
 }
 
-// Basic check for any user with any admin privileges.
-// If grp specified, then admin must be for specified group (role).
-// If grp is an empty string, then admin match with group (role) is skipped.
+// To come out of this API with a true value, these are the qualifications to be met
+// 1. The caller (usertype) should be some kind of an admin (superadmin, admin, admin-<group>)
+// 2. The caller's should be part of a tenant that is allowed to operate on the target tenant.
+//    The tenant caller is part of is stored in user-tenant and the tenant that the caller
+//    want to operate on is stored as tenant (both in the r.context)
+// 3. a) If the grp parameter is not "", then the user who is admin-<group> has to be in the group
+//       matching grp
+//    b) If the grp parameter is "", dont bother about groups, return true if 1 & 2 are fine
 func allowAnyAdminAccess(r *http.Request, grp string) bool {
 	// If caller is superadmin, allow access
 	// If caller is admin of self-managed tenant, allow access

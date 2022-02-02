@@ -240,16 +240,6 @@ func TenantMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 	uuid := match[1]
 	usertype := (*ctx).Value("usertype").(string)
 
-	// support user, only read-only access allowed
-	// temporarily disable this until we decide if we need this usertype
-	//if usertype == "support" {
-	//	if match[2] != "get" {
-	//		w.WriteHeader(http.StatusUnauthorized)
-	//		w.Write([]byte("User unauthorized to modify this tenant"))
-	//		return
-	//	}
-	//}
-
 	// regular user, not allowed anything
 	if usertype != "superadmin" && usertype != "admin" && !strings.HasPrefix(usertype, "admin-") {
 		w.WriteHeader(http.StatusUnauthorized)
