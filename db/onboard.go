@@ -2755,7 +2755,11 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 		}
 	}
 
-	deleted := []string{}
+	missing := []primitive.M{}
+	missing_tag := []string{}
+
+	// TODO: why WHY! do we deal with this whole this as raw json, why cant
+	// we make it a nice golang struct ? open a ticket and get that done
 	existing := DBFindHostAttr(uuid, host)
 	if existing != nil {
 		oldattrs := (*existing)["routeattrs"].(primitive.A)
@@ -2772,15 +2776,30 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 				}
 			}
 			if !found {
-				deleted = append(deleted, ot)
+				missing = append(missing, old)
+				missing_tag = append(missing_tag, ot)
 			}
 		}
 	}
-	// Check if any deleted route is still being referred to in the route policy
-	if DBHostRuleExists(uuid, host, &deleted) {
-		return fmt.Errorf("Please update rules/policy for the deleted route(s) of %s first - %v", host, deleted)
-	}
 
+	update := false
+	if val, ok := Hattr["update"]; ok {
+		update = val.(bool)
+	}
+	// If "update" is true, then the intent is a union/updation on top of
+	// existing tags rather than deleting anything
+	if update {
+		for _, m := range missing {
+			attrs = append(attrs, m)
+		}
+		Hattr["routeattrs"] = attrs
+		missing_tag = []string{}
+	} else {
+		// Check if any deleted route is still being referred to in the route policy
+		if DBHostRuleExists(uuid, host, &missing_tag) {
+			return fmt.Errorf("Please update rules/policy for the deleted route(s) of %s first - %v", host, missing_tag)
+		}
+	}
 	err = dbAddHostAttr(uuid, host, Hattr, false)
 	if err != nil {
 		return err
@@ -2795,7 +2814,7 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 		}
 	} else {
 		// Remove tagged app entries for any deleted routes from AppGroups
-		DBUpdateBundleServices(uuid, admin, host, &deleted)
+		DBUpdateBundleServices(uuid, admin, host, &missing_tag)
 	}
 
 	return nil
