@@ -286,17 +286,15 @@ func setDeviceAttrSet(tenant string, admin string) error {
 }
 
 // Check for superadmin only
+// Someone who is not a superadmin cannot assume a superadmin role.
+// Hence check usertype, not role
 func allowSuperAdminOnly(r *http.Request) bool {
 	usertype, ok := r.Context().Value("usertype").(string)
 	if !ok {
 		usertype = "regular"
 	}
-	role, ok := r.Context().Value("group").(string)
-	if !ok {
-		role = usertype
-	}
 
-	if role == "superadmin" {
+	if usertype == "superadmin" {
 		return true
 	}
 	return false
@@ -323,17 +321,20 @@ func allowAnyAdminAccess(r *http.Request, grp string) bool {
 	if !ok {
 		usertype = "regular"
 	}
+	// superadmin can access anything anywhere, even if they have assumed
+	// some other role for any tenant. Hence this check here needs to be
+	// based on usertype, not role.
+	if usertype == "superadmin" {
+		return true
+	}
+
 	role, ok := r.Context().Value("group").(string)
 	if !ok {
 		role = usertype
 	}
-	// superadmin can access anything anywhere.
-	if role == "superadmin" {
-		return true
-	}
-
 	grpadmin := strings.HasPrefix(role, "admin-")
 	if (role != "admin") && (!grpadmin) {
+		glog.Error("allowAnyAdminAccess: caller is neither admin nor group admin - " + role)
 		return false
 	}
 	// >>> At this point, caller is either "admin" or a group admin. <<<
@@ -358,6 +359,7 @@ func allowAnyAdminAccess(r *http.Request, grp string) bool {
 	case "self-managed":
 		// caller has to be from same tenant
 		if tenant != usrtenant {
+			glog.Error("allowAnyAdminAccess: tenant mismatch - " + tenant + " != " + usrtenant)
 			return false
 		}
 	case "MSP-managed":
@@ -383,10 +385,12 @@ func allowAnyAdminAccess(r *http.Request, grp string) bool {
 	}
 	if grp == "" {
 		// Assume no group check required
+		glog.Error("allowAnyAdminAccess: caller authoruized is admin or superadmin, not a group admin")
 		return true
 	}
 	// Check if admin is for specified group
 	if grpadmin && (role != grp) {
+		glog.Error("allowAnyAdminAccess: caller is admin for " + role + ", not for " + grp)
 		return false
 	}
 	return true
@@ -403,13 +407,15 @@ func allowTenantAdminOnly(r *http.Request) bool {
 	if !ok {
 		usertype = "regular"
 	}
+	// superadmin can access anything anywhere, even if they have assumed
+	// some other role for any tenant. Hence this check here needs to be
+	// based on usertype, not role.
+	if usertype == "superadmin" {
+		return true
+	}
 	role, ok := r.Context().Value("group").(string)
 	if !ok {
 		role = usertype
-	}
-	// superadmin can access anything anywhere
-	if role == "superadmin" {
-		return true
 	}
 	if role != "admin" {
 		return false
