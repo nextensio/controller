@@ -128,23 +128,78 @@ type Keepalive struct {
 	Seen    int64  `bson:"seen"`
 }
 
+type IDP struct {
+	Provider string `json:"provider" bson:"provider"`
+	Name     string `json:"name" bson:"name"`
+	Idp      string `json:"idp" bson:"idp"`
+	Policy   string `json:"policy" bson:"policy"`
+	Domain   string `json:"domain" bson:"domain"`
+	Group    string `json:"group" bson:"group"`
+	Auth     string `json:"auth" bson:"auth"`
+	Jwks     string `json:"jwks" bson:"jwks"`
+	Token    string `json:"token" bson:"token"`
+	Issuer   string `json:"issuer" bson:"issuer"`
+	Sso      string `json:"sso" bson:"sso"`
+	Audience string `json:"audience" bson:"audience"`
+	Client   string `json:"client" bson:"client"`
+	Secret   string `json:"secret" bson:"secret"`
+	Cert     string `json:"cert" bson:"cert"`
+	Keyid    string `json:"keyid" bson:"keyid"`
+}
+
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type TenantJson struct {
 	ID       string  `json:"_id"`
 	Name     *string `json:"name"`
+	Group    string  `json:"group" bson:"group"`
 	EasyMode *bool   `json:"easymode"`
 }
 
+// Tenant Type : "self-managed" | "MSP" | "MSP-managed"
+// If MSP-managed, MspID will contain tenant ID of MSP
+// If MSP, MgdTenants will contain tenant IDs of MSP-managed tenants
+// A self-managed tenant should not have any values in MspID or MgdTenants
 type Tenant struct {
-	ID          string   `json:"_id" bson:"_id"`
-	Name        string   `json:"name" bson:"name"`
-	Domains     []Domain `json:"domains" bson:"domains"`
-	EasyMode    bool     `json:"easymode" bson:"easymode"`
-	SplitTunnel bool     `json:"splittunnel" bson:"splittunnel"`
+	ID            string   `json:"_id" bson:"_id"`
+	Name          string   `json:"name" bson:"name"`
+	Group         string   `json:"group" bson:"group"`
+	Domains       []Domain `json:"domains" bson:"domains"`
+	EasyMode      bool     `json:"easymode" bson:"easymode"`
+	SplitTunnel   bool     `json:"splittunnel" bson:"splittunnel"`
+	ConfigVersion string   `json:"cfgvn" bson:"cfgvn"`
+	Idps          []IDP    `json:"idps" bson:"idps"`
+	AdmGroups     []string `json:"admgroups" bson:"admgroups"`
+	Type          string   `json:"type" bson:"type"`
+	MspID         string   `json:"mspid" bson:"mspid"`
+	MgdTenants    []string `json:"mgdtenants" bson:"mgdtenants"`
 }
 
 type Domain struct {
 	Name string `json:"name" bson:"name"`
+}
+
+func DBaddTenantIdp(tenant *Tenant, new IDP) error {
+	found := false
+	for i, d := range tenant.Idps {
+		if d.Name == new.Name {
+			tenant.Idps[i] = new
+			found = true
+		}
+	}
+	if !found {
+		tenant.Idps = append(tenant.Idps, new)
+	}
+	return dbUpdateTenant(tenant)
+}
+
+func DBdelTenantIDP(tenant *Tenant, name string) error {
+	for i, d := range tenant.Idps {
+		if d.Name == name {
+			tenant.Idps = append(tenant.Idps[:i], tenant.Idps[i+1:]...)
+			break
+		}
+	}
+	return dbUpdateTenant(tenant)
 }
 
 func dbaddTenantDomain(uuid string, host string) error {
@@ -156,7 +211,7 @@ func dbaddTenantDomain(uuid string, host string) error {
 		Name: host,
 	}
 	tenant.Domains = append(tenant.Domains, domain)
-	return dbUpdateTenantDomain(tenant)
+	return dbUpdateTenant(tenant)
 }
 
 func dbdelTenantDomain(uuid string, host string) error {
@@ -170,10 +225,181 @@ func dbdelTenantDomain(uuid string, host string) error {
 			break
 		}
 	}
-	return dbUpdateTenantDomain(tenant)
+	return dbUpdateTenant(tenant)
 }
 
-func dbUpdateTenantDomain(tenant *Tenant) error {
+type AdminGroups struct {
+	Tenant    string   `json:"_id" bson:"_id"`
+	AdmGroups []string `json:"admgroups" bson:"admgroups"` // array of group names
+}
+
+func DBFindTenantAdminGroups(id string) *[]string {
+	var admingrps AdminGroups
+	err := tenantCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": id},
+	).Decode(&admingrps)
+	if err != nil {
+		glog.Errorf("FindAdminGroups: Error - %v", err)
+		return nil
+	}
+	return &admingrps.AdmGroups
+}
+
+func DBAddTenantAdminGroup(uuid string, grp string) error {
+
+	if grp == "" {
+		return errors.New("AddAdminGroup: Group not specified")
+	} else {
+		var isNameValid = regexp.MustCompile(`^[a-zA-Z]*$`).MatchString
+		if !isNameValid(grp) {
+			return errors.New("AddAdminGroup: Invalid group name. Name should be any of `[a-zA-Z]`")
+		}
+	}
+	tenant := DBFindTenant(uuid)
+	if tenant == nil {
+		return errors.New("AddAdminGroup: Could not find tenant")
+	}
+	found := false
+	for _, g := range tenant.AdmGroups {
+		if g == grp {
+			found = true
+			break
+		}
+	}
+	if !found {
+		tenant.AdmGroups = append(tenant.AdmGroups, grp)
+		return dbUpdateTenant(tenant)
+	}
+	return errors.New("AddAdminGroup: Admin group " + grp + " already exists")
+}
+
+func DBDelTenantAdminGroup(uuid string, grp string) error {
+
+	if grp == "" {
+		return errors.New("DelAdminGroup: Group not specified")
+	}
+	tenant := DBFindTenant(uuid)
+	if tenant == nil {
+		return errors.New("DelAdminGroup: Cant find tenant")
+	}
+	for i, g := range tenant.AdmGroups {
+		if g == grp {
+			tenant.AdmGroups = append(tenant.AdmGroups[:i], tenant.AdmGroups[i+1:]...)
+			return dbUpdateTenant(tenant)
+		}
+	}
+	return errors.New("DelAdminGroup: Admin group " + grp + " not found")
+}
+
+// Update type of tenant. Can be done by superadmin only.
+func DBUpdTenantType(tnt string, typ string) error {
+
+	tenant := DBFindTenant(tnt)
+	if tenant == nil {
+		return errors.New("Cant find tenant")
+	}
+	tenant.Type = typ
+	return dbUpdateTenant(tenant)
+}
+
+// Add a managed tenant to MSP. Can be done by superadmin only.
+func DBAddManagedTenant(tnt string, mgdtnt string) error {
+
+	tenant := DBFindTenant(tnt)
+	if tenant == nil {
+		return errors.New("Cant find MSP tenant")
+	}
+	mgdtenant := DBFindTenant(mgdtnt)
+	if mgdtenant == nil {
+		return errors.New("Cant find managed tenant")
+	}
+	if tenant.Type != "MSP" {
+		return errors.New("Tenant is not an MSP")
+	}
+	if mgdtenant.Type != "MSP-managed" {
+		return errors.New("Target Tenant is not a managed tenant")
+	}
+	mgdtenant.MspID = tnt
+	// Add managed tenant ID to MSP's list of managed tenants
+	// Update both tenants
+	found := false
+	for _, tid := range tenant.MgdTenants {
+		if tid == mgdtenant.ID {
+			found = true
+			break
+		}
+	}
+	var err error
+	if !found {
+		tenant.MgdTenants = append(tenant.MgdTenants, mgdtenant.ID)
+		err = dbUpdateTenant(tenant)
+		if err != nil {
+			return errors.New("MSP Tenant could not be updated")
+		}
+	}
+	return dbUpdateTenant(mgdtenant)
+}
+
+// Delete a managed tenant from MSP. Can be done by superadmin only.
+func DBDelManagedTenant(tnt string, mgdtnt string) error {
+
+	tenant := DBFindTenant(tnt)
+	if tenant == nil {
+		return errors.New("Cant find MSP tenant")
+	}
+	mgdtenant := DBFindTenant(mgdtnt)
+	if mgdtenant == nil {
+		return errors.New("Cant find managed tenant")
+	}
+	if tenant.Type != "MSP" {
+		return errors.New("Tenant is not an MSP")
+	}
+	if mgdtenant.Type != "MSP-managed" {
+		return errors.New("Target Tenant is not a managed tenant")
+	}
+	// Remove managed tenant ID from MSP's list of managed tenants
+	// Update both tenants
+	found := false
+	for i, tid := range tenant.MgdTenants {
+		if tid == mgdtenant.ID {
+			found = true
+			tenant.MgdTenants = append(tenant.MgdTenants[:i], tenant.MgdTenants[i+1:]...)
+			break
+		}
+	}
+	var err error
+	if mgdtenant.MspID == tnt {
+		mgdtenant.MspID = ""
+		err = dbUpdateTenant(mgdtenant)
+		if err != nil {
+			return err
+		}
+	}
+	if found {
+		return dbUpdateTenant(tenant)
+	}
+	return nil
+}
+
+// Get managed tenants for an MSP.
+func DBGetManagedTenants(tnt string) *[]string {
+	var mgdt []string
+
+	tenant := DBFindTenant(tnt)
+	if tenant == nil {
+		return nil
+	}
+	if tenant.Type != "MSP" {
+		return nil
+	}
+	for _, tid := range tenant.MgdTenants {
+		mgdt = append(mgdt, tid)
+	}
+	return &mgdt
+}
+
+func dbUpdateTenant(tenant *Tenant) error {
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
@@ -196,6 +422,15 @@ func dbUpdateTenantDomain(tenant *Tenant) error {
 	return nil
 }
 
+func DBUpdateTenantCfgvn(uuid string, cfgvn uint64) error {
+	tenant := DBFindTenant(uuid)
+	if tenant == nil {
+		return errors.New("Cant find tenant")
+	}
+	tenant.ConfigVersion = strconv.FormatUint(cfgvn, 10)
+	return dbUpdateTenant(tenant)
+}
+
 func validateTenant(tenant string) bool {
 	reg, _ := regexp.Compile("([a-z0-9]+)")
 	match := reg.FindStringSubmatch(tenant)
@@ -216,7 +451,9 @@ func dbTenantUpdateJson(tenant *Tenant, data *TenantJson) *Tenant {
 		} else {
 			t.EasyMode = *data.EasyMode
 		}
+		t.Group = data.Group
 		t.Domains = []Domain{}
+		t.Type = "self-managed"
 		return &t
 	} else {
 		if data.Name != nil {
@@ -606,6 +843,50 @@ func DBFindAllCerts() []Certificate {
 	return certs
 }
 
+//---------------------------Clientid functions---------------------------
+
+// NOTE: The bson decoder will not work if the structure field names dont start with upper case
+type ClientId struct {
+	Clientid string `json:"clientid" bson:"clientid"`
+}
+
+// This API will add a new certificate or update a certificate if it already exists
+func DBAddClientId(data *ClientId) error {
+
+	// The upsert option asks the DB to add if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	err := clientIdCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": "SPA"},
+		bson.D{
+			{"$set", bson.M{"_id": "SPA", "clientid": data.Clientid}},
+		},
+		&opt,
+	)
+
+	if err.Err() != nil {
+		return err.Err()
+	}
+	return nil
+}
+
+func DBFindClientId() *ClientId {
+	var clientid ClientId
+	err := clientIdCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": "SPA"},
+	).Decode(&clientid)
+	if err != nil {
+		return nil
+	}
+	return &clientid
+}
+
 //----------------------------Gateway functions--------------------------
 
 type Gateway struct {
@@ -761,47 +1042,24 @@ func DBFindAllGateways() (error, []Gateway) {
 }
 
 //------------------------Attribute set functions-----------------------------
-// Enums are required by Okta for any array type attribute. They specify all
-// possible values for the attribute. When any values are updated in Okta for
-// this attribute for any user, Okta validates against the enums and reports
-// an error if any value in the array does not match any of the enums for that
-// attribute.
-// For each enum, Okta also requires a corresponding display name. The enums
-// and their display names are given to Okta when the attribute is added to the
-// custom attributes list in the default user profile. We combine them both in
-// the Enums field as <enum-value>:<display-name>.
-// Eg., Attrset.Enums = ["ABU:Access BU", "BBU:Broadband BU", "CBU:Core BU", ...]
-// Because of the enum requirement, each array type attribute has to be unique
-// across all tenants.
 type AttrSet struct {
-	Name      string   `bson:"name" json:"name"`
-	AppliesTo string   `bson:"appliesTo" json:"appliesTo"`
-	Type      string   `bson:"type" json:"type"`
-	IsArray   string   `bson:"isArray" json:"isArray"`
-	Enums     []string `bson:"enums" json:"enums"`
+	Name      string `bson:"name" json:"name"`
+	AppliesTo string `bson:"appliesTo" json:"appliesTo"`
+	Type      string `bson:"type" json:"type"`
+	IsArray   string `bson:"isArray" json:"isArray"`
+	Group     string `bson:"group" json:"group"`
 }
 
-func DBAddAttrSet(tenant string, admin string, s AttrSet) error {
+func DBAddAttrSet(tenant string, admin string, group string, s AttrSet, rsrvd bool) error {
+	s.Group = group
+	uscore := strings.HasPrefix(s.Name, "_")
+	if rsrvd && !uscore {
+		return fmt.Errorf("Attribute name does not conform to reserved attributes")
+	}
+	if !rsrvd && uscore {
+		return fmt.Errorf("Attribute name indicates reserved attribute")
+	}
 
-	attrProp := bson.M{
-		"name":      s.Name,
-		"appliesTo": s.AppliesTo,
-		"type":      s.Type,
-		"isArray":   s.IsArray,
-	}
-	if s.Type == "" {
-		delete(attrProp, "type")
-	}
-	if s.IsArray == "" {
-		delete(attrProp, "isArray")
-	}
-	if s.AppliesTo == "Users" {
-		if s.Enums != nil {
-			attrProp["enums"] = s.Enums
-		} else {
-			attrProp["enums"] = []string{""}
-		}
-	}
 	upsert := true
 	after := options.After
 	opt := options.FindOneAndUpdateOptions{
@@ -816,7 +1074,8 @@ func DBAddAttrSet(tenant string, admin string, s AttrSet) error {
 		context.TODO(),
 		bson.M{"_id": s.Name + ":" + s.AppliesTo},
 		bson.D{
-			{"$set", attrProp},
+			{"$set", bson.M{"name": s.Name, "appliesTo": s.AppliesTo,
+				"type": s.Type, "isArray": s.IsArray, "group": group}},
 		},
 		&opt,
 	)
@@ -824,7 +1083,7 @@ func DBAddAttrSet(tenant string, admin string, s AttrSet) error {
 		glog.Errorf("AttrSet: Add error - %v", err)
 		return err.Err()
 	}
-	glog.Infof("DBAddAttrSet: Added attribute set properties for %s:%s - %v", s.Name, s.AppliesTo, attrProp)
+	glog.Infof("AddAttrSet: Added %s attribute %s in group %s", s.AppliesTo, s.Name, group)
 	if s.AppliesTo == "Hosts" {
 		if err := DBAddAllHostsOneAttr(tenant, admin, s); err != nil {
 			return err
@@ -840,14 +1099,23 @@ func DBAddAttrSet(tenant string, admin string, s AttrSet) error {
 			return err
 		}
 	}
-	glog.Infof("DBAddAttrSet: Added attribute " + s.Name + " to " + s.AppliesTo + " collection")
 	return nil
 }
 
-func DBDelAttrSet(tenant string, admin string, set AttrSet) error {
+func DBDelAttrSet(tenant string, admin string, group string, set AttrSet) error {
+
 	Cltn := dbGetCollection(tenant, "NxtAttrSet")
 	if Cltn == nil {
 		return fmt.Errorf("Unknown Collection")
+	}
+
+	var curSet AttrSet
+	err := Cltn.FindOne(context.TODO(), bson.M{"_id": set.Name + ":" + set.AppliesTo}).Decode(&curSet)
+	if err != nil {
+		return err
+	}
+	if curSet.Group != "" && curSet.Group != group {
+		return fmt.Errorf("Admin group not matching attribute group")
 	}
 	if set.AppliesTo == "Hosts" {
 		if err := DBDelAllHostsOneAttr(tenant, admin, set.Name); err != nil {
@@ -864,7 +1132,7 @@ func DBDelAttrSet(tenant string, admin string, set AttrSet) error {
 			return err
 		}
 	}
-	_, err := Cltn.DeleteOne(
+	_, err = Cltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": set.Name + ":" + set.AppliesTo},
 	)
@@ -879,6 +1147,10 @@ func DBFindAllAttrSet(tenant string) []AttrSet {
 	var set []AttrSet
 
 	attrSetCltn := dbGetCollection(tenant, "NxtAttrSet")
+	if attrSetCltn == nil {
+		glog.Errorf("AttrSet: Could not find AttrSet collection")
+		return nil
+	}
 	cursor, err := attrSetCltn.Find(context.TODO(), bson.M{})
 	if err != nil {
 		return nil
@@ -892,18 +1164,24 @@ func DBFindAllAttrSet(tenant string) []AttrSet {
 	return set
 }
 
-// Get the attribute set for Users only. Need it for import/export from Idp.
-func DBFindAllUserAttrSet(tenant string) []AttrSet {
+func DBFindSpecificAttrSet(tenant string, atyp string, group string) []AttrSet {
 	var set []AttrSet
+	var err error
+	var cursor *mongo.Cursor
 
 	attrSetCltn := dbGetCollection(tenant, "NxtAttrSet")
-	cursor, err := attrSetCltn.Find(context.TODO(), bson.M{"appliesTo": "Users"})
+	if attrSetCltn == nil {
+		glog.Errorf("AttrSet: Could not find AttrSet collection")
+		return nil
+	}
+
+	cursor, err = attrSetCltn.Find(context.TODO(), bson.M{"appliesTo": atyp, "group": group})
 	if err != nil {
 		return nil
 	}
 	err = cursor.All(context.TODO(), &set)
 	if err != nil {
-		glog.Errorf("FindAllUserAttrSet: Find failed - %v", err)
+		glog.Errorf("AttrSet: Find all attr sets failed - %v", err)
 		return nil
 	}
 
@@ -1038,16 +1316,15 @@ func DBDelUserAttrHdr(tenant string) error {
 // The Pod here indicates the "pod set" that this user should
 // connect to, each pod set has its own number of replicas etc..
 type User struct {
-	Uid           string      `json:"uid" bson:"_id"`
-	Username      string      `json:"name" bson:"name"`
-	Email         string      `json:"email" bson:"email"`
-	Gateway       string      `json:"gateway" bson:"gateway"`
-	Usertype      string      `json:"usertype" bson:"usertype"`
-	Pod           int         `json:"pod" bson:"pod"`
-	Connectid     string      `json:"connectid" bson:"connectid"`
-	Services      []string    `json:"services" bson:"services"`
-	ConfigVersion string      `json:"cfgvn" bson:"cfgvn"`
-	Keepalive     []Keepalive `json:"keepalive" bson:"keepalive"`
+	Uid       string      `json:"uid" bson:"_id"`
+	Username  string      `json:"name" bson:"name"`
+	Email     string      `json:"email" bson:"email"`
+	Gateway   string      `json:"gateway" bson:"gateway"`
+	Usertype  string      `json:"usertype" bson:"usertype"`
+	Pod       int         `json:"pod" bson:"pod"`
+	Connectid string      `json:"connectid" bson:"connectid"`
+	Services  []string    `json:"services" bson:"services"`
+	Keepalive []Keepalive `json:"keepalive" bson:"keepalive"`
 }
 
 // This API will add/update a new user
@@ -1110,10 +1387,6 @@ func DBAddUser(uuid string, admin string, data *User) error {
 	if data.Pod == 0 {
 		data.Pod = 1
 	}
-	var cfgvn string
-	if user != nil {
-		cfgvn = user.ConfigVersion
-	}
 	data.Services = []string{}
 
 	// Same user/uuid can login from multiple devices. The connectid will be based on the
@@ -1131,7 +1404,7 @@ func DBAddUser(uuid string, admin string, data *User) error {
 		bson.D{
 			{"$set", bson.M{"name": data.Username, "email": data.Email,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
-				"services": data.Services, "cfgvn": cfgvn, "usertype": data.Usertype}},
+				"services": data.Services, "usertype": data.Usertype}},
 		},
 		&opt,
 	)
@@ -1196,50 +1469,6 @@ func DBFindAllUsers(tenant string) []bson.M {
 		return nil
 	}
 	return nusers[:j]
-}
-
-func DBUpdateAllUsersCfgvn(tenant string, cfgvn uint64) error {
-	userCltn := dbGetCollection(tenant, "NxtUsers")
-	if userCltn == nil {
-		return fmt.Errorf("Cant find tenant")
-	}
-	cursor, err := userCltn.Find(context.TODO(), bson.M{})
-	if err == mongo.ErrNoDocuments {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	upsert := false
-	after := options.After
-	opt := options.FindOneAndUpdateOptions{
-		ReturnDocument: &after,
-		Upsert:         &upsert,
-	}
-
-	defer cursor.Close(context.TODO())
-	for cursor.Next(context.TODO()) {
-		var user User
-		if err = cursor.Decode(&user); err != nil {
-			return err
-		}
-		if user.Uid == HDRKEY {
-			// Skip the header doc
-			continue
-		}
-		result := userCltn.FindOneAndUpdate(
-			context.TODO(),
-			bson.M{"_id": user.Uid},
-			bson.D{
-				{"$set", bson.M{"cfgvn": strconv.FormatUint(cfgvn, 10)}},
-			},
-			&opt,
-		)
-		if result.Err() != nil {
-			return result.Err()
-		}
-	}
-	return nil
 }
 
 func DBDelUser(tenant string, admin string, userid string) error {
@@ -1470,6 +1699,9 @@ func DBAddUserAttr(uuid string, admin string, user string, Uattr bson.M) error {
 		nattrs := 0
 		for _, a := range attrset {
 			if a.AppliesTo == "Users" {
+				if strings.HasPrefix(a.Name, "_") {
+					continue
+				}
 				nattrs += 1
 				found := false
 				for k := range Uattr {
@@ -1686,16 +1918,15 @@ func DBDelBundleAttrHdr(tenant string) error {
 // The Pod here indicates the "pod set" that this user should
 // connect to, each pod set has its own number of replicas etc..
 type Bundle struct {
-	Bid           string      `json:"bid" bson:"_id"`
-	Bundlename    string      `json:"name" bson:"name"`
-	Gateway       string      `json:"gateway" bson:"gateway"`
-	Pod           string      `json:"pod" bson:"pod"`
-	Connectid     string      `json:"connectid" bson:"connectid"`
-	Services      []string    `json:"services" bson:"services"`
-	CpodRepl      int         `json:"cpodrepl" bson:"cpodrepl"`
-	ConfigVersion string      `json:"cfgvn" bson:"cfgvn"`
-	SharedKey     string      `json:"sharedkey" bson:"sharedkey"`
-	Keepalive     []Keepalive `json:"keepalive" bson:"keepalive"`
+	Bid        string      `json:"bid" bson:"_id"`
+	Bundlename string      `json:"name" bson:"name"`
+	Gateway    string      `json:"gateway" bson:"gateway"`
+	Pod        string      `json:"pod" bson:"pod"`
+	Connectid  string      `json:"connectid" bson:"connectid"`
+	Services   []string    `json:"services" bson:"services"`
+	CpodRepl   int         `json:"cpodrepl" bson:"cpodrepl"`
+	SharedKey  string      `json:"sharedkey" bson:"sharedkey"`
+	Keepalive  []Keepalive `json:"keepalive" bson:"keepalive"`
 }
 
 // This API will add/update a new bundle
@@ -1764,7 +1995,6 @@ func DBAddBundle(uuid string, admin string, data *Bundle) error {
 			}
 		}
 	}
-	var cfgvn = strconv.FormatUint(uint64(time.Now().Unix()), 10)
 
 	// Replace @ and . (dot) in usernames/service-names with - (dash) - kuberenetes is
 	// not happy with @, minion wants to replace dot with dash, keep everyone happy
@@ -1784,7 +2014,7 @@ func DBAddBundle(uuid string, admin string, data *Bundle) error {
 		bson.D{
 			{"$set", bson.M{"name": data.Bundlename,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
-				"services": data.Services, "cpodrepl": data.CpodRepl, "cfgvn": cfgvn,
+				"services": data.Services, "cpodrepl": data.CpodRepl,
 				"sharedkey": data.SharedKey}},
 		},
 		&opt,
@@ -1918,50 +2148,6 @@ func DBFindAllBundles(tenant string) []bson.M {
 		return nil
 	}
 	return nbundles[:j]
-}
-
-func DBUpdateAllBundlesCfgvn(tenant string, cfgvn uint64) error {
-	appCltn := dbGetCollection(tenant, "NxtApps")
-	if appCltn == nil {
-		return fmt.Errorf("Cant find tenant")
-	}
-	cursor, err := appCltn.Find(context.TODO(), bson.M{})
-	if err == mongo.ErrNoDocuments {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	upsert := false
-	after := options.After
-	opt := options.FindOneAndUpdateOptions{
-		ReturnDocument: &after,
-		Upsert:         &upsert,
-	}
-
-	defer cursor.Close(context.TODO())
-	for cursor.Next(context.TODO()) {
-		var app Bundle
-		if err = cursor.Decode(&app); err != nil {
-			return err
-		}
-		if app.Bid == HDRKEY {
-			// Skip the header doc
-			continue
-		}
-		result := appCltn.FindOneAndUpdate(
-			context.TODO(),
-			bson.M{"_id": app.Bid},
-			bson.D{
-				{"$set", bson.M{"cfgvn": strconv.FormatUint(cfgvn, 10)}},
-			},
-			&opt,
-		)
-		if result.Err() != nil {
-			return result.Err()
-		}
-	}
-	return nil
 }
 
 func DBDelBundle(tenant string, admin string, bundleid string) error {
@@ -2139,7 +2325,15 @@ func dbUpdateBundleServices(tenant string, admin string, app string) {
 		if changed {
 			b.Services = nsvcs
 			DBUpdateBundle(tenant, admin, &b)
+			glog.Infof("dbUpdateBundleServices: updated bundle %s services to %v", b.Bid, nsvcs)
 		}
+	}
+}
+
+func DBUpdateBundleServices(uuid string, admin string, host string, deleted *[]string) {
+	for _, tag := range *deleted {
+		dbUpdateBundleServices(uuid, admin, tag+"."+host)
+		glog.Infof("DBUpdateBundleService: deleted tagged app %s from AppGroup services", tag+"."+host)
 	}
 }
 
@@ -2534,11 +2728,7 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 			return fmt.Errorf(sts)
 		}
 		now := time.Now().Unix()
-		err := DBUpdateAllUsersCfgvn(uuid, uint64(now))
-		if err != nil {
-			return err
-		}
-		err = DBUpdateAllBundlesCfgvn(uuid, uint64(now))
+		err := DBUpdateTenantCfgvn(uuid, uint64(now))
 		if err != nil {
 			return err
 		}
@@ -2565,7 +2755,11 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 		}
 	}
 
-	deleted := []string{}
+	missing := []primitive.M{}
+	missing_tag := []string{}
+
+	// TODO: why WHY! do we deal with this whole this as raw json, why cant
+	// we make it a nice golang struct ? open a ticket and get that done
 	existing := DBFindHostAttr(uuid, host)
 	if existing != nil {
 		oldattrs := (*existing)["routeattrs"].(primitive.A)
@@ -2582,14 +2776,30 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 				}
 			}
 			if !found {
-				deleted = append(deleted, ot)
+				missing = append(missing, old)
+				missing_tag = append(missing_tag, ot)
 			}
 		}
 	}
-	if DBHostRuleExists(uuid, host, &deleted) {
-		return fmt.Errorf("Please delete policies for the route before deleting the route")
-	}
 
+	update := false
+	if val, ok := Hattr["update"]; ok {
+		update = val.(bool)
+	}
+	// If "update" is true, then the intent is a union/updation on top of
+	// existing tags rather than deleting anything
+	if update {
+		for _, m := range missing {
+			attrs = append(attrs, m)
+		}
+		Hattr["routeattrs"] = attrs
+		missing_tag = []string{}
+	} else {
+		// Check if any deleted route is still being referred to in the route policy
+		if DBHostRuleExists(uuid, host, &missing_tag) {
+			return fmt.Errorf("Please update rules/policy for the deleted route(s) of %s first - %v", host, missing_tag)
+		}
+	}
 	err = dbAddHostAttr(uuid, host, Hattr, false)
 	if err != nil {
 		return err
@@ -2597,10 +2807,14 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 	DBUpdateHostAttrHdr(uuid, admin)
 
 	if !found {
+		// Adding a new host, aka App. Add it to tenant's domain list.
 		err = dbaddTenantDomain(uuid, host)
 		if err != nil {
 			return err
 		}
+	} else {
+		// Remove tagged app entries for any deleted routes from AppGroups
+		DBUpdateBundleServices(uuid, admin, host, &missing_tag)
 	}
 
 	return nil
@@ -2620,11 +2834,7 @@ func DBDelHostAttr(tenant string, admin string, hostid string) error {
 	// "private domains" for which agent sends traffic to nextensio gateways
 	// Bundles also need the update for connector to connector traffic
 	now := time.Now().Unix()
-	err := DBUpdateAllUsersCfgvn(tenant, uint64(now))
-	if err != nil {
-		return err
-	}
-	err = DBUpdateAllBundlesCfgvn(tenant, uint64(now))
+	err := DBUpdateTenantCfgvn(tenant, uint64(now))
 	if err != nil {
 		return err
 	}

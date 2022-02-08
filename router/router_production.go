@@ -1,3 +1,4 @@
+//go:build !unittest
 // +build !unittest
 
 package router
@@ -10,37 +11,13 @@ import (
 )
 
 func Authenticate(w http.ResponseWriter, r *http.Request) *context.Context {
-	// The Agents/Connectors and other UX/SDK-users are kept as seperate applications
-	// in the IDP (okta), mainly because all of them have seperate redirect-urls in their
-	// configs. So we need to validate the token against one of either client ids
-	cidMobileAgent := utils.GetEnv("AGENT_MOB_CLIENT_ID", "none")
-	ctx := IsAuthenticated(r, cidMobileAgent)
-	if ctx == nil {
-		cidApi := utils.GetEnv("API_CLIENT_ID", "none")
-		ctx = IsAuthenticated(r, cidApi)
-		if ctx == nil {
-			cidSpaAgent := utils.GetEnv("AGENT_SPA_CLIENT_ID", "none")
-			ctx = IsAuthenticated(r, cidSpaAgent)
-		}
-	}
 
-	return ctx
+	cidApi := utils.GetEnv("API_CLIENT_ID", "none")
+	return IsAuthenticated(r, cidApi)
 }
 
 func IdpGetUserInfo(API string, TOKEN string, userid string) (string, string, string, error) {
 	return okta.GetUserInfo(API, TOKEN, userid)
-}
-
-func IdpGetAllUserAttr(API string, TOKEN string, tenant string, uattrNeeded []string) ([]byte, error) {
-	return okta.GetAllUserAttr(API, TOKEN, tenant, uattrNeeded)
-}
-
-func IdpSetTenantCustomUserAttr(API string, TOKEN string, tenant string, attrjson *[]byte) (string, error) {
-	return okta.SetTenantCustomUserAttr(API, TOKEN, tenant, attrjson)
-}
-
-func IdpSetAllUserAttr(API string, TOKEN string, tenant string, attrjson *[]byte, uattrval []byte) error {
-	return okta.SetAllUserAttr(API, TOKEN, tenant, attrjson, uattrval)
 }
 
 func IdpAddUser(API string, TOKEN string, userid string, tenant string, userType string, signup bool) (string, error) {
@@ -65,4 +42,8 @@ func IdpAddGroup(API string, TOKEN string, tenant string, signup bool) (string, 
 
 func IdpDelGroup(API string, TOKEN string, tenant string) error {
 	return okta.DelGroup(API, TOKEN, tenant)
+}
+
+func IdpGetUsersByType(API string, TOKEN string, tenant string, usertype string) ([]string, error) {
+	return okta.GetUsersByType(API, TOKEN, tenant, usertype)
 }

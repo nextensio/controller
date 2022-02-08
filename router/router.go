@@ -2,13 +2,13 @@ package router
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"nextensio/controller/db"
 	"nextensio/controller/utils"
 	"regexp"
 	"strings"
 
+	"github.com/golang/glog"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	verifier "github.com/okta/okta-jwt-verifier-golang"
@@ -92,7 +92,7 @@ func oktaJwt(r *http.Request, bearerToken string, cid string) *context.Context {
 
 	token, err := jv.New().VerifyAccessToken(bearerToken)
 	if err != nil {
-		fmt.Println("Not verified", cid, err)
+		glog.Infof("Not verified", cid, err)
 		return nil
 	}
 	// TODO: The access token presented in bearer is supposed to be an opaque entity
@@ -101,9 +101,49 @@ func oktaJwt(r *http.Request, bearerToken string, cid string) *context.Context {
 	// we move to say Azure as IDP, we might run into trouble here at which point we
 	// will have to somehow send the ID token also to get these values
 	uuid := token.Claims["tenant"].(string)
+	usertype := token.Claims["usertype"].(string)
 	ctx := context.WithValue(r.Context(), "user-tenant", uuid)
 	ctx = context.WithValue(ctx, "userid", token.Claims["sub"])
-	ctx = context.WithValue(ctx, "usertype", token.Claims["usertype"])
+	ctx = context.WithValue(ctx, "usertype", usertype)
+
+	// "superadmin" and "admin" can assume any group, so they HAVE to set which group
+	// they are acting on behalf of in the X-Nextensio-Group header. But for admin-<group>
+	// users, the group is already in the usertype so they dont have to set the
+	// http header, but if they do set then it better match. For "regular" users, they
+	// cant call any write APIs, so wherever they call read APIs and we want to restrict
+	// them from reading admin stuff, we have to check in those APIs specifically that
+	// regular users are disallowed. Infact it might be a good idea (TODO) to demarcate
+	// the read-APIs that regular users can call into a different space like
+	// /api/v1/regular/tenant/.. something and disallow everything else ?
+	if usertype == "superadmin" || usertype == "admin" {
+		group := r.Header.Get("X-Nextensio-Group")
+		if group == "" {
+			glog.Errorf("Group not set")
+			return nil
+		}
+		if group != "superadmin" && group != "admin" && !strings.HasPrefix(group, "admin-") {
+			glog.Errorf("Bad group name", group)
+			return nil
+		}
+		if usertype == "admin" && group == "superadmin" {
+			glog.Error("admin cannot assume superadmin role")
+			return nil
+		}
+		ctx = context.WithValue(ctx, "group", group)
+	} else if strings.HasPrefix(usertype, "admin-") {
+		ctx = context.WithValue(ctx, "group", usertype)
+		group := r.Header.Get("X-Nextensio-Group")
+		if group != "" && group != usertype {
+			glog.Errorf("Invalid group", group, usertype)
+			return nil
+		}
+	} else if usertype == "regular" {
+		// Regular is not part of any group
+	} else {
+		glog.Errorf("Bad usertype", usertype)
+		return nil
+	}
+
 	return &ctx
 }
 
@@ -129,14 +169,12 @@ func IsAuthenticated(r *http.Request, cid string) *context.Context {
 // etc.. is quite clunky below, need to make that code flow more modular/simpler
 // The logic is that if the request is onboarding, then we allow that regardless of
 // the user privilege. Other requests are denied unless the user is superadmin, the
-// "global" nextensio resources can be add/mod/del only by nextensio superadmin
+// "global" nextensio resources can be add/mod/del only by nextensio superadmin.
+// After writing the above, there are two more "special cases" that have crept in,
+// "regular" users are allowed to publish keepalives and ANY user is allowed to query
+// for client_id. TODO: We should maybe move out all these three to a seperate API
+// space like "/api/v1/regular" and "/api/v1/any" ?
 func GlobalMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	ctx := Authenticate(w, r)
-	if ctx == nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("401 - You are not authorized for this request"))
-		return
-	}
 	url := r.URL.String()
 	reg, _ := regexp.Compile("/api/v1/global/(add|get|del)/([a-zA-Z0-9]+).*")
 	match := reg.FindStringSubmatch(url)
@@ -145,19 +183,27 @@ func GlobalMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 		w.Write([]byte("Bad request url"))
 		return
 	}
-	allowed := (match[1] == "get" && match[2] == "onboard")
-	if !allowed {
-		// TODO: DEPRECATE THIS
-		allowed = (match[1] == "get" && strings.HasPrefix(match[2], "keepalive"))
-	}
-	if !allowed {
-		allowed = (match[1] == "add" && strings.HasPrefix(match[2], "keepaliverequest"))
-	}
-	usertype := (*ctx).Value("usertype").(string)
-	if usertype != "superadmin" && !allowed {
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("User unauthorized to global resources"))
-		return
+	ctx := Authenticate(w, r)
+	if ctx == nil {
+		allowed := (match[1] == "get" && match[2] == "clientid")
+		if !allowed {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("401 - You are not authorized for this request"))
+			return
+		}
+		c := context.WithValue(r.Context(), "", "")
+		ctx = &c
+	} else {
+		allowed := (match[1] == "get" && match[2] == "onboard")
+		if !allowed {
+			allowed = (match[1] == "add" && strings.HasPrefix(match[2], "keepaliverequest"))
+		}
+		usertype := (*ctx).Value("usertype").(string)
+		if usertype != "superadmin" && !allowed {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("User unauthorized to global resources"))
+			return
+		}
 	}
 	next.ServeHTTP(w, r.WithContext(*ctx))
 }
@@ -193,28 +239,11 @@ func TenantMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 	}
 	uuid := match[1]
 	usertype := (*ctx).Value("usertype").(string)
-	if usertype != "superadmin" {
-		userTenant := (*ctx).Value("user-tenant").(string)
-		if userTenant != uuid {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte("User unauthorized to access this tenant"))
-			return
-		}
-	}
-
-	// support user, only read-only access allowed
-	if usertype == "support" {
-		if match[2] != "get" {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte("User unauthorized to modify this tenant"))
-			return
-		}
-	}
 
 	// regular user, not allowed anything
-	if usertype == "regular" {
+	if usertype != "superadmin" && usertype != "admin" && !strings.HasPrefix(usertype, "admin-") {
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("User not authorized acess to this tenant"))
+		w.Write([]byte("User not authorized access to this tenant"))
 		return
 	}
 
@@ -263,7 +292,7 @@ func RouterInit(readonly bool) {
 
 func ServeRoutes() {
 	// TODO: The CORS policy allowing "*" needs fixing once we get closer to production
-	headersOk := handlers.AllowedHeaders([]string{"X-Requested-With", "Content-Type", "Referer", "Authorization"})
+	headersOk := handlers.AllowedHeaders([]string{"X-Requested-With", "Content-Type", "Referer", "Authorization", "X-Nextensio-Group"})
 	originsOk := handlers.AllowedOrigins([]string{"*"})
 	methodsOk := handlers.AllowedMethods([]string{"GET", "HEAD", "POST", "PUT", "OPTIONS"})
 
@@ -272,7 +301,6 @@ func ServeRoutes() {
 	TOKEN = utils.GetEnv("API_TOKEN", "none")
 	cert := utils.GetEnv("TLS_CRT", "unknown")
 	key := utils.GetEnv("TLS_KEY", "unknown")
-	SyncIdp()
 	if cert == "unknown" || key == "unknown" {
 		http.ListenAndServe(":8080", handlers.CORS(originsOk, headersOk, methodsOk)(nroni))
 	} else {

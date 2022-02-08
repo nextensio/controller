@@ -115,20 +115,65 @@ func DBDelPolicy(tenant string, policyId string) error {
 //----------------------------------Bundle ID rules-----------------------------------
 // Access Policy is generated from the rules for one or more bundle ids
 
-type BundleAccessRule struct {
-	Bid  string     `json:"bid" bson:"bid"`
-	Rid  string     `json:"rid" bson:"rid"`
-	Rule [][]string `json:"rule" bson:"rule"`
+type LockBundleAccessRule struct {
+	Bid   string `json:"bid" bson:"bid"`
+	Rid   string `json:"rid" bson:"rid"`
+	Group string `json:"group" bson:"group"`
 }
 
-// This API will add a new bundle rule or update a bundle rule if it already exists
-func DBAddBundleRule(uuid string, data *BundleAccessRule) error {
+func DBLockBundleRule(uuid string, group string, data *LockBundleAccessRule) error {
 
 	if DBFindTenant(uuid) == nil {
 		return fmt.Errorf("Cant find tenant %s", uuid)
 	}
 	Id := data.Bid + ":" + data.Rid
 
+	// The upsert option asks the DB to add a tenant if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	bundleRuleCltn := dbGetCollection(uuid, "NxtBundleRules")
+	if bundleRuleCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	err := bundleRuleCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": Id},
+		bson.D{
+			{"$set", bson.M{"group": data.Group}},
+		},
+		&opt,
+	)
+
+	if err != nil {
+		return err.Err()
+	}
+	return nil
+}
+
+type BundleAccessRule struct {
+	Bid   string     `json:"bid" bson:"bid"`
+	Rid   string     `json:"rid" bson:"rid"`
+	Rule  [][]string `json:"rule" bson:"rule"`
+	Group string     `json:"group" bson:"group"`
+}
+
+// This API will add a new bundle rule or update a bundle rule if it already exists
+func DBAddBundleRule(uuid string, group string, data *BundleAccessRule) error {
+
+	if DBFindTenant(uuid) == nil {
+		return fmt.Errorf("Cant find tenant %s", uuid)
+	}
+	Id := data.Bid + ":" + data.Rid
+	exists := DBFindBundleRule(uuid, Id)
+	if exists != nil {
+		if exists.Group != "" && exists.Group != group {
+			return fmt.Errorf("AppGroup rule is locked by group %s", exists.Group)
+		}
+	}
 	// The upsert option asks the DB to add a tenant if one is not found
 	upsert := true
 	after := options.After
@@ -191,12 +236,18 @@ func DBFindAllBundleRules(tenant string) []BundleAccessRule {
 	return rules
 }
 
-func DBDelBundleRule(tenant string, bid string, ruleid string) error {
+func DBDelBundleRule(tenant string, group string, bid string, ruleid string) error {
 	bundleRuleCltn := dbGetCollection(tenant, "NxtBundleRules")
 	if bundleRuleCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
 	id := bid + ":" + ruleid
+	exists := DBFindBundleRule(tenant, id)
+	if exists != nil {
+		if exists.Group != "" && exists.Group != group {
+			return fmt.Errorf("AppGroup rule is locked by group %s", exists.Group)
+		}
+	}
 	_, err := bundleRuleCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": id},
@@ -209,10 +260,51 @@ func DBDelBundleRule(tenant string, bid string, ruleid string) error {
 // Route Policy is generated from the rules for one or more host ids.
 // Note that Route policy also supports host access control
 
+type LockHostRouteRule struct {
+	Host  string `json:"host" bson:"host"`
+	Rid   string `json:"rid" bson:"rid"`
+	Group string `json:"group" bson:"group"`
+}
+
+func DBLockHostRule(uuid string, group string, data *LockHostRouteRule) error {
+
+	if DBFindTenant(uuid) == nil {
+		return fmt.Errorf("Cant find tenant %s", uuid)
+	}
+	Id := data.Host + ":" + data.Rid
+
+	// The upsert option asks the DB to add a tenant if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	hostRuleCltn := dbGetCollection(uuid, "NxtHostRules")
+	if hostRuleCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+
+	err := hostRuleCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": Id},
+		bson.D{
+			{"$set", bson.M{"group": data.Group}},
+		},
+		&opt,
+	)
+
+	if err != nil {
+		return err.Err()
+	}
+	return nil
+}
+
 type HostRouteRule struct {
-	Host string     `json:"host" bson:"host"`
-	Rid  string     `json:"rid" bson:"rid"`
-	Rule [][]string `json:"rule" bson:"rule"`
+	Host  string     `json:"host" bson:"host"`
+	Rid   string     `json:"rid" bson:"rid"`
+	Rule  [][]string `json:"rule" bson:"rule"`
+	Group string     `json:"group" bson:"group"`
 }
 
 func DBHostRuleExists(tenant string, host string, tags *[]string) bool {
@@ -253,13 +345,18 @@ func DBHostRuleExists(tenant string, host string, tags *[]string) bool {
 }
 
 // This API will add a new host rule or update a host rule if it already exists
-func DBAddHostRule(uuid string, data *HostRouteRule) error {
+func DBAddHostRule(uuid string, group string, data *HostRouteRule) error {
 
 	if DBFindTenant(uuid) == nil {
 		return fmt.Errorf("Cant find tenant %s", uuid)
 	}
 	Id := data.Host + ":" + data.Rid
-
+	exists := DBFindHostRule(uuid, Id)
+	if exists != nil {
+		if exists.Group != "" && exists.Group != group {
+			return fmt.Errorf("Rule is locked by group %s", exists.Group)
+		}
+	}
 	// The upsert option asks the DB to add a tenant if one is not found
 	upsert := true
 	after := options.After
@@ -271,6 +368,7 @@ func DBAddHostRule(uuid string, data *HostRouteRule) error {
 	if hostRuleCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
+
 	err := hostRuleCltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": Id},
@@ -321,12 +419,18 @@ func DBFindAllHostRules(tenant string) []HostRouteRule {
 	return rules
 }
 
-func DBDelHostRule(tenant string, hostid string, ruleid string) error {
+func DBDelHostRule(tenant string, group string, hostid string, ruleid string) error {
 	hostRuleCltn := dbGetCollection(tenant, "NxtHostRules")
 	if hostRuleCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
 	id := hostid + ":" + ruleid
+	exists := DBFindHostRule(tenant, id)
+	if exists != nil {
+		if exists.Group != "" && exists.Group != group {
+			return fmt.Errorf("Rule is locked by group %s", exists.Group)
+		}
+	}
 	_, err := hostRuleCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": id},

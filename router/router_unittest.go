@@ -9,23 +9,13 @@ import (
 
 func Authenticate(w http.ResponseWriter, r *http.Request) *context.Context {
 	ctx := context.WithValue(r.Context(), "usertype", "superadmin")
+	ctx = context.WithValue(ctx, "group", "superadmin")
+	ctx = context.WithValue(ctx, "user-tenant", "nextensio")
 	return &ctx
 }
 
 func IdpGetUserInfo(API string, TOKEN string, userid string) (string, string, string, error) {
 	return "", "", "", nil
-}
-
-func IdpGetAllUserAttr(API string, TOKEN string, tenant string, uattrNeeded []string) ([]byte, error) {
-	return []byte(""), nil
-}
-
-func IdpSetTenantCustomUserAttr(API string, TOKEN string, tenant string, attrjson *[]byte) (string, error) {
-	return "", nil
-}
-
-func IdpSetAllUserAttr(API string, TOKEN string, tenant string, attrjson *[]byte, uattrval []byte) error {
-	return nil
 }
 
 func IdpAddUser(API string, TOKEN string, userid string, tenant string, userType string, signup bool) (string, error) {
@@ -50,4 +40,9 @@ func IdpAddGroup(API string, TOKEN string, tenant string, signup bool) (string, 
 
 func IdpDelGroup(API string, TOKEN string, tenant string) error {
 	return nil
+}
+
+func IdpGetUsersByType(API string, TOKEN string, tenant string, usertype string) ([]string, error) {
+	var users []string
+	return users, nil
 }
