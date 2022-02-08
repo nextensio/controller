@@ -1333,7 +1333,7 @@ func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	err = json.Unmarshal(body, &data)
 	if err != nil {
-		result.Result = "Keepalive - Error parsing json"
+		result.Result = "Keepalive - Error parsing json: " + err.Error()
 		utils.WriteResult(w, result)
 		return
 	}
