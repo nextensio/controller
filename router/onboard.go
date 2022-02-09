@@ -32,8 +32,6 @@ func rdonlyOnboard() {
 	// This route is used to retrieve a certificate
 	getGlobalRoute("/cert/{certid}", "GET", getcertHandler)
 
-	getGlobalRoute("/clientid/{key}", "GET", getclientIdHandler)
-
 	// This route is used to get all certificates
 	getGlobalRoute("/allcerts", "GET", getAllCertsHandler)
 
@@ -158,6 +156,9 @@ func rdwrOnboard() {
 	delGlobalRoute("/tenant/{tenant-uuid}", "GET", deltenantHandler)
 
 	noauthRoute("/signup", "POST", signupHandler)
+
+	// Get the client_id of the NextensioAgent app in Okta
+	noauthRoute("/clientid/{key}", "GET", getclientIdHandler)
 
 	// This route is used by agents & connectors post onboarding, for keepalives.
 	// This is kept as a global route and not a per-tenant route (which it can be)
