@@ -106,6 +106,30 @@ func oktaJwt(r *http.Request, bearerToken string, cid string) *context.Context {
 	ctx = context.WithValue(ctx, "userid", token.Claims["sub"])
 	ctx = context.WithValue(ctx, "usertype", usertype)
 
+	return &ctx
+}
+
+func IsAuthenticated(r *http.Request, cid string) *context.Context {
+	authHeader := r.Header.Get("Authorization")
+
+	if authHeader == "" {
+		return nil
+	}
+	tokenParts := strings.Split(authHeader, "Bearer ")
+	bearerToken := tokenParts[1]
+	// First try to interpret the token as an agent's okta token, if that fails
+	// then try to see if its a connectors token we generated
+	ctx := oktaJwt(r, bearerToken, cid)
+	if ctx != nil {
+		return ctx
+	}
+	ctx = db.VerifyMyJwt(r, bearerToken)
+	return ctx
+}
+
+func validateGroup(r *http.Request, ctx *context.Context) *context.Context {
+	usertype := (*ctx).Value("usertype").(string)
+
 	// "superadmin" and "admin" can assume any group, so they HAVE to set which group
 	// they are acting on behalf of in the X-Nextensio-Group header. But for admin-<group>
 	// users, the group is already in the usertype so they dont have to set the
@@ -129,51 +153,37 @@ func oktaJwt(r *http.Request, bearerToken string, cid string) *context.Context {
 			glog.Error("admin cannot assume superadmin role")
 			return nil
 		}
-		ctx = context.WithValue(ctx, "group", group)
+		c := context.WithValue(*ctx, "group", group)
+		return &c
 	} else if strings.HasPrefix(usertype, "admin-") {
-		ctx = context.WithValue(ctx, "group", usertype)
 		group := r.Header.Get("X-Nextensio-Group")
 		if group != "" && group != usertype {
 			glog.Errorf("Invalid group", group, usertype)
 			return nil
 		}
+		c := context.WithValue(*ctx, "group", usertype)
+		return &c
 	} else if usertype == "regular" {
 		// Regular is not part of any group
+		return ctx
 	} else {
 		glog.Errorf("Bad usertype", usertype)
 		return nil
 	}
-
-	return &ctx
 }
 
-func IsAuthenticated(r *http.Request, cid string) *context.Context {
-	authHeader := r.Header.Get("Authorization")
-
-	if authHeader == "" {
-		return nil
-	}
-	tokenParts := strings.Split(authHeader, "Bearer ")
-	bearerToken := tokenParts[1]
-	// First try to interpret the token as an agent's okta token, if that fails
-	// then try to see if its a connectors token we generated
-	ctx := oktaJwt(r, bearerToken, cid)
-	if ctx != nil {
-		return ctx
-	}
-	ctx = db.VerifyMyJwt(r, bearerToken)
-	return ctx
-}
-
-// TODO: This checking for whether non-superadmin/admin is trying to access add/del
-// etc.. is quite clunky below, need to make that code flow more modular/simpler
-// The logic is that if the request is onboarding, then we allow that regardless of
-// the user privilege. Other requests are denied unless the user is superadmin, the
-// "global" nextensio resources can be add/mod/del only by nextensio superadmin.
-// After writing the above, there are two more "special cases" that have crept in,
-// "regular" users are allowed to publish keepalives and ANY user is allowed to query
-// for client_id. TODO: We should maybe move out all these three to a seperate API
-// space like "/api/v1/regular" and "/api/v1/any" ?
+// TODO: Clunky logic below to ensure that the /api/v1/global space is restricted ONLY
+// to superadmins - ie to nextensio users. Because this is the space where information
+// pertaining to ALL tenants is configured. But there are some exceptions
+//
+// 1. The /api/v1/global/get/onboard can be called by authenticated users, but the user
+//    themeslves can be as low privileged as "regular" or as high as "superadmin"
+// 2. /api/v1/global/add/keepaliverequest can be called by authenticated users, the user
+//   can be as low privileged as "regular" or as high as "superadmin"
+//
+// More exceptions will keep adding to this list, should we think of a different
+// /api/v1/global/nogroup etc.. namespace for this ? Will see based on how complicated this
+// evolves into
 func GlobalMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	url := r.URL.String()
 	reg, _ := regexp.Compile("/api/v1/global/(add|get|del)/([a-zA-Z0-9]+).*")
@@ -185,18 +195,22 @@ func GlobalMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 	}
 	ctx := Authenticate(w, r)
 	if ctx == nil {
-		allowed := (match[1] == "get" && match[2] == "clientid")
-		if !allowed {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte("401 - You are not authorized for this request"))
-			return
-		}
-		c := context.WithValue(r.Context(), "", "")
-		ctx = &c
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("401 - You are not authorized for this request"))
+		return
 	} else {
-		allowed := (match[1] == "get" && match[2] == "onboard")
+		allowed := false
+		if (match[1] == "get" && match[2] == "onboard") ||
+			(match[1] == "add" && strings.HasPrefix(match[2], "keepaliverequest")) {
+			// get/onboard and add/keepaliverequest can be called by any user regardless
+			// of group etc..
+			allowed = true
+		}
 		if !allowed {
-			allowed = (match[1] == "add" && strings.HasPrefix(match[2], "keepaliverequest"))
+			ctx = validateGroup(r, ctx)
+			if ctx == nil {
+				return
+			}
 		}
 		usertype := (*ctx).Value("usertype").(string)
 		if usertype != "superadmin" && !allowed {
@@ -226,6 +240,12 @@ func TenantMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 	if ctx == nil {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("401 - You are not authorized for this request"))
+		return
+	}
+	ctx = validateGroup(r, ctx)
+	if ctx == nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("401 - superadmin/admin needs to specify group"))
 		return
 	}
 
