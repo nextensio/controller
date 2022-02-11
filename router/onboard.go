@@ -599,13 +599,13 @@ type GetTenantResult struct {
 }
 
 type GetTenantAdminGroupsResult struct {
-	Result    string `json:"Result"`
-	AdmGroups []string
+	Result    string   `json:"Result"`
+	AdmGroups []string `json:"admgroups"`
 }
 
 type GetTenantGroupAdminsResult struct {
-	Result    string `json:"Result"`
-	GrpAdmins []string
+	Result    string   `json:"Result"`
+	GrpAdmins []string `json:"grpadmins"`
 }
 
 // Get existing tenant's parameters
