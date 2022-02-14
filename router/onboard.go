@@ -52,7 +52,7 @@ func rdonlyOnboard() {
 	getTenantRoute("/groupadms/{group}", "GET", getAdminsForGroupHandler)
 
 	// This route is used to get MSP-managed tenants for an MSP tenant
-	getTenantRoute("/tenant/mgdtenants", "GET", getManagedTenants)
+	getTenantRoute("/mgdtenants", "GET", getManagedTenants)
 
 	// This route is used to get the group admin role (usertype) of a user
 	getTenantRoute("/user/adminrole/{userid}", "GET", getUserAdminRole)
@@ -171,16 +171,19 @@ func rdwrOnboard() {
 	//*******************************************************************/
 
 	// This route is used by the tenant admin to modify the tenant parameters
-	addTenantRoute("/tenant", "POST", localtenantHandler)
+	addTenantRoute("/tenant", "POST", localtenantAddHandler)
+
+	// This route is used by the tenant admin to delete a tenant admin group
+	delTenantRoute("/tenant", "GET", localtenantDelHandler)
 
 	// This route is used to change the type of tenant
-	addTenantRoute("/tenant/type/{type}", "POST", updTenantType)
+	addTenantRoute("/tenanttype/{type}", "POST", updTenantType)
 
 	// This route is used to add a MSP-managed tenant to a MSP tenant
-	addTenantRoute("/tenant/msp/{mgdtenant}", "POST", addManagedTenant)
+	addTenantRoute("/tenantmsp/{mgdtenant}", "POST", addManagedTenant)
 
 	// This route is used to remove a MSP-managed tenant from a MSP tenant
-	delTenantRoute("/tenant/msp/{mgdtenant}", "GET", delManagedTenant)
+	delTenantRoute("/tenantmsp/{mgdtenant}", "GET", delManagedTenant)
 
 	// This route is used by the tenant admin to add a tenant admin group
 	addTenantRoute("/admgroups/{group}", "POST", addAdminGroupsHandler)
@@ -540,6 +543,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 	data.ID = signup.Tenant
 	data.Group = gid
 	data.IsMsp = signup.IsMsp
+	data.IsManaged = false
 	err = db.DBAddTenant(&data, signup.Email)
 	if err != nil {
 		result.Result = err.Error()
@@ -626,7 +630,7 @@ func gettenantHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // Modify existing tenant's parameters
-func localtenantHandler(w http.ResponseWriter, r *http.Request) {
+func localtenantAddHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 	var data db.TenantJson
 
@@ -679,6 +683,8 @@ func localtenantHandler(w http.ResponseWriter, r *http.Request) {
 			} else {
 				// MSP admin trying to add a new tenant, that is fine
 				allowed = true
+				data.IsMsp = false
+				data.IsManaged = true
 			}
 		}
 		if !allowed {
@@ -707,6 +713,56 @@ func localtenantHandler(w http.ResponseWriter, r *http.Request) {
 
 	result.Result = "ok"
 	utils.WriteResult(w, result)
+}
+
+// Used by a tenant to delete self OR MSP to delete an MSP-managed tenant
+func localtenantDelHandler(w http.ResponseWriter, r *http.Request) {
+	var result DeltenantResult
+
+	uuid := r.Context().Value("tenant").(string)
+	usertype := r.Context().Value("usertype").(string)
+	usertenant := r.Context().Value("user-tenant").(string)
+	tenant := db.DBFindTenant(usertenant)
+	if tenant == nil {
+		result.Result = "User's tenant not found"
+		utils.WriteResult(w, result)
+		return
+	}
+	managed := db.DBFindTenant(uuid)
+	if managed == nil {
+		result.Result = "User's managed tenant not found"
+		utils.WriteResult(w, result)
+		return
+	}
+	if usertenant != uuid {
+		allowed := false
+		if usertype == "superadmin" {
+			// super admin is allowed to whatever!
+			allowed = true
+		}
+		if usertype == "admin" && tenant.Type == "MSP" {
+			// An MSP admin trying to delete an existing tenant, we should ensure
+			// that the existing tenant is managed by this MSP
+			for _, m := range tenant.MgdTenants {
+				if m == managed.ID {
+					allowed = true
+					break
+				}
+			}
+		}
+		if !allowed {
+			result.Result = "Only super admins or Managed Service Providers allowed to delete tenants"
+			utils.WriteResult(w, result)
+			return
+		}
+		err := db.DBDelManagedTenant(usertenant, managed.ID)
+		if err != nil {
+			result.Result = err.Error()
+			utils.WriteResult(w, result)
+			return
+		}
+	}
+	deltenantHandlerFunc(w, r, uuid)
 }
 
 // Update type of tenant
@@ -781,8 +837,8 @@ func delManagedTenant(w http.ResponseWriter, r *http.Request) {
 }
 
 type GetMgdTenantsResult struct {
-	Result  string `json:"Result"`
-	Tenants []string
+	Result  string   `json:"Result"`
+	Tenants []string `json:"tenants"`
 }
 
 // Get managed tenants for an MSP
@@ -839,6 +895,7 @@ func addtenantHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	data.Group = gid
 	data.IsMsp = false
+	data.IsManaged = false
 	err = db.DBAddTenant(&data, admin)
 	if err != nil {
 		glog.Errorf("DB tenant fail " + err.Error())
@@ -874,17 +931,15 @@ type DeltenantResult struct {
 	Result string `json:"Result"`
 }
 
-// Delete a tenant
-// When a tenant is deleted, all users, app-bundles, host attributes,
-// and policies (basically all tenant specific collections) also need
-// to be deleted. Should we do that automatically here or require that
-// they be separately deleted first before deleting the tenant ?
-func deltenantHandler(w http.ResponseWriter, r *http.Request) {
-	var result OpResult
+func deltenantHandlerFunc(w http.ResponseWriter, r *http.Request, uuid string) {
+	var result DeltenantResult
 
-	v := mux.Vars(r)
-	uuid := v["tenant-uuid"]
-
+	mgd := db.DBGetManagedTenants(uuid)
+	if mgd != nil && len(*mgd) != 0 {
+		result.Result = "Tenant still has managed tenants"
+		utils.WriteResult(w, result)
+		return
+	}
 	if db.DBFindAllUsers(uuid) != nil {
 		result.Result = "Tenant still has users"
 		utils.WriteResult(w, result)
@@ -948,6 +1003,18 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 		result.Result = "ok"
 	}
 	utils.WriteResult(w, result)
+}
+
+// Delete a tenant
+// When a tenant is deleted, all users, app-bundles, host attributes,
+// and policies (basically all tenant specific collections) also need
+// to be deleted. Should we do that automatically here or require that
+// they be separately deleted first before deleting the tenant ?
+func deltenantHandler(w http.ResponseWriter, r *http.Request) {
+
+	v := mux.Vars(r)
+	uuid := v["tenant-uuid"]
+	deltenantHandlerFunc(w, r, uuid)
 }
 
 // Add a tenant's admin group

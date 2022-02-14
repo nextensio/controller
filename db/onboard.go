@@ -150,11 +150,12 @@ type IDP struct {
 
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type TenantJson struct {
-	ID       string  `json:"_id"`
-	Name     *string `json:"name"`
-	Group    string  `json:"group" bson:"group"`
-	EasyMode *bool   `json:"easymode"`
-	IsMsp    bool    `json:"ismsp"`
+	ID        string  `json:"_id"`
+	Name      *string `json:"name"`
+	Group     string  `json:"group" bson:"group"`
+	EasyMode  *bool   `json:"easymode"`
+	IsMsp     bool    `json:"ismsp"`
+	IsManaged bool    `json:"ismanaged"`
 }
 
 // Tenant Type : "self-managed" | "MSP" | "MSP-managed"
@@ -457,6 +458,8 @@ func dbTenantUpdateJson(tenant *Tenant, data *TenantJson) *Tenant {
 		t.Domains = []Domain{}
 		if data.IsMsp {
 			t.Type = "MSP"
+		} else if data.IsManaged {
+			t.Type = "MSP-managed"
 		} else {
 			t.Type = "self-managed"
 		}
