@@ -171,7 +171,7 @@ func rdwrOnboard() {
 	//*******************************************************************/
 
 	// This route is used by the tenant admin to modify the tenant parameters
-	addTenantRoute("/tenant", "POST", modifytenantHandler)
+	addTenantRoute("/tenant", "POST", localtenantHandler)
 
 	// This route is used to change the type of tenant
 	addTenantRoute("/tenant/type/{type}", "POST", updTenantType)
@@ -539,7 +539,8 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 	var data db.TenantJson
 	data.ID = signup.Tenant
 	data.Group = gid
-	err = db.DBAddTenant(&data, signup.Email, false)
+	data.IsMsp = signup.IsMsp
+	err = db.DBAddTenant(&data, signup.Email)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -625,7 +626,7 @@ func gettenantHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // Modify existing tenant's parameters
-func modifytenantHandler(w http.ResponseWriter, r *http.Request) {
+func localtenantHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 	var data db.TenantJson
 
@@ -647,11 +648,61 @@ func modifytenantHandler(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		admin = "UnknownUser"
 	}
-	err = db.DBAddTenant(&data, admin, true)
+	usertype, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		usertype = "regular"
+	}
+	usertenant := r.Context().Value("user-tenant").(string)
+	tenant := db.DBFindTenant(usertenant)
+	if tenant == nil {
+		result.Result = "User's tenant not found"
+		utils.WriteResult(w, result)
+		return
+	}
+	managed := db.DBFindTenant(data.ID)
+	if usertenant != data.ID {
+		allowed := false
+		if usertype == "superadmin" {
+			// super admin is allowed to whatever!
+			allowed = true
+		}
+		if usertype == "admin" && tenant.Type == "MSP" {
+			// An MSP admin trying to modify an existing tenant, we should ensure
+			// that the existing tenant is managed by this MSP
+			if managed != nil {
+				for _, m := range tenant.MgdTenants {
+					if m == managed.ID {
+						allowed = true
+						break
+					}
+				}
+			} else {
+				// MSP admin trying to add a new tenant, that is fine
+				allowed = true
+			}
+		}
+		if !allowed {
+			result.Result = "Only super admins or Managed Service Providers allowed to add tenants"
+			utils.WriteResult(w, result)
+			return
+		}
+	}
+	err = db.DBAddTenant(&data, admin)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
 		return
+	}
+
+	// We are adding a new tenant, and if we are an MSP, link both
+	if usertype == "admin" && tenant.Type == "MSP" && data.ID != usertenant && managed == nil {
+		err := db.DBAddManagedTenant(usertenant, data.ID)
+		if err != nil {
+			db.DBDelTenant(data.ID)
+			result.Result = err.Error()
+			utils.WriteResult(w, result)
+			return
+		}
 	}
 
 	result.Result = "ok"
@@ -787,7 +838,8 @@ func addtenantHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data.Group = gid
-	err = db.DBAddTenant(&data, admin, false)
+	data.IsMsp = false
+	err = db.DBAddTenant(&data, admin)
 	if err != nil {
 		glog.Errorf("DB tenant fail " + err.Error())
 		result.Result = err.Error()

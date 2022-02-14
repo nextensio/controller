@@ -27,6 +27,7 @@ const HDRKEY = "Header"
 type Signup struct {
 	Tenant string `json:"tenant" bson:"tenant"`
 	Email  string `json:"email" bson:"email"`
+	IsMsp  bool   `json:"ismsp"`
 }
 
 type CustomClaims struct {
@@ -153,6 +154,7 @@ type TenantJson struct {
 	Name     *string `json:"name"`
 	Group    string  `json:"group" bson:"group"`
 	EasyMode *bool   `json:"easymode"`
+	IsMsp    bool    `json:"ismsp"`
 }
 
 // Tenant Type : "self-managed" | "MSP" | "MSP-managed"
@@ -453,7 +455,11 @@ func dbTenantUpdateJson(tenant *Tenant, data *TenantJson) *Tenant {
 		}
 		t.Group = data.Group
 		t.Domains = []Domain{}
-		t.Type = "self-managed"
+		if data.IsMsp {
+			t.Type = "MSP"
+		} else {
+			t.Type = "self-managed"
+		}
 		return &t
 	} else {
 		if data.Name != nil {
@@ -472,7 +478,7 @@ func dbTenantUpdateJson(tenant *Tenant, data *TenantJson) *Tenant {
 // TenantCluster configuration. This can be done incrementally. Tenants can be
 // in different clusters using different number of minion allocations in each
 // cluster.
-func DBAddTenant(data *TenantJson, admin string, modifyOnly bool) error {
+func DBAddTenant(data *TenantJson, admin string) error {
 
 	if !validateTenant(data.ID) {
 		return errors.New("invalid tenant id")
@@ -480,10 +486,6 @@ func DBAddTenant(data *TenantJson, admin string, modifyOnly bool) error {
 
 	// See if tenant doc exists, if so inherit some values, if not create new tenant
 	tdoc := DBFindTenant(data.ID)
-	if modifyOnly && tdoc == nil {
-		return fmt.Errorf("Tenant does not exist")
-	}
-
 	tenant := dbTenantUpdateJson(tdoc, data)
 
 	// The upsert option asks the DB to add if one is not found
