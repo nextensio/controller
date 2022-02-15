@@ -8,6 +8,7 @@ import (
 	"nextensio/controller/db"
 	"nextensio/controller/utils"
 
+	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 )
 
@@ -18,8 +19,12 @@ func rdonlyPolicy() {
 	// This route is used to get all policies
 	getTenantRoute("/allpolicies", "GET", getAllPoliciesHandler)
 
-	// This route is used to get all bundle rules
-	getTenantRoute("/allbundlerules", "GET", getAllBundleRulesHandler)
+	// This route is used to get all rules for one bundle or all bundles
+	// {bid} == "all" for all bundles
+	getTenantRoute("/bundlerules/{bid}", "GET", getBundleAllRulesHandler)
+
+	// This route is used to get a group's match expressions in a bundle rule
+	getTenantRoute("/bundlerule/{bid}/{ruleid}", "GET", getBundleRuleHandler)
 
 	// This route is used to get all host rules
 	getTenantRoute("/allhostrules", "GET", getAllHostRulesHandler)
@@ -35,16 +40,18 @@ func rdwrPolicy() {
 	// This route is used by the tenant admin to add a new OPA policy
 	addTenantRoute("/policy", "POST", addpolicyHandler)
 
+	// This route is used by the tenant admin to generate a new OPA policy
+	// in Easy Mode from configured rules
+	addTenantRoute("/policy/generate/{policy-id}", "POST", addPolicyFromRulesHandler)
+
 	// This route is used by the tenant admin to delete an OPA policy
 	delTenantRoute("/policy/{policy-id}", "GET", delpolicyHandler)
 
 	// This route is used by the tenant admin to add a new bundle ID rule
 	addTenantRoute("/bundlerule/", "POST", addBundleRuleHandler)
 
-	addTenantRoute("/lockbundlerule/", "POST", lockBundleRuleHandler)
-
-	// This route is used by the tenant admin to delete a bundle ID rule
-	delTenantRoute("/bundlerule/{bid}/{rid}", "GET", delBundleRuleHandler)
+	// This route is used by an admin to delete a bundle rule expressions
+	delTenantRoute("/bundlerule/{bid}/{rid}/{group}", "GET", delBundleRuleGroupHandler)
 
 	// This route is used by the tenant admin to add a new host ID rule
 	addTenantRoute("/hostrule/", "POST", addHostRuleHandler)
@@ -96,6 +103,27 @@ func addpolicyHandler(w http.ResponseWriter, r *http.Request) {
 		admin = "UnknownUser"
 	}
 	err = db.DBAddPolicy(uuid, admin, &data)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+func addPolicyFromRulesHandler(w http.ResponseWriter, r *http.Request) {
+	var result AddpolicyResult
+
+	uuid := r.Context().Value("tenant").(string)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	v := mux.Vars(r)
+	pid := v["policy-id"]
+	err := db.DBGeneratePolicyFromRules(uuid, pid, admin)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -164,43 +192,6 @@ type RuleOpResult struct {
 	Result string `json:"Result"`
 }
 
-func lockBundleRuleHandler(w http.ResponseWriter, r *http.Request) {
-	var result RuleOpResult
-	var data db.LockBundleAccessRule
-
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		result.Result = "Read fail"
-		utils.WriteResult(w, result)
-		return
-	}
-
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		fmt.Println(err)
-		result.Result = fmt.Sprintf("%v", err)
-		utils.WriteResult(w, result)
-		return
-	}
-	uuid := r.Context().Value("tenant").(string)
-	group := r.Context().Value("group").(string)
-	usertype := r.Context().Value("usertype").(string)
-	if usertype != "admin" && usertype != "superadmin" {
-		result.Result = fmt.Sprintf("Only admins or superadmins can lock/unlock the rule")
-		utils.WriteResult(w, result)
-		return
-	}
-	err = db.DBLockBundleRule(uuid, group, &data)
-	if err != nil {
-		result.Result = err.Error()
-		utils.WriteResult(w, result)
-		return
-	}
-
-	result.Result = "ok"
-	utils.WriteResult(w, result)
-}
-
 // {"bid": "<value>", "rid": "<value>", "rule":
 //      [ ["lefttoken", "operator", "righttoken", "type", "isArray"],
 //        ["lefttoken", "operator", "righttoken", "type", "isArray"],
@@ -226,9 +217,26 @@ func addBundleRuleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uuid := r.Context().Value("tenant").(string)
-	group := r.Context().Value("group").(string)
-	err = db.DBAddBundleRule(uuid, group, &data)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	usertype, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		usertype = "regular"
+	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = usertype
+	}
+	if data.Group == "" {
+		data.Group = group
+	}
+	data.Admin = admin
+	glog.Infof("AddBundleRule: Adding group rule %v", data)
+	err = db.DBAddBundleRuleGroup(uuid, group, &data)
 	if err != nil {
+		glog.Errorf("AddBundleRule: error - %v", err)
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
 		return
@@ -238,32 +246,54 @@ func addBundleRuleHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-type GetBundleRuleResult struct {
-	Result string `json:"Result"`
-	db.BundleAccessRule
+func getBundleRuleHandler(w http.ResponseWriter, r *http.Request) {
+	uuid := r.Context().Value("tenant").(string)
+	v := mux.Vars(r)
+	bid := v["bid"]
+	ruleid := v["rid"]
+	brule := db.DBFindAllGroupsForBundleRule(uuid, bid, ruleid)
+	if brule == nil {
+		brule = []db.BundleAccessRule{}
+	}
+	utils.WriteResult(w, brule)
 }
 
 // Get all bundle rules
-func getAllBundleRulesHandler(w http.ResponseWriter, r *http.Request) {
+func getBundleAllRulesHandler(w http.ResponseWriter, r *http.Request) {
 	uuid := r.Context().Value("tenant").(string)
-	rules := db.DBFindAllBundleRules(uuid)
+	v := mux.Vars(r)
+	bid := v["bid"]
+	rules := db.DBFindBundleAllRules(uuid, bid)
 	if rules == nil {
 		rules = make([]db.BundleAccessRule, 0)
 	}
 	utils.WriteResult(w, rules)
-
 }
 
 // Delete a bundle ID rule
-func delBundleRuleHandler(w http.ResponseWriter, r *http.Request) {
+func delBundleRuleGroupHandler(w http.ResponseWriter, r *http.Request) {
 	var result RuleOpResult
 
+	usertype, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		usertype = "admin"
+	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = usertype
+	}
 	v := mux.Vars(r)
 	bid := v["bid"]
 	ruleid := v["rid"]
+	grp := v["group"]
+	if grp != group {
+		// someone is trying to delete some other group's rule expressions
+		result.Result = "Group admin mismatch for rule components being deleted"
+		utils.WriteResult(w, result)
+		return
+	}
 	uuid := r.Context().Value("tenant").(string)
-	group := r.Context().Value("group").(string)
-	err := db.DBDelBundleRule(uuid, group, bid, ruleid)
+	err := db.DBDelBundleRuleGroup(uuid, bid, ruleid, group)
 	if err != nil {
 		result.Result = err.Error()
 	} else {
