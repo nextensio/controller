@@ -478,35 +478,6 @@ func signupWithIdp(w http.ResponseWriter, tenant string, email string) (string, 
 	return gid, nil
 }
 
-func addBasePolicies(uuid string, user string) error {
-	accessPolicy := "package app.access\n\nallow = true\n"
-	routePolicy := "package user.routing\n\ndefault route_tag = \"\"\n"
-	tracePolicy := "package user.tracing\n\ndefault request = {\"no\": [\"\"]}\n"
-	statsPolicy := "package user.stats\n\ndefault attributes = {\"exclude\": [\"uid\", \"maj_ver\", \"min_ver\", \"_hostname\", \"_model\", \"_osMinor\", \"_osPatch\", \"_osName\"]}\n"
-
-	policy := db.Policy{PolicyId: "AccessPolicy", Rego: []rune(accessPolicy)}
-	err := db.DBAddPolicy(uuid, user, &policy)
-	if err != nil {
-		return err
-	}
-	policy = db.Policy{PolicyId: "RoutePolicy", Rego: []rune(routePolicy)}
-	err = db.DBAddPolicy(uuid, user, &policy)
-	if err != nil {
-		return err
-	}
-	policy = db.Policy{PolicyId: "TracePolicy", Rego: []rune(tracePolicy)}
-	err = db.DBAddPolicy(uuid, user, &policy)
-	if err != nil {
-		return err
-	}
-	policy = db.Policy{PolicyId: "StatsPolicy", Rego: []rune(statsPolicy)}
-	err = db.DBAddPolicy(uuid, user, &policy)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 func signupHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 	var signup db.Signup
@@ -587,7 +558,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = addBasePolicies(signup.Tenant, user.Uid)
+	err = db.DBAddBasePolicies(signup.Tenant, user.Uid)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -906,7 +877,7 @@ func addtenantHandler(w http.ResponseWriter, r *http.Request) {
 
 	setDeviceAttrSet(data.ID, admin)
 
-	err = addBasePolicies(data.ID, admin)
+	err = db.DBAddBasePolicies(data.ID, admin)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)

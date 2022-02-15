@@ -26,6 +26,35 @@ type Policy struct {
 	Rego     []rune `json:"rego" bson:"rego"`
 }
 
+func DBAddBasePolicies(uuid string, user string) error {
+	accessPolicy := "package app.access\n\nallow = true\n"
+	routePolicy := "package user.routing\n\ndefault route_tag = \"\"\n"
+	tracePolicy := "package user.tracing\n\ndefault request = {\"no\": [\"\"]}\n"
+	statsPolicy := "package user.stats\n\ndefault attributes = {\"exclude\": [\"uid\", \"maj_ver\", \"min_ver\", \"_hostname\", \"_model\", \"_osMinor\", \"_osPatch\", \"_osName\"]}\n"
+
+	policy := Policy{PolicyId: "AccessPolicy", Rego: []rune(accessPolicy)}
+	err := dbAddPolicy(uuid, user, &policy)
+	if err != nil {
+		return err
+	}
+	policy = Policy{PolicyId: "RoutePolicy", Rego: []rune(routePolicy)}
+	err = dbAddPolicy(uuid, user, &policy)
+	if err != nil {
+		return err
+	}
+	policy = Policy{PolicyId: "TracePolicy", Rego: []rune(tracePolicy)}
+	err = dbAddPolicy(uuid, user, &policy)
+	if err != nil {
+		return err
+	}
+	policy = Policy{PolicyId: "StatsPolicy", Rego: []rune(statsPolicy)}
+	err = dbAddPolicy(uuid, user, &policy)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // This API will add a new policy or update a policy if it already exists
 func DBAddPolicy(uuid string, admin string, data *Policy) error {
 
