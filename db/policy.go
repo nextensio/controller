@@ -62,10 +62,9 @@ func DBAddPolicy(uuid string, admin string, data *Policy) error {
 	if t == nil {
 		return fmt.Errorf("Cannot find tenant %s", uuid)
 	}
-	// Temporarily disable this to allow create.sh to create local testbed
-	//if t.EasyMode {
-	//	return fmt.Errorf("A policy cannot be added directly in Easy Mode")
-	//}
+	if t.EasyMode {
+		return fmt.Errorf("A policy cannot be added directly in Easy Mode")
+	}
 	return dbAddPolicy(uuid, admin, data)
 }
 
@@ -149,10 +148,9 @@ func DBDelPolicy(tenant string, policyId string) error {
 	if t == nil {
 		return fmt.Errorf("Cannot find tenant %s", tenant)
 	}
-	// Temporarily disable this to allow create.sh to create local testbed
-	//if t.EasyMode {
-	//	return fmt.Errorf("A policy cannot be deleted directly in Easy Mode")
-	//}
+	if t.EasyMode {
+		return fmt.Errorf("A policy cannot be deleted directly in Easy Mode")
+	}
 	return dbDelPolicy(tenant, policyId)
 }
 
