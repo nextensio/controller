@@ -175,9 +175,6 @@ func dbDelPolicy(tenant string, policyId string) error {
 	return err
 }
 
-//----------------------------------Bundle ID rules-----------------------------------
-// Access Policy is generated from the rules for one or more bundle ids
-
 // Validate that the rule snippets contain only attributes owned by the
 // specified group.
 // The filter is a temporary hack to filter out snippets for attributes
@@ -337,6 +334,9 @@ func dbValidateGroupOwnership(tenant string, rule *[][]string, group string, pol
 	return true, filtSnip
 }
 
+//----------------------------------Bundle ID rules-----------------------------------
+// Access Policy is generated from the rules for one or more bundle ids
+
 // A rule is configured for a bundle. The rule can be composed of
 // sub-rules for one or more groups. Each sub-rule is a collection
 // of one or more match expressions (called snippets).
@@ -402,11 +402,11 @@ func DBAddBundleRuleGroup(uuid string, group string, admin string, body *[]byte)
 	bunrul := dbFindBundleRuleGroup(bundleRuleCltn, Id)
 	if bunrul == nil {
 		data.Version = 0
-		//} else if bunrul.Version != data.Version {
+	} else if bunrul.Version != data.Version {
 		// Update case. Cannot update if version has changed
-		//return fmt.Errorf("Bundle rule has changed in DB. Refresh rule and try again")
+		return fmt.Errorf("Bundle rule has changed in DB. Refresh rule and try again")
 	} else {
-		data.Version++
+		data.Version = bunrul.Version + 1
 	}
 	// The upsert option asks the DB to add a tenant if one is not found
 	upsert := true
@@ -574,11 +574,11 @@ func DBAddHostRuleGroup(uuid string, group string, admin string, body *[]byte) e
 	hostrul := dbFindHostRuleGroup(hostRuleCltn, Id)
 	if hostrul == nil {
 		data.Version = 0
-		//} else if hostrul.Version != data.Version {
+	} else if hostrul.Version != data.Version {
 		// Update case. Cannot update if version has changed
-		// return fmt.Errorf("Host rule has changed in DB. Refresh rule and try again")
+		return fmt.Errorf("Host rule has changed in DB. Refresh rule and try again")
 	} else {
-		data.Version++
+		data.Version = hostrul.Version + 1
 	}
 	// The upsert option asks the DB to add a host sub-rule if one is not found
 	upsert := true
@@ -777,11 +777,11 @@ func DBAddTraceReqRuleGroup(uuid string, group string, admin string, body *[]byt
 	trcrul := dbFindTraceReqRuleGroup(traceReqRuleCltn, Id)
 	if trcrul == nil {
 		data.Version = 0
-		//} else if trcrul.Version != data.Version {
+	} else if trcrul.Version != data.Version {
 		// Update case. Cannot update if version has changed
-		// return fmt.Errorf("Trace req rule has changed in DB. Refresh rule and try again")
+		return fmt.Errorf("Trace req rule has changed in DB. Refresh rule and try again")
 	} else {
-		data.Version++
+		data.Version = trcrul.Version + 1
 	}
 	// The upsert option asks the DB to add a trace req sub-rule if one is not found
 	upsert := true
@@ -934,11 +934,11 @@ func DBAddStatsRuleGroup(uuid string, group string, admin string, body *[]byte) 
 	statrul := dbFindStatsRuleGroup(statsRuleCltn, Id)
 	if statrul == nil {
 		data.Version = 0
-		//} else if statrul.Version != data.Version {
+	} else if statrul.Version != data.Version {
 		// Update case. Cannot update if version has changed
-		// return fmt.Errorf("Stats rule has changed in DB. Refresh rule and try again")
+		return fmt.Errorf("Stats rule has changed in DB. Refresh rule and try again")
 	} else {
-		data.Version++
+		data.Version = statrul.Version + 1
 	}
 	// The upsert option asks the DB to add a tenant if one is not found
 	upsert := true
@@ -1637,12 +1637,7 @@ func processTraceReqRule(rid string, traceRule [][]string, ruleIndex int) (strin
 			}
 			rtoken = strings.Trim(rtoken, " ")
 			var attrarray []string
-			if strings.Contains(rtoken, " ") {
-				// Looks like we have multiple values. Break it up into array
-				attrarray = rightTokenArray(rtoken, "string")
-			} else {
-				attrarray = append(attrarray, rtoken)
-			}
+			attrarray = rightTokenArray(rtoken, "string")
 			cumattrs := ""
 			for _, attr := range attrarray {
 				if i > 0 {
@@ -1808,12 +1803,9 @@ func processStatsRule(statsRule [][]string) (string, string) {
 			return "", "Invalid snippet in Stats rule"
 		}
 
-		// rtoken is always an array of string values.
-		// For string values, add double quotes if missing.
-		// Always trim all values.
-		// For processing array of values, first replace any comma with a
-		// space, then split based on space. Remove any null strings to
-		// compress array.
+		// rtoken is always a string with one or more attribute names
+		// separated by space or maybe comma. Break out names and add
+		// double quote for each name.
 
 		rtoken := getSnippetRightToken(snippet)
 		if strings.Contains(rtoken, ",") {
@@ -1821,12 +1813,7 @@ func processStatsRule(statsRule [][]string) (string, string) {
 		}
 		rtoken = strings.Trim(rtoken, " ")
 		var attrarray []string
-		if strings.Contains(rtoken, " ") {
-			// Looks like we have multiple values. Break it up into array
-			attrarray = rightTokenArray(rtoken, "string")
-		} else {
-			attrarray = append(attrarray, rtoken)
-		}
+		attrarray = rightTokenArray(rtoken, "string")
 		cumattrs := ""
 		for _, attr := range attrarray {
 			if i > 0 {
