@@ -402,9 +402,9 @@ func DBAddBundleRuleGroup(uuid string, group string, admin string, body *[]byte)
 	bunrul := dbFindBundleRuleGroup(bundleRuleCltn, Id)
 	if bunrul == nil {
 		data.Version = 0
-	} else if bunrul.Version != data.Version {
+		//} else if bunrul.Version != data.Version {
 		// Update case. Cannot update if version has changed
-		return fmt.Errorf("Bundle rule has changed in DB. Refresh rule and try again")
+		//return fmt.Errorf("Bundle rule has changed in DB. Refresh rule and try again")
 	} else {
 		data.Version = bunrul.Version + 1
 	}
@@ -574,9 +574,9 @@ func DBAddHostRuleGroup(uuid string, group string, admin string, body *[]byte) e
 	hostrul := dbFindHostRuleGroup(hostRuleCltn, Id)
 	if hostrul == nil {
 		data.Version = 0
-	} else if hostrul.Version != data.Version {
+		//} else if hostrul.Version != data.Version {
 		// Update case. Cannot update if version has changed
-		return fmt.Errorf("Host rule has changed in DB. Refresh rule and try again")
+		//return fmt.Errorf("Host rule has changed in DB. Refresh rule and try again")
 	} else {
 		data.Version = hostrul.Version + 1
 	}
@@ -777,9 +777,9 @@ func DBAddTraceReqRuleGroup(uuid string, group string, admin string, body *[]byt
 	trcrul := dbFindTraceReqRuleGroup(traceReqRuleCltn, Id)
 	if trcrul == nil {
 		data.Version = 0
-	} else if trcrul.Version != data.Version {
+		//} else if trcrul.Version != data.Version {
 		// Update case. Cannot update if version has changed
-		return fmt.Errorf("Trace req rule has changed in DB. Refresh rule and try again")
+		//return fmt.Errorf("Trace req rule has changed in DB. Refresh rule and try again")
 	} else {
 		data.Version = trcrul.Version + 1
 	}
@@ -934,9 +934,9 @@ func DBAddStatsRuleGroup(uuid string, group string, admin string, body *[]byte) 
 	statrul := dbFindStatsRuleGroup(statsRuleCltn, Id)
 	if statrul == nil {
 		data.Version = 0
-	} else if statrul.Version != data.Version {
+		//} else if statrul.Version != data.Version {
 		// Update case. Cannot update if version has changed
-		return fmt.Errorf("Stats rule has changed in DB. Refresh rule and try again")
+		//return fmt.Errorf("Stats rule has changed in DB. Refresh rule and try again")
 	} else {
 		data.Version = statrul.Version + 1
 	}
