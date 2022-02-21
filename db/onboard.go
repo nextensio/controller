@@ -1941,6 +1941,10 @@ func DBAddBundle(uuid string, admin string, data *Bundle) error {
 	if tenant == nil {
 		return fmt.Errorf("Unknown tenant")
 	}
+	err := DBUpdateTenantCfgvn(uuid, uint64(time.Now().Unix()))
+	if err != nil {
+		return err
+	}
 	user := DBFindUser(uuid, data.Bid)
 	if user != nil {
 		return fmt.Errorf("ID already taken for a user, please use different id")
@@ -2029,7 +2033,7 @@ func DBAddBundle(uuid string, admin string, data *Bundle) error {
 	}
 	DBUpdateBundleInfoHdr(uuid, admin)
 
-	err := DBAddClusterBundle(uuid, data)
+	err = DBAddClusterBundle(uuid, data)
 	if err != nil {
 		return err
 	}
@@ -2037,7 +2041,7 @@ func DBAddBundle(uuid string, admin string, data *Bundle) error {
 	return nil
 }
 
-func DBUpdateBundle(uuid string, admin string, data *Bundle) error {
+func DBUpdateBundle(tenant string, admin string, data *Bundle) error {
 
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
@@ -2046,8 +2050,12 @@ func DBUpdateBundle(uuid string, admin string, data *Bundle) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
+	err := DBUpdateTenantCfgvn(tenant, uint64(time.Now().Unix()))
+	if err != nil {
+		return err
+	}
 
-	appCltn := dbGetCollection(uuid, "NxtApps")
+	appCltn := dbGetCollection(tenant, "NxtApps")
 	if appCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
@@ -2065,7 +2073,7 @@ func DBUpdateBundle(uuid string, admin string, data *Bundle) error {
 	if result.Err() != nil {
 		return result.Err()
 	}
-	DBUpdateBundleInfoHdr(uuid, admin)
+	DBUpdateBundleInfoHdr(tenant, admin)
 
 	return nil
 }
