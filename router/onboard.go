@@ -1777,8 +1777,10 @@ func getSpecificAttrSet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	v := mux.Vars(r)
-	atyp := strings.ToLower(v["type"])
+	atyp := v["type"]
 	switch atyp {
+	case "All":
+		fallthrough
 	case "all":
 		if group == "admin" || group == "superadmin" {
 			// Get all entries in the AttrSet collection - all appliesTo
@@ -1787,13 +1789,13 @@ func getSpecificAttrSet(w http.ResponseWriter, r *http.Request) {
 		} else {
 			// Get AttrSet entries for all appliesTo values but filtered
 			// for group
-			set = db.DBFindSpecificAttrSet(uuid, atyp, group)
+			set = db.DBFindSpecificAttrSet(uuid, "all", group)
 		}
-	case "users":
-	case "bundles":
-	case "appgroups":
-	case "hosts":
-	case "apps":
+	case "Users":
+	case "Bundles":
+	case "Appgroups":
+	case "Hosts":
+	case "Apps":
 	default:
 		// Unknown type
 		result := make([]db.AttrSet, 0)
@@ -1801,7 +1803,7 @@ func getSpecificAttrSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// atyp == "all" is covered above, so cover all the other cases below
-	if atyp != "all" {
+	if atyp != "all" && atyp != "All" {
 		if group == "superadmin" || group == "admin" {
 			// Get AttrSet entries for specific appliesTo value for all
 			// groups

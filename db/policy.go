@@ -1316,6 +1316,7 @@ func dbGeneratePolicyFromHostRules(tenant string) []string {
 	hostMap = make(map[string][]string, 0)
 	ridMap = make(map[string][][]string, 0)
 	verInfo := ""
+	tagneeded := false
 
 	RetVal := make([]string, 2)
 	RegoPolicy := generateRoutePolicyHeader()
@@ -1340,16 +1341,31 @@ func dbGeneratePolicyFromHostRules(tenant string) []string {
 			if !found2 {
 				// new rule id found for host
 				hostMap[subrule.Host] = append(hostMap[subrule.Host], subrule.Rid)
+				tagneeded = true
 			}
 		} else {
 			// New host id, so track host and rule ids.
 			hostMap[subrule.Host] = append(hostMap[subrule.Host], subrule.Rid)
+			tagneeded = true
 		}
 		// Consolidate all the snippets from the group into the rule
 		host := subrule.Host
 		rid := subrule.Rid
 		for i := 0; i < len(subrule.Rule); i++ {
 			ridMap[host+":"+rid] = append(ridMap[host+":"+rid], subrule.Rule[i])
+		}
+		// The tag for a host route is being included as a snippet in every rule by the ux code
+		// It will be changed to instead prefix the hostid with the tag. We therefore need
+		// this piece of code to check if the hostid is prefixed with the tag, and if so,
+		// extract the tag to create a new snippet per rule.
+		if tagneeded {
+			tagneeded = false
+			taggedhost := strings.SplitN(host, ":", 2)
+			if len(taggedhost) == 2 {
+				// Host is prefixed with tag
+				tagsnip := []string{"tag", "==", taggedhost[0], "string", "false"}
+				ridMap[host+":"+rid] = append(ridMap[host+":"+rid], tagsnip)
+			}
 		}
 		grp := subrule.Group
 		ver := fmt.Sprintf("%d", subrule.Version)
