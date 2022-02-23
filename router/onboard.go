@@ -61,9 +61,11 @@ func rdonlyOnboard() {
 	getTenantRoute("/allusers", "GET", getAllUsersHandler)
 
 	// This route is used to get all possible attributes for users/bundles/hosts
+	// TO BE DEPRECATED
 	getTenantRoute("/allattrset", "GET", getAllAttrSet)
 
 	// This route is used to get attributes for a specific type - users or bundles or hosts
+	// To get for all types, {type} = "all"
 	getTenantRoute("/attrset/{type}", "GET", getSpecificAttrSet)
 
 	// This route is used to get bundle attributes header for a tenant
@@ -1606,7 +1608,7 @@ func delUserHandler(w http.ResponseWriter, r *http.Request) {
 // Get all attribute sets
 func getAllAttrSet(w http.ResponseWriter, r *http.Request) {
 	uuid := r.Context().Value("tenant").(string)
-	set := db.DBFindAllAttrSet(uuid)
+	set := db.DBFindSpecificAttrSet(uuid, "all", "all")
 	if set == nil {
 		result := make([]db.AttrSet, 0)
 		utils.WriteResult(w, result)
@@ -1763,6 +1765,7 @@ func updUserAdminRole(w http.ResponseWriter, r *http.Request) {
 
 // Get attribute sets for specified type - "Users", "Bundles", "Hosts"
 func getSpecificAttrSet(w http.ResponseWriter, r *http.Request) {
+	var set []db.AttrSet
 	uuid := r.Context().Value("tenant").(string)
 	usertype, ok := r.Context().Value("usertype").(string)
 	if !ok {
@@ -1774,8 +1777,41 @@ func getSpecificAttrSet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	v := mux.Vars(r)
-	atyp := v["type"]
-	set := db.DBFindSpecificAttrSet(uuid, atyp, group)
+	atyp := strings.ToLower(v["type"])
+	switch atyp {
+	case "all":
+		if group == "admin" || group == "superadmin" {
+			// Get all entries in the AttrSet collection - all appliesTo
+			// values and all groups
+			set = db.DBFindSpecificAttrSet(uuid, "all", "all")
+		} else {
+			// Get AttrSet entries for all appliesTo values but filtered
+			// for group
+			set = db.DBFindSpecificAttrSet(uuid, atyp, group)
+		}
+	case "users":
+	case "bundles":
+	case "appgroups":
+	case "hosts":
+	case "apps":
+	default:
+		// Unknown type
+		result := make([]db.AttrSet, 0)
+		utils.WriteResult(w, result)
+		return
+	}
+	// atyp == "all" is covered above, so cover all the other cases below
+	if atyp != "all" {
+		if group == "superadmin" || group == "admin" {
+			// Get AttrSet entries for specific appliesTo value for all
+			// groups
+			set = db.DBFindSpecificAttrSet(uuid, atyp, "all")
+		} else {
+			// Get AttrSet entries for specific appliesTo value and specific
+			// group
+			set = db.DBFindSpecificAttrSet(uuid, atyp, group)
+		}
+	}
 	if set == nil {
 		result := make([]db.AttrSet, 0)
 		utils.WriteResult(w, result)

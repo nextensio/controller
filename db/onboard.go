@@ -1148,27 +1148,6 @@ func DBDelAttrSet(tenant string, admin string, group string, set AttrSet) error 
 	return nil
 }
 
-func DBFindAllAttrSet(tenant string) []AttrSet {
-	var set []AttrSet
-
-	attrSetCltn := dbGetCollection(tenant, "NxtAttrSet")
-	if attrSetCltn == nil {
-		glog.Errorf("AttrSet: Could not find AttrSet collection")
-		return nil
-	}
-	cursor, err := attrSetCltn.Find(context.TODO(), bson.M{})
-	if err != nil {
-		return nil
-	}
-	err = cursor.All(context.TODO(), &set)
-	if err != nil {
-		glog.Errorf("AttrSet: Find all attr sets failed - %v", err)
-		return nil
-	}
-
-	return set
-}
-
 func DBFindSpecificAttrSet(tenant string, atyp string, group string) []AttrSet {
 	var set []AttrSet
 	var err error
@@ -1180,7 +1159,19 @@ func DBFindSpecificAttrSet(tenant string, atyp string, group string) []AttrSet {
 		return nil
 	}
 
-	cursor, err = attrSetCltn.Find(context.TODO(), bson.M{"appliesTo": atyp, "group": group})
+	if group == "all" {
+		if atyp == "all" {
+			cursor, err = attrSetCltn.Find(context.TODO(), bson.M{})
+		} else {
+			cursor, err = attrSetCltn.Find(context.TODO(), bson.M{"appliesTo": atyp})
+		}
+	} else {
+		if atyp == "all" {
+			cursor, err = attrSetCltn.Find(context.TODO(), bson.M{"group": group})
+		} else {
+			cursor, err = attrSetCltn.Find(context.TODO(), bson.M{"appliesTo": atyp, "group": group})
+		}
+	}
 	if err != nil {
 		return nil
 	}
@@ -1700,23 +1691,21 @@ func DBUpdateAttrsForMultipleUsers(uuid string, admin string, Uattr []bson.M) er
 // This API will add a new user attributes doc or update existing one
 func DBAddUserAttr(uuid string, admin string, user string, Uattr bson.M) error {
 	if Uattr != nil {
-		attrset := DBFindAllAttrSet(uuid)
+		attrset := DBFindSpecificAttrSet(uuid, "Users", "all")
 		nattrs := 0
 		for _, a := range attrset {
-			if a.AppliesTo == "Users" {
-				if strings.HasPrefix(a.Name, "_") {
-					continue
+			if strings.HasPrefix(a.Name, "_") {
+				continue
+			}
+			nattrs += 1
+			found := false
+			for k := range Uattr {
+				if k == a.Name {
+					found = true
 				}
-				nattrs += 1
-				found := false
-				for k := range Uattr {
-					if k == a.Name {
-						found = true
-					}
-				}
-				if !found {
-					return fmt.Errorf("All attributes defined in AttributeEditor needs to have some valid value provided", a.Name)
-				}
+			}
+			if !found {
+				return fmt.Errorf("All attributes defined in AttributeEditor needs to have some valid value provided", a.Name)
 			}
 		}
 	}
@@ -2370,20 +2359,18 @@ func DBAddBundleAttr(uuid string, admin string, bid string, Battr bson.M) error 
 	}
 
 	if Battr != nil {
-		attrset := DBFindAllAttrSet(uuid)
+		attrset := DBFindSpecificAttrSet(uuid, "Bundles", "all")
 		nattrs := 0
 		for _, a := range attrset {
-			if a.AppliesTo == "Bundles" {
-				nattrs += 1
-				found := false
-				for k := range Battr {
-					if k == a.Name {
-						found = true
-					}
+			nattrs += 1
+			found := false
+			for k := range Battr {
+				if k == a.Name {
+					found = true
 				}
-				if !found {
-					return fmt.Errorf("Attribute %s not defined in AttributeEditor", a.Name)
-				}
+			}
+			if !found {
+				return fmt.Errorf("Attribute %s not defined in AttributeEditor", a.Name)
 			}
 		}
 	}
@@ -2748,22 +2735,20 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 	}
 
 	attrs := Hattr["routeattrs"].([]interface{})
-	attrset := DBFindAllAttrSet(uuid)
+	attrset := DBFindSpecificAttrSet(uuid, "Hosts", "all")
 	nattrs := 0
 	for _, a := range attrset {
-		if a.AppliesTo == "Hosts" {
-			nattrs += 1
-			for _, r := range attrs {
-				found := false
-				route := r.(map[string]interface{})
-				for k := range route {
-					if k == a.Name {
-						found = true
-					}
+		nattrs += 1
+		for _, r := range attrs {
+			found := false
+			route := r.(map[string]interface{})
+			for k := range route {
+				if k == a.Name {
+					found = true
 				}
-				if !found {
-					return fmt.Errorf("All attributes defined in AttributeEditor needs to have some valid value provided", a.Name)
-				}
+			}
+			if !found {
+				return fmt.Errorf("All attributes defined in AttributeEditor needs to have some valid value provided", a.Name)
 			}
 		}
 	}
