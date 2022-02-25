@@ -60,19 +60,9 @@ func rdonlyOnboard() {
 	// This route is used to get all users for a tenant
 	getTenantRoute("/allusers", "GET", getAllUsersHandler)
 
-	// This route is used to get all possible attributes for users/bundles/hosts
-	// TO BE DEPRECATED
-	getTenantRoute("/allattrset", "GET", getAllAttrSet)
-
 	// This route is used to get attributes for a specific type - users or bundles or hosts
 	// To get for all types, {type} = "all"
 	getTenantRoute("/attrset/{type}", "GET", getSpecificAttrSet)
-
-	// This route is used to get bundle attributes header for a tenant
-	getTenantRoute("/bundleattrhdr", "GET", getBundleAttrHdrHandler)
-
-	// This route is used to get user attributes header for a tenant
-	getTenantRoute("/userattrhdr", "GET", getUserAttrHdrHandler)
 
 	// This route is used to get all user attributes for a tenant
 	getTenantRoute("/alluserattr", "GET", getAllUserAttrHandler)
@@ -82,9 +72,6 @@ func rdonlyOnboard() {
 
 	// This route is used to get all bundle attributes for a tenant
 	getTenantRoute("/allbundleattr", "GET", getAllBundleAttrHandler)
-
-	// This route is used to get host attributes header for a tenant
-	getTenantRoute("/hostattrhdr", "GET", getHostAttrHdrHandler)
 
 	// This route is used to get all host attributes for a tenant
 	getTenantRoute("/allhostattr", "GET", getAllHostAttrHandler)
@@ -1957,19 +1944,6 @@ func addUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-// Get user attribute header
-func getUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
-	var hdr []db.DataHdr
-
-	uuid := r.Context().Value("tenant").(string)
-	dhdr := db.DBFindUserAttrHdr(uuid)
-	if dhdr == nil {
-		utils.WriteResult(w, hdr)
-	} else {
-		utils.WriteResult(w, []db.DataHdr{*dhdr})
-	}
-}
-
 // Add a user's attributes, used in policies applied to the user etc.
 func addUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
@@ -2220,19 +2194,6 @@ func addBundleAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-// Get bundle attribute header
-func getBundleAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
-	uuid := r.Context().Value("tenant").(string)
-	hdr := db.DBFindBundleAttrHdr(uuid)
-	if hdr == nil {
-		result := make([]db.DataHdr, 0)
-		utils.WriteResult(w, result)
-	} else {
-		result := []db.DataHdr{*hdr}
-		utils.WriteResult(w, result)
-	}
-}
-
 // Add a bundle's attribute, used to decide what policies are applied to the bundle etc.
 func addBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
@@ -2306,19 +2267,6 @@ func getAllBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	utils.WriteResult(w, attrs)
 
-}
-
-// Get host attributes header for a tenant
-func getHostAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
-	uuid := r.Context().Value("tenant").(string)
-	hdr := db.DBFindHostAttrHdr(uuid)
-	if hdr == nil {
-		result := make([]db.DataHdr, 0)
-		utils.WriteResult(w, result)
-	} else {
-		result := []db.DataHdr{*hdr}
-		utils.WriteResult(w, result)
-	}
 }
 
 // Get all host attributes for a tenant
