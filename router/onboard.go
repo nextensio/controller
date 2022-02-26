@@ -540,7 +540,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Add "base" attributes
-	err = db.DBAddUserAttr(signup.Tenant, user.Uid, user.Uid, nil)
+	err = db.DBAddUserAttr(signup.Tenant, user.Uid, user.Uid, "admin", nil)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1463,6 +1463,12 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 	var data db.User
 
+	if !allowTenantAdminOnly(r) {
+		result.Result = "Not privileged to add a new user"
+		utils.WriteResult(w, result)
+		return
+	}
+
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		result.Result = "Add user info - HTTP Req Read fail"
@@ -1480,6 +1486,10 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 	admin, ok := r.Context().Value("userid").(string)
 	if !ok {
 		admin = "UnknownUser"
+	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = "regular"
 	}
 
 	idpgid, err := IdpGetGroupID(API, TOKEN, uuid)
@@ -1517,7 +1527,7 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Add/Update base attributes
-	err = db.DBAddUserAttr(uuid, admin, data.Uid, nil)
+	err = db.DBAddUserAttr(uuid, admin, data.Uid, group, nil)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1948,6 +1958,22 @@ func addUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 func addUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 
+	uuid := r.Context().Value("tenant").(string)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = "regular"
+	}
+
+	if !allowAnyAdminAccess(r, group) {
+		result.Result = "Not privileged to add/update user attributes provided"
+		utils.WriteResult(w, result)
+		return
+	}
+
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		result.Result = "Add User attributes - HTTP Req Read fail"
@@ -1971,12 +1997,7 @@ func addUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	uuid := r.Context().Value("tenant").(string)
-	admin, ok := r.Context().Value("userid").(string)
-	if !ok {
-		admin = "UnknownUser"
-	}
-	err = db.DBAddUserAttr(uuid, admin, user, Uattr)
+	err = db.DBAddUserAttr(uuid, admin, user, group, Uattr)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1989,6 +2010,22 @@ func addUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 
 func updMultiUsersAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
+
+	uuid := r.Context().Value("tenant").(string)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = "regular"
+	}
+
+	if !allowAnyAdminAccess(r, group) {
+		result.Result = "Not privileged to update user attributes provided"
+		utils.WriteResult(w, result)
+		return
+	}
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -2004,12 +2041,7 @@ func updMultiUsersAttrHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	uuid := r.Context().Value("tenant").(string)
-	admin, ok := r.Context().Value("userid").(string)
-	if !ok {
-		admin = "UnknownUser"
-	}
-	err = db.DBUpdateAttrsForMultipleUsers(uuid, admin, Uattr)
+	err = db.DBUpdateAttrsForMultipleUsers(uuid, admin, group, Uattr)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)

@@ -1573,15 +1573,69 @@ func DBFindUserStatus(tenant string, userid string) []UserStatus {
 	return status
 }
 
-func dbAddUserAttr(uuid string, user string, Uattr bson.M, replace bool) error {
-	if Uattr == nil || len(Uattr) == 0 {
-		attr := DBFindUserAttr(uuid, user)
-		if attr != nil {
-			// Well there is already some attributes, and we are not
-			// having anything new / changing here, so just return
-			return nil
+func dbCheckUserAttrGroupOwnership(tenant string, group string, Uattr *bson.M, upd bool) (bool, string) {
+	grp := group
+	if group == "admin" || group == "superadmin" {
+		grp = "all"
+	}
+	attrset := DBFindSpecificAttrSet(tenant, "Users", grp)
+	nattrs := 0
+	if !upd {
+		// New attributes are being added. A group admin has to add all
+		// user attributes for that group only. An "admin" or "superadmin"
+		// has to add all user attributes.
+		for _, a := range attrset {
+			if strings.HasPrefix(a.Name, "_") {
+				// Skip system attributes since their values
+				// cannot be updated.
+				continue
+			}
+			nattrs += 1
+			found := false
+			for k := range *Uattr {
+				if k == a.Name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false, "All attributes defined in AttributeEditor need to be present"
+			}
 		}
 	}
+	// Now check if all attributes passed in are part of attrset.
+	// A group admin can update user attributes only for the group.
+	// An "admin" or "superadmin" can update all user attributes.
+	// For now, filter out attributes not belonging to group since
+	// ux code sends all attributes if group admin is updating.
+	invalid := false
+	for k := range *Uattr {
+		if strings.HasPrefix(k, "_") {
+			// Cannot add/update a system user attribute
+			invalid = true
+			break
+		}
+		found := false
+		for _, a := range attrset {
+			if a.Name == k {
+				found = true
+				break
+			}
+		}
+		if !found {
+			delete(*Uattr, k)
+			continue
+			// invalid = true
+			// break
+		}
+	}
+	if invalid {
+		return false, "Attribute list has attributes without required privilege"
+	}
+	return true, ""
+}
+
+func dbAddUserAttr(uuid string, user string, Uattr bson.M, replace bool) error {
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
@@ -1595,6 +1649,7 @@ func dbAddUserAttr(uuid string, user string, Uattr bson.M, replace bool) error {
 	}
 	if !replace {
 		if Uattr == nil || len(Uattr) == 0 {
+			// This is an api call and no user attributes doc exists
 			_, err := userAttrCltn.InsertOne(
 				context.TODO(),
 				bson.M{"_id": user},
@@ -1603,6 +1658,7 @@ func dbAddUserAttr(uuid string, user string, Uattr bson.M, replace bool) error {
 				return err
 			}
 		} else {
+			// This is an api call and a user attributes doc exists
 			result := userAttrCltn.FindOneAndUpdate(
 				context.TODO(),
 				bson.M{"_id": user},
@@ -1616,6 +1672,8 @@ func dbAddUserAttr(uuid string, user string, Uattr bson.M, replace bool) error {
 			}
 		}
 	} else {
+		// A new attribute is being added or an attribute is being
+		// deleted
 		result, err := userAttrCltn.ReplaceOne(
 			context.TODO(),
 			bson.M{"_id": user},
@@ -1632,7 +1690,7 @@ func dbAddUserAttr(uuid string, user string, Uattr bson.M, replace bool) error {
 }
 
 // Bulk add/update of attributes for multiple users
-func DBUpdateAttrsForMultipleUsers(uuid string, admin string, Uattr []bson.M) error {
+func DBUpdateAttrsForMultipleUsers(uuid string, admin string, group string, Uattr []bson.M) error {
 	if Uattr == nil || len(Uattr) == 0 {
 		return nil
 	}
@@ -1646,6 +1704,19 @@ func DBUpdateAttrsForMultipleUsers(uuid string, admin string, Uattr []bson.M) er
 	userAttrCltn := dbGetCollection(uuid, "NxtUserAttr")
 	if userAttrCltn == nil {
 		return fmt.Errorf("Unknown Collection")
+	}
+	// First check and ensure that admin has privileges for all attributes
+	// involved. If everything is fine, then push the changes to the DB.
+	for _, urec := range Uattr {
+		_, ok := urec["uid"].(string)
+		if !ok {
+			continue
+		}
+		delete(urec, "uid")
+		sts, errstr := dbCheckUserAttrGroupOwnership(uuid, group, &urec, true)
+		if !sts {
+			return fmt.Errorf(errstr)
+		}
 	}
 	count := 0
 	for _, urec := range Uattr {
@@ -1689,32 +1760,37 @@ func DBUpdateAttrsForMultipleUsers(uuid string, admin string, Uattr []bson.M) er
 //}
 
 // This API will add a new user attributes doc or update existing one
-func DBAddUserAttr(uuid string, admin string, user string, Uattr bson.M) error {
+func DBAddUserAttr(uuid string, admin string, user string, group string, Uattr bson.M) error {
+	// Ensure the user info doc exists first before adding an attribute doc
+	// for that user.
+	dbUser := DBFindUser(uuid, user)
+	if dbUser == nil {
+		return fmt.Errorf("Cannot find user " + user)
+	}
+
+	upd := false
+	uattr := DBFindUserAttr(uuid, user)
 	if Uattr != nil {
-		attrset := DBFindSpecificAttrSet(uuid, "Users", "all")
-		nattrs := 0
-		for _, a := range attrset {
-			if strings.HasPrefix(a.Name, "_") {
-				continue
+		// User attribute add or update via api. Figure out if it's
+		// an add or an update.
+		if uattr != nil {
+			// A user attributes doc exists. If the doc has just the key
+			// field, it's an add case, else an update.
+			if len(*uattr) > 1 {
+				upd = true
 			}
-			nattrs += 1
-			found := false
-			for k := range Uattr {
-				if k == a.Name {
-					found = true
-				}
-			}
-			if !found {
-				return fmt.Errorf("All attributes defined in AttributeEditor needs to have some valid value provided", a.Name)
-			}
+		}
+		sts, errstr := dbCheckUserAttrGroupOwnership(uuid, group, &Uattr, upd)
+		if !sts {
+			return fmt.Errorf(errstr)
 		}
 	}
 
-	dbUser := DBFindUser(uuid, user)
-	if dbUser == nil {
-		return fmt.Errorf("Cannot find user")
+	if (Uattr == nil || len(Uattr) == 0) && uattr != nil {
+		// user attributes doc exists and no new user attributes supplied,
+		// so just return
+		return nil
 	}
-
 	err := dbAddUserAttr(uuid, user, Uattr, false)
 	if err == nil {
 		DBUpdateUserAttrHdr(uuid, admin)
@@ -1845,11 +1921,13 @@ func DBAddAllUsersOneAttr(tenant string, admin string, set AttrSet) error {
 		if err = cursor.Decode(&attr); err != nil {
 			break
 		}
-		if attr["_id"].(string) == HDRKEY {
+		key := attr["_id"].(string)
+		if key == HDRKEY {
 			continue
 		}
 		attr[set.Name] = value
-		if err = dbAddUserAttr(tenant, attr["_id"].(string), attr, true); err != nil {
+		glog.Infof("Adding attribute " + set.Name + " to user " + key)
+		if err = dbAddUserAttr(tenant, key, attr, true); err != nil {
 			break
 		}
 	}
