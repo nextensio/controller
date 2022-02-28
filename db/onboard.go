@@ -1128,6 +1128,14 @@ func DBDelAttrSet(tenant string, admin string, group string, set AttrSet) error 
 		}
 	}
 	if set.AppliesTo == "Users" {
+		// First check if attribute is being used in any rules (in Easy mode)
+		tnt := DBFindTenant(tenant)
+		if tnt == nil {
+			return fmt.Errorf("Tenant " + tenant + " not found")
+		}
+		if tnt.EasyMode && DBRulesContainAttribute(tenant, set.Name) {
+			return fmt.Errorf("Rules contain attribute " + set.Name + " being deleted")
+		}
 		if err := DBDelAllUsersOneAttr(tenant, admin, set.Name); err != nil {
 			return err
 		}
