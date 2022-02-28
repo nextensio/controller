@@ -1065,6 +1065,28 @@ func DBAddAttrSet(tenant string, admin string, group string, s AttrSet, rsrvd bo
 		return fmt.Errorf("Attribute name indicates reserved attribute")
 	}
 
+	// Validate some fields in the AttrSet
+	switch s.AppliesTo {
+	case "Users":
+	case "Hosts":
+	case "Bundles":
+	default:
+		return fmt.Errorf("Attribute has invalid AppliesTo " + s.AppliesTo)
+	}
+	switch s.Type {
+	case "String":
+	case "Number":
+	case "Boolean":
+	case "Date":
+	default:
+		return fmt.Errorf("Attribute has invalid type " + s.Type)
+	}
+	switch s.IsArray {
+	case "true":
+	case "false":
+	default:
+		return fmt.Errorf("Attribute has invalid isArray " + s.IsArray)
+	}
 	upsert := true
 	after := options.After
 	opt := options.FindOneAndUpdateOptions{
@@ -1089,17 +1111,16 @@ func DBAddAttrSet(tenant string, admin string, group string, s AttrSet, rsrvd bo
 		return err.Err()
 	}
 	glog.Infof("AddAttrSet: Added %s attribute %s in group %s", s.AppliesTo, s.Name, group)
-	if s.AppliesTo == "Hosts" {
+	switch s.AppliesTo {
+	case "Hosts":
 		if err := DBAddAllHostsOneAttr(tenant, admin, s); err != nil {
 			return err
 		}
-	}
-	if s.AppliesTo == "Users" {
+	case "Users":
 		if err := DBAddAllUsersOneAttr(tenant, admin, s); err != nil {
 			return err
 		}
-	}
-	if s.AppliesTo == "Bundles" {
+	case "Bundles":
 		if err := DBAddAllBundlesOneAttr(tenant, admin, s); err != nil {
 			return err
 		}
@@ -1122,12 +1143,12 @@ func DBDelAttrSet(tenant string, admin string, group string, set AttrSet) error 
 	if curSet.Group != "" && curSet.Group != group {
 		return fmt.Errorf("Admin group not matching attribute group")
 	}
-	if set.AppliesTo == "Hosts" {
+	switch set.AppliesTo {
+	case "Hosts":
 		if err := DBDelAllHostsOneAttr(tenant, admin, set.Name); err != nil {
 			return err
 		}
-	}
-	if set.AppliesTo == "Users" {
+	case "Users":
 		// First check if attribute is being used in any rules (in Easy mode)
 		tnt := DBFindTenant(tenant)
 		if tnt == nil {
@@ -1139,8 +1160,7 @@ func DBDelAttrSet(tenant string, admin string, group string, set AttrSet) error 
 		if err := DBDelAllUsersOneAttr(tenant, admin, set.Name); err != nil {
 			return err
 		}
-	}
-	if set.AppliesTo == "Bundles" {
+	case "Bundles":
 		if err := DBDelAllBundlesOneAttr(tenant, admin, set.Name); err != nil {
 			return err
 		}
