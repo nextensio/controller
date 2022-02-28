@@ -1578,6 +1578,12 @@ func dbCheckUserAttrGroupOwnership(tenant string, group string, Uattr *bson.M, u
 	if group == "admin" || group == "superadmin" {
 		grp = "all"
 	}
+	if !upd {
+		// When adding attributes, all attributes need to be added in one
+		// shot, not group by group. Updates of attribute values need to
+		// be done by group.
+		grp = "all"
+	}
 	attrset := DBFindSpecificAttrSet(tenant, "Users", grp)
 	nattrs := 0
 	if !upd {
