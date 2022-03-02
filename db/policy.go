@@ -1427,10 +1427,10 @@ func dbGeneratePolicyFromHostRules(tenant string) []string {
 		// this piece of code to check if the hostid is prefixed with the tag, and if so,
 		// extract the tag to create a new snippet per rule.
 		if tagneeded {
-			tagneeded = false
-			taggedhost := strings.SplitN(host, ":", 2)
+			taggedhost := strings.SplitN(host, ".", 2)
 			if len(taggedhost) == 2 {
 				// Host is prefixed with tag
+				tagneeded = false
 				tagsnip := []string{"tag", "==", taggedhost[0], "string", "false"}
 				ridMap[host+":"+rid] = append(ridMap[host+":"+rid], tagsnip)
 			}
@@ -1474,7 +1474,7 @@ func generateRoutePolicyHeader() string {
 }
 
 func processHostRule(host string, hostRule [][]string) (string, string) {
-	routePolicyTag := "** Error **"
+	routePolicyTag := ""
 	routeTagValue := "deny"
 	routeTagSpecified := false
 	Exprs := ""
@@ -1589,6 +1589,9 @@ func processHostRule(host string, hostRule [][]string) (string, string) {
 				}
 			}
 		}
+	}
+	if routePolicyTag == "" {
+		return "", "Route tag not found for App " + host
 	}
 	RuleEnd := "}\n\n"
 	Rule := RuleStart + HostConst + Exprs + routePolicyTag + RuleEnd
