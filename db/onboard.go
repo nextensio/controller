@@ -2812,6 +2812,19 @@ func DBValidateHostId(host string) string {
 }
 
 // This API will add/update a host attributes doc
+// A host can be added without any routes. When the host is added,
+// all agents need to be notified because the domain list changes.
+// After that, routes can be added incrementally or a route deleted.
+// Each route that is added has a tag and associated attributes. The
+// attributes must always exactly match the list of Host attributes
+// defined in the AttrSet (via say attribute editor).
+// Existing route tag attribute values can be changed for one or more
+// route tags. These are the possibilities:
+// 1. all existing route tags are being updated
+// 2. only a subset of route tags are being updated, leaving the others intact
+// 3. only a subset of route tags are being updated while deleting the rest
+// 4. one or more route tags are being added to existing route tags
+// 5. only a subset of route tags are being updated while adding one or more.
 func DBAddHostAttr(uuid string, admin string, data []byte) error {
 	var Hattr bson.M
 
@@ -2822,31 +2835,41 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 	host := Hattr["host"].(string)
 	delete(Hattr, "host")
 
+	attrs := Hattr["routeattrs"].([]interface{})
+	// First check if there are duplicate route tags
+	tags := make(map[string]bool, 0)
+	for _, a := range attrs {
+		route := a.(map[string]interface{})
+		tag := route["tag"].(string)
+		_, ok := tags[tag]
+		if ok {
+			glog.Errorf("AddHostAttr: duplicate route tag found - " + tag)
+			return fmt.Errorf("Duplicate route tag name")
+		}
+		tags[tag] = true
+	}
+
+	// See if we have a new host or it's an existing host
 	hosts := DBFindAllHosts(uuid)
-	found := false
+	hostfound := false
 	for _, h := range hosts {
 		if h == host {
-			found = true
+			hostfound = true
 			break
 		}
 	}
-	// If we are adding a new host, then the agents need to know about
-	// it because the new host gets added to the list of "private domains"
-	// for which agent sends traffic to nextensio gateways.
-	// Bundles also need the update for connector to connector traffic
-	if !found {
+	// Ensure that hostid is in a valid format if new host being
+	// added
+	if !hostfound {
 		sts := DBValidateHostId(host)
 		if sts != "" {
+			glog.Errorf("AddHostAttr: Invalid host id format for " + host)
 			return fmt.Errorf(sts)
-		}
-		now := time.Now().Unix()
-		err := DBUpdateTenantCfgvn(uuid, uint64(now))
-		if err != nil {
-			return err
 		}
 	}
 
-	attrs := Hattr["routeattrs"].([]interface{})
+	// Now ensure that every attribute defined for hosts in AttrSet
+	// is included in the attributes being added.
 	attrset := DBFindSpecificAttrSet(uuid, "Hosts", "all")
 	nattrs := 0
 	for _, a := range attrset {
@@ -2857,74 +2880,119 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 			for k := range route {
 				if k == a.Name {
 					found = true
+					break
 				}
 			}
 			if !found {
-				return fmt.Errorf("All attributes defined in AttributeEditor needs to have some valid value provided", a.Name)
+				glog.Errorf("AddHostAttr: AttrSet attribute missing - " + a.Name)
+				return fmt.Errorf("All attributes defined in AttributeEditor need to be present - " + a.Name)
+			}
+		}
+	}
+	// Now ensure that every attribute being added is in AttrSet
+	for _, r := range attrs {
+		route := r.(map[string]interface{})
+		for k := range route {
+			// Skip the route tag entry
+			if k == "tag" {
+				continue
+			}
+			found := false
+			for _, a := range attrset {
+				if k == a.Name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				glog.Errorf("AddHostAttr: attribute not in AttrSet - " + k)
+				return fmt.Errorf("Attribute being added is not defined in AttributeEditor - " + k)
 			}
 		}
 	}
 
 	missing := []primitive.M{}
 	missing_tag := []string{}
+	hostattrfound := false
 
 	// TODO: why WHY! do we deal with this whole this as raw json, why cant
 	// we make it a nice golang struct ? open a ticket and get that done
-	existing := DBFindHostAttr(uuid, host)
-	if existing != nil {
-		oldattrs := (*existing)["routeattrs"].(primitive.A)
-		for _, o := range oldattrs {
-			found := false
-			old := o.(primitive.M)
-			ot := old["tag"].(string)
-			for _, r := range attrs {
-				new := r.(map[string]interface{})
-				nt := new["tag"].(string)
-				if ot == nt {
-					found = true
-					break
+
+	// If we had found the host, see what route tags and attributes already
+	// exist for that host.
+	if hostfound {
+		existing := DBFindHostAttr(uuid, host)
+		if existing != nil {
+			// Some route tags and attributes exist for this host.
+			// See if any route tags and their attributes are missing in
+			// the new data supplied.
+			hostattrfound = true
+			oldattrs := (*existing)["routeattrs"].(primitive.A)
+			for _, o := range oldattrs {
+				found := false
+				old := o.(primitive.M)
+				ot := old["tag"].(string)
+				for _, r := range attrs {
+					new := r.(map[string]interface{})
+					nt := new["tag"].(string)
+					if ot == nt {
+						found = true
+						break
+					}
+				}
+				if !found {
+					missing = append(missing, old)
+					missing_tag = append(missing_tag, ot)
 				}
 			}
-			if !found {
-				missing = append(missing, old)
-				missing_tag = append(missing_tag, ot)
+			update := false
+			if val, ok := Hattr["update"]; ok {
+				update = val.(bool)
+			}
+			// If "update" is true, then the intent is a union/updation on top of
+			// existing tags rather than deleting anything.
+			if update {
+				for _, m := range missing {
+					attrs = append(attrs, m)
+				}
+				Hattr["routeattrs"] = attrs
+				missing_tag = []string{}
+			} else {
+				// Just take the new data passed in and overwrite existing data.
+				// Check if any deleted route is still being referred to in the route policy
+				if len(missing_tag) > 0 && DBHostRuleExists(uuid, host, &missing_tag) {
+					return fmt.Errorf("Please update rules/policy for the deleted route(s) of %s first - %v", host, missing_tag)
+				}
 			}
 		}
 	}
 
-	update := false
-	if val, ok := Hattr["update"]; ok {
-		update = val.(bool)
-	}
-	// If "update" is true, then the intent is a union/updation on top of
-	// existing tags rather than deleting anything
-	if update {
-		for _, m := range missing {
-			attrs = append(attrs, m)
-		}
-		Hattr["routeattrs"] = attrs
-		missing_tag = []string{}
-	} else {
-		// Check if any deleted route is still being referred to in the route policy
-		if DBHostRuleExists(uuid, host, &missing_tag) {
-			return fmt.Errorf("Please update rules/policy for the deleted route(s) of %s first - %v", host, missing_tag)
-		}
-	}
 	err = dbAddHostAttr(uuid, host, Hattr, false)
 	if err != nil {
 		return err
 	}
 	DBUpdateHostAttrHdr(uuid, admin)
 
-	if !found {
+	if !hostfound {
 		// Adding a new host, aka App. Add it to tenant's domain list.
 		err = dbaddTenantDomain(uuid, host)
 		if err != nil {
 			return err
 		}
+		// If we are adding a new host, then the agents need to know about
+		// it because the new host gets added to the list of "private domains"
+		// for which agent sends traffic to nextensio gateways.
+		// Bundles also need the update for connector to connector traffic
+		now := time.Now().Unix()
+		err := DBUpdateTenantCfgvn(uuid, uint64(now))
+		if err != nil {
+			glog.Errorf("Tenant domain change setting for extenders failed")
+		}
 	} else {
-		// Remove tagged app entries for any deleted routes from AppGroups
-		DBUpdateBundleServices(uuid, admin, host, &missing_tag)
+		if hostattrfound && len(missing_tag) > 0 {
+			// Remove tagged app entries for any deleted routes from AppGroups
+			DBUpdateBundleServices(uuid, admin, host, &missing_tag)
+		}
 	}
 
 	return nil
@@ -2932,7 +3000,7 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 
 func DBDelHostAttr(tenant string, admin string, hostid string) error {
 	if DBHostRuleExists(tenant, hostid, nil) {
-		return fmt.Errorf("Please delete policies for the route before deleting the route")
+		return fmt.Errorf("Please update Route policy for the route before deleting the route")
 	}
 	hostAttrCltn := dbGetCollection(tenant, "NxtHostAttr")
 	if hostAttrCltn == nil {
