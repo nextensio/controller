@@ -2577,7 +2577,7 @@ func getTraceReqHandler(w http.ResponseWriter, r *http.Request) {
 	v := mux.Vars(r)
 	traceid := v["traceid"]
 	uuid := r.Context().Value("tenant").(string)
-	treq := db.DBFindUserAttr(uuid, traceid)
+	treq := db.DBFindTraceReq(uuid, traceid)
 	if treq == nil {
 		result.Result = "Cannot find trace request"
 	} else {
