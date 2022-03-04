@@ -10,6 +10,7 @@ import (
 	"nextensio/controller/okta"
 	"nextensio/controller/utils"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1323,7 +1324,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 		result.Services = user.Services
 		result.Gateway = user.Gateway
 		result.Cluster = db.DBGetClusterName(user.Gateway)
-		result.Version = tenant.ConfigVersion
+		result.Version = strconv.FormatUint(tenant.ConfigVersion, 10)
 		result.SplitTunnel = tenant.SplitTunnel
 	} else {
 		bundle := db.DBFindBundle(data.Tenant, data.Userid)
@@ -1347,7 +1348,15 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 			result.Services = bundle.Services
 			result.Gateway = bundle.Gateway
 			result.Cluster = db.DBGetClusterName(bundle.Gateway)
-			result.Version = tenant.ConfigVersion
+			// Check if an AppGroup service has changed after adding
+			// a new App because then we have to notify the Connector
+			// to refresh it's cpod connection so that the new service
+			// can be registered.
+			ver := tenant.ConfigVersion
+			if bundle.ConfigVersion > ver {
+				ver = bundle.ConfigVersion
+			}
+			result.Version = strconv.FormatUint(ver, 10)
 		} else {
 			result.Result = "IDP user/bundle not found on controller"
 			utils.WriteResult(w, result)
@@ -1428,7 +1437,6 @@ func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	result.Version = t.ConfigVersion
 	user := db.DBFindUser(tenant, userid)
 	if user != nil {
 		// We dont check the keepalive return value, keepalives are sent periodically
@@ -1439,6 +1447,7 @@ func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
 		client_id := db.DBFindClientId()
 		if client_id != nil {
 			result.Clientid = client_id.Clientid
+			result.Version = strconv.FormatUint(t.ConfigVersion, 10)
 		}
 	} else {
 		bundle := db.DBFindBundle(tenant, userid)
@@ -1448,6 +1457,11 @@ func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// We dont check the keepalive return value, keepalives are sent periodically
+		ver := t.ConfigVersion
+		if bundle.ConfigVersion > ver {
+			ver = bundle.ConfigVersion
+		}
+		result.Version = strconv.FormatUint(ver, 10)
 		db.BundleKeepalive(tenant, bundle, data)
 	}
 	result.Result = "ok"

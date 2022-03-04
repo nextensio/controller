@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -169,7 +168,7 @@ type Tenant struct {
 	Domains       []Domain `json:"domains" bson:"domains"`
 	EasyMode      bool     `json:"easymode" bson:"easymode"`
 	SplitTunnel   bool     `json:"splittunnel" bson:"splittunnel"`
-	ConfigVersion string   `json:"cfgvn" bson:"cfgvn"`
+	ConfigVersion uint64   `json:"cfgvn" bson:"cfgvn"`
 	Idps          []IDP    `json:"idps" bson:"idps"`
 	AdmGroups     []string `json:"admgroups" bson:"admgroups"`
 	Type          string   `json:"type" bson:"type"`
@@ -214,6 +213,8 @@ func dbaddTenantDomain(uuid string, host string) error {
 		Name: host,
 	}
 	tenant.Domains = append(tenant.Domains, domain)
+	// Need to update agents because the tenant domain has changed.
+	tenant.ConfigVersion = uint64(time.Now().Unix())
 	return dbUpdateTenant(tenant)
 }
 
@@ -228,6 +229,8 @@ func dbdelTenantDomain(uuid string, host string) error {
 			break
 		}
 	}
+	// Need to update agents because the tenant domain has changed.
+	tenant.ConfigVersion = uint64(time.Now().Unix())
 	return dbUpdateTenant(tenant)
 }
 
@@ -423,15 +426,6 @@ func dbUpdateTenant(tenant *Tenant) error {
 		return err.Err()
 	}
 	return nil
-}
-
-func DBUpdateTenantCfgvn(uuid string, cfgvn uint64) error {
-	tenant := DBFindTenant(uuid)
-	if tenant == nil {
-		return errors.New("Cant find tenant")
-	}
-	tenant.ConfigVersion = strconv.FormatUint(cfgvn, 10)
-	return dbUpdateTenant(tenant)
 }
 
 func validateTenant(tenant string) bool {
@@ -2024,15 +2018,16 @@ func DBDelBundleAttrHdr(tenant string) error {
 // The Pod here indicates the "pod set" that this user should
 // connect to, each pod set has its own number of replicas etc..
 type Bundle struct {
-	Bid        string      `json:"bid" bson:"_id"`
-	Bundlename string      `json:"name" bson:"name"`
-	Gateway    string      `json:"gateway" bson:"gateway"`
-	Pod        string      `json:"pod" bson:"pod"`
-	Connectid  string      `json:"connectid" bson:"connectid"`
-	Services   []string    `json:"services" bson:"services"`
-	CpodRepl   int         `json:"cpodrepl" bson:"cpodrepl"`
-	SharedKey  string      `json:"sharedkey" bson:"sharedkey"`
-	Keepalive  []Keepalive `json:"keepalive" bson:"keepalive"`
+	Bid           string      `json:"bid" bson:"_id"`
+	Bundlename    string      `json:"name" bson:"name"`
+	Gateway       string      `json:"gateway" bson:"gateway"`
+	Pod           string      `json:"pod" bson:"pod"`
+	Connectid     string      `json:"connectid" bson:"connectid"`
+	Services      []string    `json:"services" bson:"services"`
+	CpodRepl      int         `json:"cpodrepl" bson:"cpodrepl"`
+	SharedKey     string      `json:"sharedkey" bson:"sharedkey"`
+	Keepalive     []Keepalive `json:"keepalive" bson:"keepalive"`
+	ConfigVersion uint64      `json:"cfgvn" bson:"cfgvn"`
 }
 
 // This API will add/update a new bundle
@@ -2041,10 +2036,6 @@ func DBAddBundle(uuid string, admin string, data *Bundle) error {
 	tenant := DBFindTenant(uuid)
 	if tenant == nil {
 		return fmt.Errorf("Unknown tenant")
-	}
-	err := DBUpdateTenantCfgvn(uuid, uint64(time.Now().Unix()))
-	if err != nil {
-		return err
 	}
 	user := DBFindUser(uuid, data.Bid)
 	if user != nil {
@@ -2075,8 +2066,38 @@ func DBAddBundle(uuid string, admin string, data *Bundle) error {
 		}
 	}
 
+	data.Services = delEmpty(data.Services)
+
 	if bundle != nil {
 		data.SharedKey = bundle.SharedKey
+		// Find out if any services have changed
+		found := false
+		for _, osvc := range bundle.Services {
+			for _, nsvc := range data.Services {
+				if osvc == nsvc {
+					found = true
+					break
+				}
+			}
+			if !found {
+				data.ConfigVersion = uint64(time.Now().Unix())
+				break
+			}
+		}
+		if !found {
+			for _, nsvc := range data.Services {
+				for _, osvc := range bundle.Services {
+					if nsvc == osvc {
+						found = true
+						break
+					}
+				}
+				if !found {
+					data.ConfigVersion = uint64(time.Now().Unix())
+					break
+				}
+			}
+		}
 	} else {
 		s, e := GenMyJwt(uuid, data.Bid)
 		if e != nil {
@@ -2084,8 +2105,6 @@ func DBAddBundle(uuid string, admin string, data *Bundle) error {
 		}
 		data.SharedKey = s
 	}
-
-	data.Services = delEmpty(data.Services)
 
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
@@ -2125,7 +2144,7 @@ func DBAddBundle(uuid string, admin string, data *Bundle) error {
 			{"$set", bson.M{"name": data.Bundlename,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
 				"services": data.Services, "cpodrepl": data.CpodRepl,
-				"sharedkey": data.SharedKey}},
+				"sharedkey": data.SharedKey, "cfgvn": data.ConfigVersion}},
 		},
 		&opt,
 	)
@@ -2134,7 +2153,7 @@ func DBAddBundle(uuid string, admin string, data *Bundle) error {
 	}
 	DBUpdateBundleInfoHdr(uuid, admin)
 
-	err = DBAddClusterBundle(uuid, data)
+	err := DBAddClusterBundle(uuid, data)
 	if err != nil {
 		return err
 	}
@@ -2151,11 +2170,6 @@ func DBUpdateBundle(tenant string, admin string, data *Bundle) error {
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	err := DBUpdateTenantCfgvn(tenant, uint64(time.Now().Unix()))
-	if err != nil {
-		return err
-	}
-
 	appCltn := dbGetCollection(tenant, "NxtApps")
 	if appCltn == nil {
 		return fmt.Errorf("Unknown Collection")
@@ -2167,7 +2181,7 @@ func DBUpdateBundle(tenant string, admin string, data *Bundle) error {
 			{"$set", bson.M{"name": data.Bundlename,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
 				"services": data.Services, "cpodrepl": data.CpodRepl,
-				"sharedkey": data.SharedKey}},
+				"sharedkey": data.SharedKey, "cfgvn": data.ConfigVersion}},
 		},
 		&opt,
 	)
@@ -2438,6 +2452,7 @@ func dbUpdateBundleServices(tenant string, admin string, app string) {
 		}
 		if changed {
 			b.Services = nsvcs
+			b.ConfigVersion = uint64(time.Now().Unix())
 			DBUpdateBundle(tenant, admin, &b)
 			glog.Infof("dbUpdateBundleServices: updated bundle %s services to %v", b.Bid, nsvcs)
 		}
@@ -2979,15 +2994,6 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 		if err != nil {
 			return err
 		}
-		// If we are adding a new host, then the agents need to know about
-		// it because the new host gets added to the list of "private domains"
-		// for which agent sends traffic to nextensio gateways.
-		// Bundles also need the update for connector to connector traffic
-		now := time.Now().Unix()
-		err := DBUpdateTenantCfgvn(uuid, uint64(now))
-		if err != nil {
-			glog.Errorf("Tenant domain change setting for extenders failed")
-		}
 	} else {
 		if hostattrfound && len(missing_tag) > 0 {
 			// Remove tagged app entries for any deleted routes from AppGroups
@@ -3007,16 +3013,7 @@ func DBDelHostAttr(tenant string, admin string, hostid string) error {
 		return fmt.Errorf("Unknown Collection")
 	}
 
-	// If we are deleting a  host, then the agents need to know about
-	// it because the deleted host should be removed from the list of
-	// "private domains" for which agent sends traffic to nextensio gateways
-	// Bundles also need the update for connector to connector traffic
-	now := time.Now().Unix()
-	err := DBUpdateTenantCfgvn(tenant, uint64(now))
-	if err != nil {
-		return err
-	}
-	_, err = hostAttrCltn.DeleteOne(
+	_, err := hostAttrCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": hostid},
 	)
