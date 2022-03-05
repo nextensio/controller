@@ -111,20 +111,25 @@ func oktaJwt(r *http.Request, bearerToken string, cid string) *context.Context {
 
 func IsAuthenticated(r *http.Request, cid string) *context.Context {
 	authHeader := r.Header.Get("Authorization")
+	keyHeader := r.Header.Get("X-Nextensio-Key")
 
-	if authHeader == "" {
+	if authHeader == "" && keyHeader == "" {
 		return nil
 	}
-	tokenParts := strings.Split(authHeader, "Bearer ")
-	bearerToken := tokenParts[1]
-	// First try to interpret the token as an agent's okta token, if that fails
-	// then try to see if its a connectors token we generated
-	ctx := oktaJwt(r, bearerToken, cid)
-	if ctx != nil {
+	if authHeader != "" {
+		tokenParts := strings.Split(authHeader, "Bearer ")
+		bearerToken := tokenParts[1]
+		// First try to interpret the token as an agent's okta token, if that fails
+		// then try to see if its a connectors token we generated
+		ctx := oktaJwt(r, bearerToken, cid)
+		if ctx != nil {
+			return ctx
+		}
+		ctx = db.VerifyMyJwt(r, bearerToken)
 		return ctx
+	} else {
+		return db.VerifyMyJwt(r, keyHeader)
 	}
-	ctx = db.VerifyMyJwt(r, bearerToken)
-	return ctx
 }
 
 func validateGroup(r *http.Request, ctx *context.Context) *context.Context {

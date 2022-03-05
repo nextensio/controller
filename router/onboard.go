@@ -183,9 +183,14 @@ func rdwrOnboard() {
 	// This route is used to add new users with basic user info
 	addTenantRoute("/user", "POST", addUserHandler)
 
+	// This route is used to add new users with basic user info
+	addTenantRoute("/userkey", "POST", addUserKeyHandler)
+
 	// This route is used to delete users. Both user info and user attribute
 	// docs will be deleted for specified user
 	delTenantRoute("/user/{userid}", "GET", delUserHandler)
+
+	delTenantRoute("/userkey/{key}", "GET", delUserKeyHandler)
 
 	// This route is used to update/change the admin role of a user
 	// {role} = "admin-<group-name>" for attr group admin, or
@@ -1589,6 +1594,61 @@ func delUserHandler(w http.ResponseWriter, r *http.Request) {
 			result.Result = "ok"
 		}
 	}
+	utils.WriteResult(w, result)
+}
+
+type UserKeyResult struct {
+	Result string `json:"Result"`
+	Key    string `json:"Key"`
+}
+
+// Add a new user, with basic information that identifies the user
+func addUserKeyHandler(w http.ResponseWriter, r *http.Request) {
+	var result UserKeyResult
+	var data db.UserKeyJson
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Add user info - HTTP Req Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		result.Result = "Add user info - Error parsing json " + err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+	uuid := r.Context().Value("user-tenant").(string)
+	userid := r.Context().Value("userid").(string)
+	token, err := db.DBAddUserKey(uuid, userid, &data)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+	result.Result = "ok"
+	result.Key = token
+	utils.WriteResult(w, result)
+}
+
+// Add a new user, with basic information that identifies the user
+func delUserKeyHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+
+	v := mux.Vars(r)
+	key := v["key"]
+
+	uuid := r.Context().Value("user-tenant").(string)
+	userid := r.Context().Value("userid").(string)
+	err := db.DBDelUserKey(uuid, userid, key)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+	result.Result = "ok"
 	utils.WriteResult(w, result)
 }
 

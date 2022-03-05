@@ -34,6 +34,8 @@ type CustomClaims struct {
 	Tenant   string `json:"tenant"`
 	Username string `json:"sub"`
 	Secret   string `json:"secret"`
+	Name     string `json:"name"`
+	Time     uint64 `json:"time"`
 	jwt.StandardClaims
 }
 
@@ -69,7 +71,7 @@ func GetMyJwt(bearerToken string) *CustomClaims {
 	return claims
 }
 
-func GenMyJwt(tenant string, username string) (string, error) {
+func GenMyJwt(name string, tenant string, username string) (string, error) {
 	secret, err := password.Generate(64, 10, 10, false, false)
 	if err != nil {
 		return "", err
@@ -78,6 +80,8 @@ func GenMyJwt(tenant string, username string) (string, error) {
 		Tenant:   tenant,
 		Username: username,
 		Secret:   secret,
+		Name:     name,
+		Time:     uint64(time.Now().Unix()),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signedToken, err := token.SignedString([]byte("TODONeedSecureNextensioSecret"))
@@ -1309,6 +1313,14 @@ func DBDelUserAttrHdr(tenant string) error {
 	return DBDelCollectionHdr(tenant, "NxtUserAttr", "UserAttr")
 }
 
+type UserKeyJson struct {
+	Name string `json:"name" bson:"name"`
+}
+
+type UserKey struct {
+	Name string `json:"name" bson:"name"`
+}
+
 // The Pod here indicates the "pod set" that this user should
 // connect to, each pod set has its own number of replicas etc..
 type User struct {
@@ -1321,6 +1333,106 @@ type User struct {
 	Connectid string      `json:"connectid" bson:"connectid"`
 	Services  []string    `json:"services" bson:"services"`
 	Keepalive []Keepalive `json:"keepalive" bson:"keepalive"`
+	Keys      []UserKey   `json:"keys" bson:"keys"`
+}
+
+// This API will add a new user API key
+func DBAddUserKey(uuid string, userid string, key *UserKeyJson) (string, error) {
+
+	tenant := DBFindTenant(uuid)
+	if tenant == nil {
+		return "", fmt.Errorf("Unknown tenant")
+	}
+	user := DBFindUser(uuid, userid)
+	if user == nil {
+		return "", fmt.Errorf("User not found")
+	}
+	for _, k := range user.Keys {
+		if k.Name == key.Name {
+			return "", fmt.Errorf("Key already exists")
+		}
+	}
+	token, err := GenMyJwt(key.Name, uuid, userid)
+	if err != nil {
+		return "", err
+	}
+	user.Keys = append(user.Keys, UserKey{Name: key.Name})
+
+	userCltn := dbGetCollection(uuid, "NxtUsers")
+	if userCltn == nil {
+		return "", fmt.Errorf("Unknown Collection")
+	}
+	upsert := false
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	result := userCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": userid},
+		bson.D{
+			{"$set", bson.M{"keys": user.Keys}},
+		},
+		&opt,
+	)
+
+	if result.Err() != nil {
+		return "", result.Err()
+	}
+
+	return token, nil
+}
+
+// This API will add a new user API key
+func DBDelUserKey(uuid string, userid string, key string) error {
+
+	tenant := DBFindTenant(uuid)
+	if tenant == nil {
+		return fmt.Errorf("Unknown tenant")
+	}
+	user := DBFindUser(uuid, userid)
+	if user == nil {
+		return fmt.Errorf("User not found")
+	}
+	found := false
+	index := 0
+	for i, k := range user.Keys {
+		if k.Name == key {
+			found = true
+			index = i
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("Key not found")
+	}
+	user.Keys = append(user.Keys[:index], user.Keys[index+1:]...)
+
+	userCltn := dbGetCollection(uuid, "NxtUsers")
+	if userCltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	upsert := false
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	result := userCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": userid},
+		bson.D{
+			{"$set", bson.M{"keys": user.Keys}},
+		},
+		&opt,
+	)
+
+	if result.Err() != nil {
+		return result.Err()
+	}
+
+	return nil
 }
 
 // This API will add/update a new user
@@ -1362,6 +1474,10 @@ func DBAddUser(uuid string, admin string, data *User) error {
 		// by dns resolving gateway.nextensio.net to gatewayXYZ.nextensio.net
 		data.Gateway = gw
 	}
+	keys := []UserKey{}
+	if user != nil {
+		keys = user.Keys
+	}
 
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
@@ -1400,7 +1516,7 @@ func DBAddUser(uuid string, admin string, data *User) error {
 		bson.D{
 			{"$set", bson.M{"name": data.Username, "email": data.Email,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
-				"services": data.Services, "usertype": data.Usertype}},
+				"services": data.Services, "usertype": data.Usertype, "keys": keys}},
 		},
 		&opt,
 	)
@@ -1966,7 +2082,7 @@ func DBAddBundle(uuid string, admin string, data *Bundle) error {
 	if bundle != nil {
 		data.SharedKey = bundle.SharedKey
 	} else {
-		s, e := GenMyJwt(uuid, data.Bid)
+		s, e := GenMyJwt("bundlekey", uuid, data.Bid)
 		if e != nil {
 			return e
 		}
