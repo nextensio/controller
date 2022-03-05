@@ -1348,14 +1348,9 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 			result.Services = bundle.Services
 			result.Gateway = bundle.Gateway
 			result.Cluster = db.DBGetClusterName(bundle.Gateway)
-			// Check if an AppGroup service has changed after adding
-			// a new App because then we have to notify the Connector
-			// to refresh it's cpod connection so that the new service
-			// can be registered.
-			ver := tenant.ConfigVersion
-			if bundle.ConfigVersion > ver {
-				ver = bundle.ConfigVersion
-			}
+			// there is no particular logic behind the math here, we just want a unique
+			// number combining both the numbers, it can be addition/xor whatever
+			ver := tenant.ConfigVersion + bundle.ConfigVersion
 			result.Version = strconv.FormatUint(ver, 10)
 		} else {
 			result.Result = "IDP user/bundle not found on controller"
@@ -1447,8 +1442,8 @@ func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
 		client_id := db.DBFindClientId()
 		if client_id != nil {
 			result.Clientid = client_id.Clientid
-			result.Version = strconv.FormatUint(t.ConfigVersion, 10)
 		}
+		result.Version = strconv.FormatUint(t.ConfigVersion, 10)
 	} else {
 		bundle := db.DBFindBundle(tenant, userid)
 		if bundle == nil {
@@ -1456,12 +1451,11 @@ func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
 			utils.WriteResult(w, result)
 			return
 		}
-		// We dont check the keepalive return value, keepalives are sent periodically
-		ver := t.ConfigVersion
-		if bundle.ConfigVersion > ver {
-			ver = bundle.ConfigVersion
-		}
+		// there is no particular logic behind the math here, we just want a unique
+		// number combining both the numbers, it can be addition/xor whatever
+		ver := t.ConfigVersion + bundle.ConfigVersion
 		result.Version = strconv.FormatUint(ver, 10)
+		// We dont check the keepalive return value, keepalives are sent periodically
 		db.BundleKeepalive(tenant, bundle, data)
 	}
 	result.Result = "ok"
