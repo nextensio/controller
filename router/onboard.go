@@ -1624,6 +1624,7 @@ func getAllAttrSet(w http.ResponseWriter, r *http.Request) {
 }
 
 type GetAdminRoleResult struct {
+	Result   string `json:"Result"`
 	UserRole string `json:"UserRole"`
 }
 
@@ -1635,17 +1636,18 @@ func getUserAdminRole(w http.ResponseWriter, r *http.Request) {
 	uid := v["userid"]
 	if !allowAnyAdminAccess(r, "") {
 		glog.Errorf("getUserAdminRole: Need admin privileges to get user type")
-		result.UserRole = "Only Admin users can query roles of other users"
+		result.Result = "Only Admin users can query roles of other users"
 		utils.WriteResult(w, result)
 		return
 	}
 	_, _, usertype, err := IdpGetUserInfo(API, TOKEN, uid)
 	if err != nil {
 		glog.Errorf("getUserAdminRole: user %s info not found in Idp - %v", uid, err)
-		result.UserRole = "Error-UnknownUser"
+		result.Result = "Error-UnknownUser"
 		utils.WriteResult(w, result)
 		return
 	}
+	result.Result = "ok"
 	result.UserRole = usertype
 	utils.WriteResult(w, result)
 }
