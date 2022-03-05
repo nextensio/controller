@@ -1194,8 +1194,8 @@ func delcertHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 type GetcertResult struct {
-	Result string `json:"Result"`
-	db.Certificate
+	Result      string `json:"Result"`
+	Certificate db.Certificate
 }
 
 // Get a certificate
