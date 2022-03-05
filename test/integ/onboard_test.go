@@ -1119,7 +1119,7 @@ func testAttrSetAdd_v1(t *testing.T, tenant bool, name string, total int) {
 	dbTenants := db.DBFindAllTenants()
 
 	attrcnt := 0
-	defAttr := db.DBFindAllAttrSet(dbTenants[0].ID)
+	defAttr := db.DBFindSpecificAttrSet(dbTenants[0].ID, "Users", "all")
 	if defAttr != nil {
 		attrcnt = len(defAttr)
 	}
@@ -1165,7 +1165,7 @@ func testAttrSetAdd_v1(t *testing.T, tenant bool, name string, total int) {
 	}
 
 	total = attrcnt + 1  // we just added one more attribute above
-	dbAttr := db.DBFindAllAttrSet(dbTenants[0].ID)
+	dbAttr := db.DBFindSpecificAttrSet(dbTenants[0].ID, "Users", "all")
 	if dbAttr == nil {
 		t.Error()
 		return
@@ -1199,11 +1199,11 @@ func TestAttrSetGet_v1(t *testing.T) {
 	dbTenants := db.DBFindAllTenants()
 
 	attrcnt := 0
-	defAttr := db.DBFindAllAttrSet(dbTenants[0].ID)
+	defAttr := db.DBFindSpecificAttrSet(dbTenants[0].ID, "Users", "all")
 	if defAttr != nil {
 		attrcnt = len(defAttr)
 	}
-	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allattrset", nil)
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/attrset/Users", nil)
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -1254,7 +1254,7 @@ func TestAttrSetDel_v1(t *testing.T) {
 	dbTenants := db.DBFindAllTenants()
 
 	attrcnt := 0
-	defAttr := db.DBFindAllAttrSet(dbTenants[0].ID)
+	defAttr := db.DBFindSpecificAttrSet(dbTenants[0].ID, "Users", "all")
 	if defAttr != nil {
 		attrcnt = len(defAttr)
 	}
@@ -1297,7 +1297,7 @@ func TestAttrSetDel_v1(t *testing.T) {
 		return
 	}
 	attrcnt = attrcnt - 1  // we just deleted one above
-	dbAttr := db.DBFindAllAttrSet(dbTenants[0].ID)
+	dbAttr := db.DBFindSpecificAttrSet(dbTenants[0].ID, "Users", "all")
 	if dbAttr == nil {
 		t.Error()
 		return
