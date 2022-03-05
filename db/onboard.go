@@ -1634,6 +1634,9 @@ func dbGetDefaultUserAttr(tenant string) *bson.M {
 		}
 		nattrs++
 	}
+	if nattrs == 0 {
+		return nil
+	}
 	return &defAttr
 }
 
@@ -1869,7 +1872,9 @@ func DBAddUserAttr(uuid string, admin string, user string, group string, Uattr b
 			// been supplied. See if AttrSet has any attributes defined, and
 			// if so, add them with default values.
 			defAttr := dbGetDefaultUserAttr(uuid)
-			Uattr = *defAttr
+			if defAttr != nil {
+				Uattr = *defAttr
+			}
 		}
 	}
 	err := dbAddUserAttr(uuid, user, Uattr, false)
