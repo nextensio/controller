@@ -1595,6 +1595,48 @@ func DBFindUserStatus(tenant string, userid string) []UserStatus {
 	return status
 }
 
+// When adding a new user, we also create a user attributes doc with
+// just the userid (key field). This is ok if no user attributes have
+// been defined. But if user attributes have been defined, then create
+// the user attributes doc with default values for those attributes
+// defined.
+// This function looks at the AttrSet to see if there are user attributes
+// we should add to the doc.
+func dbGetDefaultUserAttr(tenant string) *bson.M {
+	defAttr := make(bson.M, 0)
+	attrset := DBFindSpecificAttrSet(tenant, "Users", "all")
+	if attrset == nil || len(attrset) == 0 {
+		return nil
+	}
+	nattrs := 0
+	for _, a := range attrset {
+		if strings.HasPrefix(a.Name, "_") {
+			// Skip system attributes
+			continue
+		}
+		switch a.Type {
+		case "String":
+			if a.IsArray == "true" {
+				defAttr[a.Name] = []string{}
+			} else {
+				defAttr[a.Name] = ""
+			}
+		case "Number":
+			if a.IsArray == "true" {
+				defAttr[a.Name] = []int{}
+			} else {
+				defAttr[a.Name] = 0
+			}
+		case "Boolean":
+			defAttr[a.Name] = false
+		case "Date":
+			defAttr[a.Name] = ""
+		}
+		nattrs++
+	}
+	return &defAttr
+}
+
 func dbCheckUserAttrGroupOwnership(tenant string, group string, Uattr *bson.M, upd bool) (bool, string) {
 	grp := group
 	if group == "admin" || group == "superadmin" {
@@ -1683,6 +1725,7 @@ func dbAddUserAttr(uuid string, user string, Uattr bson.M, replace bool) error {
 				bson.M{"_id": user},
 			)
 			if err != nil {
+				glog.Errorf("User attribute doc insert error - %v", err)
 				return err
 			}
 		} else {
@@ -1696,6 +1739,7 @@ func dbAddUserAttr(uuid string, user string, Uattr bson.M, replace bool) error {
 				&opt,
 			)
 			if result.Err() != nil {
+				glog.Errorf("User attribute doc add/update error - %v", result.Err())
 				return result.Err()
 			}
 		}
@@ -1793,6 +1837,7 @@ func DBAddUserAttr(uuid string, admin string, user string, group string, Uattr b
 	// for that user.
 	dbUser := DBFindUser(uuid, user)
 	if dbUser == nil {
+		glog.Errorf("AddUserAttr: cannot find user " + user)
 		return fmt.Errorf("Cannot find user " + user)
 	}
 
@@ -1814,10 +1859,18 @@ func DBAddUserAttr(uuid string, admin string, user string, group string, Uattr b
 		}
 	}
 
-	if (Uattr == nil || len(Uattr) == 0) && uattr != nil {
-		// user attributes doc exists and no new user attributes supplied,
-		// so just return
-		return nil
+	if Uattr == nil || len(Uattr) == 0 {
+		if uattr != nil {
+			// user attributes doc exists and no new user attributes supplied,
+			// so just return
+			return nil
+		} else {
+			// user attributes doc does not exist and no user attributes have
+			// been supplied. See if AttrSet has any attributes defined, and
+			// if so, add them with default values.
+			defAttr := dbGetDefaultUserAttr(uuid)
+			Uattr = *defAttr
+		}
 	}
 	err := dbAddUserAttr(uuid, user, Uattr, false)
 	if err == nil {
