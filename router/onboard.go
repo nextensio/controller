@@ -82,6 +82,8 @@ func rdonlyOnboard() {
 	// This route is used to get basic info for a specific user
 	getTenantRoute("/user/{userid}", "GET", getUserHandler)
 
+	getTenantRoute("/alluserkeys", "GET", getUserKeysHandler)
+
 	// This route is used to get attributes for a specific user
 	getTenantRoute("/userattr/{userid}", "GET", getUserAttrHandler)
 
@@ -1649,6 +1651,27 @@ func delUserKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+type UserKeysResult struct {
+	Result string           `json:"Result"`
+	Keys   []db.UserKeyJson `json:"keys"`
+}
+
+func getUserKeysHandler(w http.ResponseWriter, r *http.Request) {
+	var result UserKeysResult
+
+	uuid := r.Context().Value("user-tenant").(string)
+	userid := r.Context().Value("userid").(string)
+	keys, err := db.DBGetUserKeys(uuid, userid)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+	result.Result = "ok"
+	result.Keys = *keys
 	utils.WriteResult(w, result)
 }
 

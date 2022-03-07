@@ -48,6 +48,21 @@ func VerifyMyJwt(r *http.Request, bearerToken string) *context.Context {
 	ctx = context.WithValue(ctx, "userid", claims.Username)
 	ctx = context.WithValue(ctx, "usertype", "regular")
 	ctx = context.WithValue(ctx, "secret", claims.Secret)
+
+	user := DBFindUser(claims.Tenant, claims.Username)
+	if user != nil {
+		found := false
+		for _, k := range user.Keys {
+			if k.Name == claims.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil
+		}
+	}
+
 	return &ctx
 }
 
@@ -1433,6 +1448,23 @@ func DBDelUserKey(uuid string, userid string, key string) error {
 	}
 
 	return nil
+}
+
+func DBGetUserKeys(uuid string, userid string) (*[]UserKeyJson, error) {
+	keys := []UserKeyJson{}
+	tenant := DBFindTenant(uuid)
+	if tenant == nil {
+		return &keys, fmt.Errorf("Unknown tenant")
+	}
+	user := DBFindUser(uuid, userid)
+	if user == nil {
+		return &keys, fmt.Errorf("User not found")
+	}
+
+	for _, k := range user.Keys {
+		keys = append(keys, UserKeyJson{Name: k.Name})
+	}
+	return &keys, nil
 }
 
 // This API will add/update a new user
