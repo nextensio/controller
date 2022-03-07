@@ -217,7 +217,7 @@ func rdwrOnboard() {
 	addTenantRoute("/hostattrhdr", "POST", addHostAttrHdrHandler)
 
 	// This route is used to add attributes for a user
-	addTenantRoute("/userattr", "POST", addUserAttrHandler)
+	addTenantRoute("/userattr/{userid}", "POST", addUserAttrHandler)
 
 	// This route is used to update attributes for multiple users
 	addTenantRoute("/userattr/multiple", "POST", updMultiUsersAttrHandler)
@@ -2052,6 +2052,14 @@ func addUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 func addUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 
+	v := mux.Vars(r)
+	user := v["userid"]
+	if user == "" {
+		result.Result = "Missing user id"
+		utils.WriteResult(w, result)
+		return
+	}
+
 	uuid := r.Context().Value("tenant").(string)
 	admin, ok := r.Context().Value("userid").(string)
 	if !ok {
@@ -2076,20 +2084,14 @@ func addUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var Uattr bson.M
-	var user string
 	err = json.Unmarshal(body, &Uattr)
 	if err != nil {
 		result.Result = "User json decode fail"
 		utils.WriteResult(w, result)
 		return
 	}
-	if v, found := Uattr["uid"]; found {
-		user = fmt.Sprintf("%s", v)
+	if _, found := Uattr["uid"]; found {
 		delete(Uattr, "uid")
-	} else {
-		result.Result = "Missing user id"
-		utils.WriteResult(w, result)
-		return
 	}
 	err = db.DBAddUserAttr(uuid, admin, user, group, Uattr)
 	if err != nil {
