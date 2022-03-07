@@ -175,6 +175,74 @@ func dbDelPolicy(tenant string, policyId string) error {
 	return err
 }
 
+// Check if given user attribute is included in any rules
+func DBRulesContainAttribute(tenant string, attr string) bool {
+	allbrules := DBFindBundleRules(tenant, "all", "all")
+	for _, subrule := range allbrules {
+		for i := 0; i < len(subrule.Rule); i++ {
+			ltoken := getSnippetLeftToken(subrule.Rule[i])
+			if ltoken == attr {
+				return true
+			}
+		}
+	}
+	allhrules := DBFindHostRules(tenant, "all", "all")
+	for _, subrule := range allhrules {
+		for i := 0; i < len(subrule.Rule); i++ {
+			ltoken := getSnippetLeftToken(subrule.Rule[i])
+			if ltoken == attr {
+				return true
+			}
+		}
+	}
+	alltrules := DBFindTraceReqRules(tenant, "all")
+	for _, subrule := range alltrules {
+		for i := 0; i < len(subrule.Rule); i++ {
+			spl, ltoken := isSnippetLeftTokenSpecial(subrule.Rule[i])
+			rtoken := getSnippetRightToken(subrule.Rule[i])
+			// For trace requests, user attribute can be in a match
+			// expression or in the attribute list, so check both.
+			if !spl {
+				if ltoken == attr {
+					return true
+				}
+			} else {
+				if ltoken == "attrlist" {
+					// Need to look for attribute in rtoken
+					rtoken = strings.ReplaceAll(rtoken, ",", " ")
+					rtokenarray := strings.Split(rtoken, " ")
+					for _, rtok := range rtokenarray {
+						if rtok == attr {
+							return true
+						}
+					}
+				}
+			}
+		}
+	}
+	allsrules := DBFindStatsRule(tenant)
+	for _, subrule := range allsrules {
+		for i := 0; i < len(subrule.Rule); i++ {
+			spl, ltoken := isSnippetLeftTokenSpecial(subrule.Rule[i])
+			rtoken := getSnippetRightToken(subrule.Rule[i])
+			// For stats, user attribute can only be in attribute list
+			if spl {
+				if ltoken == "attrlist" {
+					// Need to look for attribute in rtoken
+					rtoken = strings.ReplaceAll(rtoken, ",", " ")
+					rtokenarray := strings.Split(rtoken, " ")
+					for _, rtok := range rtokenarray {
+						if rtok == attr {
+							return true
+						}
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
 // Validate that the rule snippets contain only attributes owned by the
 // specified group.
 // The filter is a temporary hack to filter out snippets for attributes
@@ -190,7 +258,7 @@ func dbValidateGroupOwnership(tenant string, rule *[][]string, group string, pol
 
 	// Get all user attributes from AttrSet
 	// For each snippet in rule, check if user attribute ownership as
-	// per AttrSet matches group. 
+	// per AttrSet matches group.
 	noattrs := true
 	usrattrs := DBFindSpecificAttrSet(tenant, "Users", group)
 	if usrattrs != nil {
@@ -246,7 +314,7 @@ func dbValidateGroupOwnership(tenant string, rule *[][]string, group string, pol
 				rtokenarray := strings.Split(rtoken, " ")
 				for _, attr := range rtokenarray {
 					attr = strings.Trim(attr, " ")
-					if (attr != "") {
+					if attr != "" {
 						f := false
 						for _, ua := range usrattrs {
 							if (ua.Name == attr) && (ua.Group == group) {
@@ -1359,10 +1427,10 @@ func dbGeneratePolicyFromHostRules(tenant string) []string {
 		// this piece of code to check if the hostid is prefixed with the tag, and if so,
 		// extract the tag to create a new snippet per rule.
 		if tagneeded {
-			tagneeded = false
-			taggedhost := strings.SplitN(host, ":", 2)
+			taggedhost := strings.SplitN(host, ".", 2)
 			if len(taggedhost) == 2 {
 				// Host is prefixed with tag
+				tagneeded = false
 				tagsnip := []string{"tag", "==", taggedhost[0], "string", "false"}
 				ridMap[host+":"+rid] = append(ridMap[host+":"+rid], tagsnip)
 			}
@@ -1406,7 +1474,7 @@ func generateRoutePolicyHeader() string {
 }
 
 func processHostRule(host string, hostRule [][]string) (string, string) {
-	routePolicyTag := "** Error **"
+	routePolicyTag := ""
 	routeTagValue := "deny"
 	routeTagSpecified := false
 	Exprs := ""
@@ -1521,6 +1589,9 @@ func processHostRule(host string, hostRule [][]string) (string, string) {
 				}
 			}
 		}
+	}
+	if routePolicyTag == "" {
+		return "", "Route tag not found for App " + host
 	}
 	RuleEnd := "}\n\n"
 	Rule := RuleStart + HostConst + Exprs + routePolicyTag + RuleEnd

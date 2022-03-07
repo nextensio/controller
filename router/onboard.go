@@ -10,6 +10,7 @@ import (
 	"nextensio/controller/okta"
 	"nextensio/controller/utils"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -547,7 +548,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Add "base" attributes
-	err = db.DBAddUserAttr(signup.Tenant, user.Uid, user.Uid, nil)
+	err = db.DBAddUserAttr(signup.Tenant, user.Uid, user.Uid, "admin", nil)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1200,8 +1201,8 @@ func delcertHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 type GetcertResult struct {
-	Result string `json:"Result"`
-	db.Certificate
+	Result      string `json:"Result"`
+	Certificate db.Certificate
 }
 
 // Get a certificate
@@ -1330,7 +1331,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 		result.Services = user.Services
 		result.Gateway = user.Gateway
 		result.Cluster = db.DBGetClusterName(user.Gateway)
-		result.Version = tenant.ConfigVersion
+		result.Version = strconv.FormatUint(tenant.ConfigVersion, 10)
 		result.SplitTunnel = tenant.SplitTunnel
 	} else {
 		bundle := db.DBFindBundle(data.Tenant, data.Userid)
@@ -1354,7 +1355,10 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 			result.Services = bundle.Services
 			result.Gateway = bundle.Gateway
 			result.Cluster = db.DBGetClusterName(bundle.Gateway)
-			result.Version = tenant.ConfigVersion
+			// there is no particular logic behind the math here, we just want a unique
+			// number combining both the numbers, it can be addition/xor whatever
+			ver := tenant.ConfigVersion + bundle.ConfigVersion
+			result.Version = strconv.FormatUint(ver, 10)
 		} else {
 			result.Result = "IDP user/bundle not found on controller"
 			utils.WriteResult(w, result)
@@ -1435,7 +1439,6 @@ func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	result.Version = t.ConfigVersion
 	user := db.DBFindUser(tenant, userid)
 	if user != nil {
 		// We dont check the keepalive return value, keepalives are sent periodically
@@ -1447,6 +1450,7 @@ func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
 		if client_id != nil {
 			result.Clientid = client_id.Clientid
 		}
+		result.Version = strconv.FormatUint(t.ConfigVersion, 10)
 	} else {
 		bundle := db.DBFindBundle(tenant, userid)
 		if bundle == nil {
@@ -1454,6 +1458,10 @@ func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
 			utils.WriteResult(w, result)
 			return
 		}
+		// there is no particular logic behind the math here, we just want a unique
+		// number combining both the numbers, it can be addition/xor whatever
+		ver := t.ConfigVersion + bundle.ConfigVersion
+		result.Version = strconv.FormatUint(ver, 10)
 		// We dont check the keepalive return value, keepalives are sent periodically
 		db.BundleKeepalive(tenant, bundle, data)
 	}
@@ -1469,6 +1477,12 @@ type OpResult struct {
 func addUserHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 	var data db.User
+
+	if !allowTenantAdminOnly(r) {
+		result.Result = "Not privileged to add a new user"
+		utils.WriteResult(w, result)
+		return
+	}
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -1487,6 +1501,10 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 	admin, ok := r.Context().Value("userid").(string)
 	if !ok {
 		admin = "UnknownUser"
+	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = "regular"
 	}
 
 	idpgid, err := IdpGetGroupID(API, TOKEN, uuid)
@@ -1524,7 +1542,7 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Add/Update base attributes
-	err = db.DBAddUserAttr(uuid, admin, data.Uid, nil)
+	err = db.DBAddUserAttr(uuid, admin, data.Uid, group, nil)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1689,6 +1707,7 @@ func getAllAttrSet(w http.ResponseWriter, r *http.Request) {
 }
 
 type GetAdminRoleResult struct {
+	Result   string `json:"Result"`
 	UserRole string `json:"UserRole"`
 }
 
@@ -1700,17 +1719,18 @@ func getUserAdminRole(w http.ResponseWriter, r *http.Request) {
 	uid := v["userid"]
 	if !allowAnyAdminAccess(r, "") {
 		glog.Errorf("getUserAdminRole: Need admin privileges to get user type")
-		result.UserRole = "Only Admin users can query roles of other users"
+		result.Result = "Only Admin users can query roles of other users"
 		utils.WriteResult(w, result)
 		return
 	}
 	_, _, usertype, err := IdpGetUserInfo(API, TOKEN, uid)
 	if err != nil {
 		glog.Errorf("getUserAdminRole: user %s info not found in Idp - %v", uid, err)
-		result.UserRole = "Error-UnknownUser"
+		result.Result = "Error-UnknownUser"
 		utils.WriteResult(w, result)
 		return
 	}
+	result.Result = "ok"
 	result.UserRole = usertype
 	utils.WriteResult(w, result)
 }
@@ -2031,6 +2051,22 @@ func addUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 func addUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 
+	uuid := r.Context().Value("tenant").(string)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = "regular"
+	}
+
+	if !allowAnyAdminAccess(r, group) {
+		result.Result = "Not privileged to add/update user attributes provided"
+		utils.WriteResult(w, result)
+		return
+	}
+
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		result.Result = "Add User attributes - HTTP Req Read fail"
@@ -2054,12 +2090,7 @@ func addUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	uuid := r.Context().Value("tenant").(string)
-	admin, ok := r.Context().Value("userid").(string)
-	if !ok {
-		admin = "UnknownUser"
-	}
-	err = db.DBAddUserAttr(uuid, admin, user, Uattr)
+	err = db.DBAddUserAttr(uuid, admin, user, group, Uattr)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -2072,6 +2103,22 @@ func addUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 
 func updMultiUsersAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
+
+	uuid := r.Context().Value("tenant").(string)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = "regular"
+	}
+
+	if !allowAnyAdminAccess(r, group) {
+		result.Result = "Not privileged to update user attributes provided"
+		utils.WriteResult(w, result)
+		return
+	}
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -2087,12 +2134,7 @@ func updMultiUsersAttrHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	uuid := r.Context().Value("tenant").(string)
-	admin, ok := r.Context().Value("userid").(string)
-	if !ok {
-		admin = "UnknownUser"
-	}
-	err = db.DBUpdateAttrsForMultipleUsers(uuid, admin, Uattr)
+	err = db.DBUpdateAttrsForMultipleUsers(uuid, admin, group, Uattr)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -2628,7 +2670,7 @@ func getTraceReqHandler(w http.ResponseWriter, r *http.Request) {
 	v := mux.Vars(r)
 	traceid := v["traceid"]
 	uuid := r.Context().Value("tenant").(string)
-	treq := db.DBFindUserAttr(uuid, traceid)
+	treq := db.DBFindTraceReq(uuid, traceid)
 	if treq == nil {
 		result.Result = "Cannot find trace request"
 	} else {
