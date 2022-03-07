@@ -8,6 +8,7 @@ import (
 	"nextensio/controller/db"
 	"nextensio/controller/utils"
 
+	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 )
 
@@ -18,16 +19,25 @@ func rdonlyPolicy() {
 	// This route is used to get all policies
 	getTenantRoute("/allpolicies", "GET", getAllPoliciesHandler)
 
-	// This route is used to get all bundle rules
-	getTenantRoute("/allbundlerules", "GET", getAllBundleRulesHandler)
+	// This route is used to get all rules for one bundle or all bundles
+	// {bid} = "all" for all bundles
+	getTenantRoute("/bundlerules/{bid}", "GET", getBundleAllRulesHandler)
 
-	// This route is used to get all host rules
-	getTenantRoute("/allhostrules", "GET", getAllHostRulesHandler)
+	// This route is used to get a specific bundle rule
+	getTenantRoute("/bundlerule/{bid}/{ruleid}", "GET", getBundleRuleHandler)
 
-	// This route is used to get all trace req rules
-	getTenantRoute("/alltracereqrules", "GET", getAllTraceReqRulesHandler)
+	// This route is used to get all rules for one host or all hosts
+	// {hostid} = "all" for all hosts
+	getTenantRoute("/hostrules/{hostid}", "GET", getHostAllRulesHandler)
 
-	// This route is used to get stats rule
+	// This route is used to get a specific host rule
+	getTenantRoute("/hostrule/{hostid}/{ruleid}", "GET", getHostRuleHandler)
+
+	// This route is used to get the rule for one trace req or all trace reqs
+	// {traceid} = "all" for all trace reqs
+	getTenantRoute("/tracereqrules/{traceid}", "GET", getTraceReqRuleHandler)
+
+	// This route is used to get a complete stats rule (there is only one).
 	getTenantRoute("/statsrule", "GET", getAllStatsRulesHandler)
 }
 
@@ -35,36 +45,45 @@ func rdwrPolicy() {
 	// This route is used by the tenant admin to add a new OPA policy
 	addTenantRoute("/policy", "POST", addpolicyHandler)
 
+	// This route is used by the tenant admin to generate a new OPA policy
+	// in Easy Mode from configured rules
+	// {policy-id} = "AccessPolicy" | "RoutePolicy" | "TracePolicy" | "StatsPolicy"
+	addTenantRoute("/policy/generate/{policy-id}", "POST", addPolicyFromRulesHandler)
+
 	// This route is used by the tenant admin to delete an OPA policy
 	delTenantRoute("/policy/{policy-id}", "GET", delpolicyHandler)
 
-	// This route is used by the tenant admin to add a new bundle ID rule
+	// This route is used by the tenant admin to add a new bundle ID sub-rule
+	// for a group (or update an existing one). The json body contains the
+	// details such as bid, rid, group and sub-rules.
 	addTenantRoute("/bundlerule/", "POST", addBundleRuleHandler)
 
-	addTenantRoute("/lockbundlerule/", "POST", lockBundleRuleHandler)
+	// This route is used by an admin to delete bundle rule expressions for a group
+	delTenantRoute("/bundlerule/{bid}/{rid}/{group}", "GET", delBundleRuleGroupHandler)
 
-	// This route is used by the tenant admin to delete a bundle ID rule
-	delTenantRoute("/bundlerule/{bid}/{rid}", "GET", delBundleRuleHandler)
+	// This route is used by the tenant admin to add a new host ID sub-rule
+	// for a group (or update an existing one). The json body contains the
+	// details such as host, rid, group and sub-rules.
+	addTenantRoute("/hostrule/", "POST", addHostRuleGroupHandler)
 
-	// This route is used by the tenant admin to add a new host ID rule
-	addTenantRoute("/hostrule/", "POST", addHostRuleHandler)
+	// This route is used by the tenant admin to delete a host ID group sub-rule
+	delTenantRoute("/hostrule/{host}/{rid}/{group}", "GET", delHostRuleGroupHandler)
 
-	addTenantRoute("/lockhostrule/", "POST", lockHostRuleHandler)
+	// This route is used by an admin to add a new trace req sub-rule for a group
+	// (or update an existing one). The json body contains the
+	// details such as traceid, group and sub-rules.
+	addTenantRoute("/tracereqrule/", "POST", addTraceReqRuleGroupHandler)
 
-	// This route is used by the tenant admin to delete a host ID rule
-	delTenantRoute("/hostrule/{host}/{rid}", "GET", delHostRuleHandler)
+	// This route is used by the tenant admin to delete a trace req group sub-rule
+	delTenantRoute("/tracereqrule/{rid}/{group}", "GET", delTraceReqRuleGroupHandler)
 
-	// This route is used by the tenant admin to add a new trace req rule
-	addTenantRoute("/tracereqrule/", "POST", addTraceReqRuleHandler)
+	// This route is used by the an admin to add/update a new stats sub-rule for
+	// a group. The sub-rule contains the user attributes owned by the group
+	addTenantRoute("/statsrule/", "POST", addStatsRuleGroupHandler)
 
-	// This route is used by the tenant admin to delete a trace req rule
-	delTenantRoute("/tracereqrule/{rid}", "GET", delTraceReqRuleHandler)
-
-	// This route is used by the tenant admin to add a new statsq rule
-	addTenantRoute("/statsrule/", "POST", addStatsRuleHandler)
-
-	// This route is used by the tenant admin to delete a stats rule
-	delTenantRoute("/statsrule/{rid}", "GET", delStatsRuleHandler)
+	// This route is used by the tenant admin to delete a stats sub-rule owned by
+	// the group.
+	delTenantRoute("/statsrule/{group}", "GET", delStatsRuleGroupHandler)
 }
 
 type AddpolicyResult struct {
@@ -96,6 +115,27 @@ func addpolicyHandler(w http.ResponseWriter, r *http.Request) {
 		admin = "UnknownUser"
 	}
 	err = db.DBAddPolicy(uuid, admin, &data)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+func addPolicyFromRulesHandler(w http.ResponseWriter, r *http.Request) {
+	var result AddpolicyResult
+
+	uuid := r.Context().Value("tenant").(string)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	v := mux.Vars(r)
+	pid := v["policy-id"]
+	err := db.DBGeneratePolicyFromRules(uuid, pid, admin)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -158,15 +198,17 @@ func delpolicyHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-//------------------------------------Bundle, Host and Trace Req rules------------------------------
+// Rules, rules and rules !
+//---------------------Bundle, Host, Trace Req aand Stats rules--------------------
 
 type RuleOpResult struct {
 	Result string `json:"Result"`
 }
 
-func lockBundleRuleHandler(w http.ResponseWriter, r *http.Request) {
+// Common function to add sub-rules for a group, whether it be for bundles,
+// hosts, trace reqs, or stats.
+func addRuleGenericHandler(w http.ResponseWriter, r *http.Request, ruletype string) {
 	var result RuleOpResult
-	var data db.LockBundleAccessRule
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -175,24 +217,36 @@ func lockBundleRuleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		fmt.Println(err)
-		result.Result = fmt.Sprintf("%v", err)
-		utils.WriteResult(w, result)
-		return
-	}
 	uuid := r.Context().Value("tenant").(string)
-	group := r.Context().Value("group").(string)
-	usertype := r.Context().Value("usertype").(string)
-	if usertype != "admin" && usertype != "superadmin" {
-		result.Result = fmt.Sprintf("Only admins or superadmins can lock/unlock the rule")
-		utils.WriteResult(w, result)
-		return
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
 	}
-	err = db.DBLockBundleRule(uuid, group, &data)
-	if err != nil {
-		result.Result = err.Error()
+	usertype, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		usertype = "regular"
+	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = usertype
+	}
+	glog.Infof("Add%sRule: Adding group rule %v", ruletype, body)
+	var aerr error
+	switch ruletype {
+	case "AppGroup":
+		aerr = db.DBAddBundleRuleGroup(uuid, group, admin, &body)
+	case "App":
+		aerr = db.DBAddHostRuleGroup(uuid, group, admin, &body)
+	case "Trace":
+		aerr = db.DBAddTraceReqRuleGroup(uuid, group, admin, &body)
+	case "Stats":
+		aerr = db.DBAddStatsRuleGroup(uuid, group, admin, &body)
+	default:
+		aerr = fmt.Errorf("Add%sRule: Unknown rule type", ruletype)
+	}
+	if aerr != nil {
+		glog.Errorf("Add%sRule: error - %v", ruletype, aerr)
+		result.Result = aerr.Error()
 		utils.WriteResult(w, result)
 		return
 	}
@@ -201,69 +255,65 @@ func lockBundleRuleHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-// {"bid": "<value>", "rid": "<value>", "rule":
+// {"bid": "<value>", "rid": "<value>", "group": {Group}, "rule":
 //      [ ["lefttoken", "operator", "righttoken", "type", "isArray"],
 //        ["lefttoken", "operator", "righttoken", "type", "isArray"],
 //        [ ... ]
 //      ]
 // Add a new bundle ID rule
 func addBundleRuleHandler(w http.ResponseWriter, r *http.Request) {
-	var result RuleOpResult
-	var data db.BundleAccessRule
 
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		result.Result = "Read fail"
-		utils.WriteResult(w, result)
-		return
-	}
-
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		fmt.Println(err)
-		result.Result = fmt.Sprintf("%v", err)
-		utils.WriteResult(w, result)
-		return
-	}
-	uuid := r.Context().Value("tenant").(string)
-	group := r.Context().Value("group").(string)
-	err = db.DBAddBundleRule(uuid, group, &data)
-	if err != nil {
-		result.Result = err.Error()
-		utils.WriteResult(w, result)
-		return
-	}
-
-	result.Result = "ok"
-	utils.WriteResult(w, result)
+	addRuleGenericHandler(w, r, "AppGroup")
 }
 
-type GetBundleRuleResult struct {
-	Result string `json:"Result"`
-	db.BundleAccessRule
+func getBundleRuleHandler(w http.ResponseWriter, r *http.Request) {
+	uuid := r.Context().Value("tenant").(string)
+	v := mux.Vars(r)
+	bid := v["bid"]
+	ruleid := v["ruleid"]
+	brule := db.DBFindBundleRules(uuid, bid, ruleid)
+	if brule == nil {
+		brule = []db.BundleAccessRule{}
+	}
+	utils.WriteResult(w, brule)
 }
 
 // Get all bundle rules
-func getAllBundleRulesHandler(w http.ResponseWriter, r *http.Request) {
+func getBundleAllRulesHandler(w http.ResponseWriter, r *http.Request) {
 	uuid := r.Context().Value("tenant").(string)
-	rules := db.DBFindAllBundleRules(uuid)
+	v := mux.Vars(r)
+	bid := v["bid"]
+	rules := db.DBFindBundleRules(uuid, bid, "")
 	if rules == nil {
-		rules = make([]db.BundleAccessRule, 0)
+		rules = []db.BundleAccessRule{}
 	}
 	utils.WriteResult(w, rules)
-
 }
 
-// Delete a bundle ID rule
-func delBundleRuleHandler(w http.ResponseWriter, r *http.Request) {
+// Delete a bundle ID sub-rule
+func delBundleRuleGroupHandler(w http.ResponseWriter, r *http.Request) {
 	var result RuleOpResult
 
+	usertype, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		usertype = "regular"
+	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = usertype
+	}
 	v := mux.Vars(r)
 	bid := v["bid"]
 	ruleid := v["rid"]
+	grp := v["group"]
+	if grp != group {
+		// someone is trying to delete some other group's rule expressions
+		result.Result = "Group admin mismatch for rule components being deleted"
+		utils.WriteResult(w, result)
+		return
+	}
 	uuid := r.Context().Value("tenant").(string)
-	group := r.Context().Value("group").(string)
-	err := db.DBDelBundleRule(uuid, group, bid, ruleid)
+	err := db.DBDelBundleRuleGroup(uuid, bid, ruleid, group)
 	if err != nil {
 		result.Result = err.Error()
 	} else {
@@ -272,106 +322,65 @@ func delBundleRuleHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-// {"host": "<value>", "rid": "<value>", "rule":
+// {"host": "<value>", "rid": "<value>", "group": {Group}, "rule":
 //      [ ["lefttoken", "operator", "righttoken", "type", "isArray"],
 //        ["lefttoken", "operator", "righttoken", "type", "isArray"],
 //        [ ... ]
 //      ]
-// Add a new host ID rule
-func addHostRuleHandler(w http.ResponseWriter, r *http.Request) {
-	var result RuleOpResult
-	var data db.HostRouteRule
+// Add a new host ID rule portion for a group 
+func addHostRuleGroupHandler(w http.ResponseWriter, r *http.Request) {
 
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		result.Result = "Read fail"
-		utils.WriteResult(w, result)
-		return
-	}
-
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		fmt.Println(err)
-		result.Result = fmt.Sprintf("%v", err)
-		utils.WriteResult(w, result)
-		return
-	}
-	uuid := r.Context().Value("tenant").(string)
-	group := r.Context().Value("group").(string)
-	err = db.DBAddHostRule(uuid, group, &data)
-	if err != nil {
-		result.Result = err.Error()
-		utils.WriteResult(w, result)
-		return
-	}
-
-	result.Result = "ok"
-	utils.WriteResult(w, result)
+	addRuleGenericHandler(w, r, "App")
 }
 
-func lockHostRuleHandler(w http.ResponseWriter, r *http.Request) {
-	var result RuleOpResult
-	var data db.LockHostRouteRule
-
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		result.Result = "Read fail"
-		utils.WriteResult(w, result)
-		return
-	}
-
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		fmt.Println(err)
-		result.Result = fmt.Sprintf("%v", err)
-		utils.WriteResult(w, result)
-		return
-	}
+func getHostRuleHandler(w http.ResponseWriter, r *http.Request) {
 	uuid := r.Context().Value("tenant").(string)
-	group := r.Context().Value("group").(string)
-	usertype := r.Context().Value("usertype").(string)
-	if usertype != "admin" && usertype != "superadmin" {
-		result.Result = fmt.Sprintf("Only admins or superadmins can lock/unlock the rule")
-		utils.WriteResult(w, result)
-		return
+	v := mux.Vars(r)
+	hostid := v["hostid"]
+	ruleid := v["ruleid"]
+	hrule := db.DBFindHostRules(uuid, hostid, ruleid)
+	if hrule == nil {
+		hrule = []db.HostRouteRule{}
 	}
-	err = db.DBLockHostRule(uuid, group, &data)
-	if err != nil {
-		result.Result = err.Error()
-		utils.WriteResult(w, result)
-		return
-	}
-
-	result.Result = "ok"
-	utils.WriteResult(w, result)
-}
-
-type GetHostRuleResult struct {
-	Result string `json:"Result"`
-	db.HostRouteRule
+	utils.WriteResult(w, hrule)
 }
 
 // Get all host rules
-func getAllHostRulesHandler(w http.ResponseWriter, r *http.Request) {
+func getHostAllRulesHandler(w http.ResponseWriter, r *http.Request) {
 	uuid := r.Context().Value("tenant").(string)
-	rules := db.DBFindAllHostRules(uuid)
+	v := mux.Vars(r)
+	hostid := v["hostid"]
+	rules := db.DBFindHostRules(uuid, hostid, "")
 	if rules == nil {
-		rules = make([]db.HostRouteRule, 0)
+		rules = []db.HostRouteRule{}
 	}
 	utils.WriteResult(w, rules)
-
 }
 
-// Delete a host ID rule
-func delHostRuleHandler(w http.ResponseWriter, r *http.Request) {
+// Delete a host ID sub-rule
+func delHostRuleGroupHandler(w http.ResponseWriter, r *http.Request) {
 	var result RuleOpResult
 
+	usertype, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		usertype = "regular"
+	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = usertype
+	}
 	v := mux.Vars(r)
 	hostid := v["host"]
 	ruleid := v["rid"]
+	grp := v["group"]
+	if grp != group {
+		// someone is trying to delete some other group's rule expressions
+		result.Result = "Group admin mismatch for rule components being deleted"
+		utils.WriteResult(w, result)
+		return
+	}
 	uuid := r.Context().Value("tenant").(string)
-	group := r.Context().Value("group").(string)
-	err := db.DBDelHostRule(uuid, group, hostid, ruleid)
+	err := db.DBDelHostRuleGroup(uuid, hostid, ruleid, group)
 	if err != nil {
 		result.Result = err.Error()
 	} else {
@@ -380,67 +389,53 @@ func delHostRuleHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-// {"rid": "<value>", "rule":
+// {"rid": "<value>", "group": {Group}, "rule":
 //      [ ["lefttoken", "operator", "righttoken", "type", "isArray"],
 //        ["lefttoken", "operator", "righttoken", "type", "isArray"],
 //        [ ... ]
 //      ]
 // Rule ID is also the trace request ID (has to be unique)
-// Add a new trace req rule
-func addTraceReqRuleHandler(w http.ResponseWriter, r *http.Request) {
-	var result RuleOpResult
-	var data db.TraceReqRule
+// {Group} is the admin group owning the user attributes selected
+// Add a new trace req rule portion for a group
+func addTraceReqRuleGroupHandler(w http.ResponseWriter, r *http.Request) {
 
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		result.Result = "Read fail"
-		utils.WriteResult(w, result)
-		return
-	}
+	addRuleGenericHandler(w, r, "Trace")
+}
 
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		fmt.Println(err)
-		result.Result = fmt.Sprintf("%v", err)
-		utils.WriteResult(w, result)
-		return
-	}
+func getTraceReqRuleHandler(w http.ResponseWriter, r *http.Request) {
 	uuid := r.Context().Value("tenant").(string)
-	err = db.DBAddTraceReqRule(uuid, &data)
-	if err != nil {
-		result.Result = err.Error()
-		utils.WriteResult(w, result)
-		return
-	}
-
-	result.Result = "ok"
-	utils.WriteResult(w, result)
-}
-
-type GetTraceReqRuleResult struct {
-	Result string `json:"Result"`
-	db.TraceReqRule
-}
-
-// Get all trace req rules
-func getAllTraceReqRulesHandler(w http.ResponseWriter, r *http.Request) {
-	uuid := r.Context().Value("tenant").(string)
-	rules := db.DBFindAllTraceReqRules(uuid)
-	if rules == nil {
-		rules = make([]db.TraceReqRule, 0)
-	}
-	utils.WriteResult(w, rules)
-
-}
-
-// Delete a trace req rule
-func delTraceReqRuleHandler(w http.ResponseWriter, r *http.Request) {
-	var result RuleOpResult
-
 	v := mux.Vars(r)
-	ruleid := v["rid"]
+	traceid := v["traceid"]
+	trule := db.DBFindTraceReqRules(uuid, traceid)
+	if trule == nil {
+		trule = []db.TraceReqRule{}
+	}
+	utils.WriteResult(w, trule)
+}
+ 
+// Delete a trace req rule
+func delTraceReqRuleGroupHandler(w http.ResponseWriter, r *http.Request) {
+	var result RuleOpResult
+
+	usertype, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		usertype = "regular"
+	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = usertype
+	}
+	v := mux.Vars(r)
+ 	ruleid := v["rid"]
+	grp := v["group"]
+	if grp != group {
+		// someone is trying to delete some other group's rule expressions
+		result.Result = "Group admin mismatch for rule components being deleted"
+		utils.WriteResult(w, result)
+		return
+	}
 	uuid := r.Context().Value("tenant").(string)
-	err := db.DBDelTraceReqRule(uuid, ruleid)
+	err := db.DBDelTraceReqRuleGroup(uuid, ruleid, group)
 	if err != nil {
 		result.Result = err.Error()
 	} else {
@@ -449,39 +444,15 @@ func delTraceReqRuleHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-// {"rid": "StatsRule", "rule":
+// {"rid": "StatsRule", "group": {Group}, "rule":
 //      [ ["lefttoken", "operator", "righttoken", "type", "isArray"]
 //      ]
 // Rule ID is constant
-// Add a new stats rule
-func addStatsRuleHandler(w http.ResponseWriter, r *http.Request) {
-	var result RuleOpResult
-	var data db.StatsRule
+// Group depends on the group admin adding the user attributes for the group
+// Add a new stats rule portion for a group
+func addStatsRuleGroupHandler(w http.ResponseWriter, r *http.Request) {
 
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		result.Result = "Read fail"
-		utils.WriteResult(w, result)
-		return
-	}
-
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		fmt.Println(err)
-		result.Result = fmt.Sprintf("%v", err)
-		utils.WriteResult(w, result)
-		return
-	}
-	uuid := r.Context().Value("tenant").(string)
-	err = db.DBAddStatsRule(uuid, &data)
-	if err != nil {
-		result.Result = err.Error()
-		utils.WriteResult(w, result)
-		return
-	}
-
-	result.Result = "ok"
-	utils.WriteResult(w, result)
+	addRuleGenericHandler(w, r, "Stats")
 }
 
 type GetStatsRuleResult struct {
@@ -492,7 +463,7 @@ type GetStatsRuleResult struct {
 // Get stats rule
 func getAllStatsRulesHandler(w http.ResponseWriter, r *http.Request) {
 	uuid := r.Context().Value("tenant").(string)
-	rule := db.DBFindAllStatsRules(uuid)
+	rule := db.DBFindStatsRule(uuid)
 	if rule == nil {
 		rule = make([]db.StatsRule, 0)
 	}
@@ -500,14 +471,28 @@ func getAllStatsRulesHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
-// Delete a stats rule
-func delStatsRuleHandler(w http.ResponseWriter, r *http.Request) {
+// Delete a stats sub-rule
+func delStatsRuleGroupHandler(w http.ResponseWriter, r *http.Request) {
 	var result RuleOpResult
 
+	usertype, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		usertype = "regular"
+	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = usertype
+	}
 	v := mux.Vars(r)
-	ruleid := v["rid"]
+	grp := v["group"]
+	if grp != group {
+		// someone is trying to delete some other group's rule expressions
+		result.Result = "Group admin mismatch for rule components being deleted"
+		utils.WriteResult(w, result)
+		return
+	}
 	uuid := r.Context().Value("tenant").(string)
-	err := db.DBDelStatsRule(uuid, ruleid)
+	err := db.DBDelStatsRuleGroup(uuid, group)
 	if err != nil {
 		result.Result = err.Error()
 	} else {

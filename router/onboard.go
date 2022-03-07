@@ -10,6 +10,7 @@ import (
 	"nextensio/controller/okta"
 	"nextensio/controller/utils"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,7 +53,7 @@ func rdonlyOnboard() {
 	getTenantRoute("/groupadms/{group}", "GET", getAdminsForGroupHandler)
 
 	// This route is used to get MSP-managed tenants for an MSP tenant
-	getTenantRoute("/tenant/mgdtenants", "GET", getManagedTenants)
+	getTenantRoute("/mgdtenants", "GET", getManagedTenants)
 
 	// This route is used to get the group admin role (usertype) of a user
 	getTenantRoute("/user/adminrole/{userid}", "GET", getUserAdminRole)
@@ -60,17 +61,9 @@ func rdonlyOnboard() {
 	// This route is used to get all users for a tenant
 	getTenantRoute("/allusers", "GET", getAllUsersHandler)
 
-	// This route is used to get all possible attributes for users/bundles/hosts
-	getTenantRoute("/allattrset", "GET", getAllAttrSet)
-
 	// This route is used to get attributes for a specific type - users or bundles or hosts
+	// To get for all types, {type} = "all"
 	getTenantRoute("/attrset/{type}", "GET", getSpecificAttrSet)
-
-	// This route is used to get bundle attributes header for a tenant
-	getTenantRoute("/bundleattrhdr", "GET", getBundleAttrHdrHandler)
-
-	// This route is used to get user attributes header for a tenant
-	getTenantRoute("/userattrhdr", "GET", getUserAttrHdrHandler)
 
 	// This route is used to get all user attributes for a tenant
 	getTenantRoute("/alluserattr", "GET", getAllUserAttrHandler)
@@ -81,9 +74,6 @@ func rdonlyOnboard() {
 	// This route is used to get all bundle attributes for a tenant
 	getTenantRoute("/allbundleattr", "GET", getAllBundleAttrHandler)
 
-	// This route is used to get host attributes header for a tenant
-	getTenantRoute("/hostattrhdr", "GET", getHostAttrHdrHandler)
-
 	// This route is used to get all host attributes for a tenant
 	getTenantRoute("/allhostattr", "GET", getAllHostAttrHandler)
 
@@ -92,6 +82,8 @@ func rdonlyOnboard() {
 
 	// This route is used to get basic info for a specific user
 	getTenantRoute("/user/{userid}", "GET", getUserHandler)
+
+	getTenantRoute("/alluserkeys", "GET", getUserKeysHandler)
 
 	// This route is used to get attributes for a specific user
 	getTenantRoute("/userattr/{userid}", "GET", getUserAttrHandler)
@@ -171,16 +163,19 @@ func rdwrOnboard() {
 	//*******************************************************************/
 
 	// This route is used by the tenant admin to modify the tenant parameters
-	addTenantRoute("/tenant", "POST", modifytenantHandler)
+	addTenantRoute("/tenant", "POST", localtenantAddHandler)
+
+	// This route is used by the tenant admin to delete a tenant admin group
+	delTenantRoute("/tenant", "GET", localtenantDelHandler)
 
 	// This route is used to change the type of tenant
-	addTenantRoute("/tenant/type/{type}", "POST", updTenantType)
+	addTenantRoute("/tenanttype/{type}", "POST", updTenantType)
 
 	// This route is used to add a MSP-managed tenant to a MSP tenant
-	addTenantRoute("/tenant/msp/{mgdtenant}", "POST", addManagedTenant)
+	addTenantRoute("/tenantmsp/{mgdtenant}", "POST", addManagedTenant)
 
 	// This route is used to remove a MSP-managed tenant from a MSP tenant
-	delTenantRoute("/tenant/msp/{mgdtenant}", "GET", delManagedTenant)
+	delTenantRoute("/tenantmsp/{mgdtenant}", "GET", delManagedTenant)
 
 	// This route is used by the tenant admin to add a tenant admin group
 	addTenantRoute("/admgroups/{group}", "POST", addAdminGroupsHandler)
@@ -191,9 +186,14 @@ func rdwrOnboard() {
 	// This route is used to add new users with basic user info
 	addTenantRoute("/user", "POST", addUserHandler)
 
+	// This route is used to add new users with basic user info
+	addTenantRoute("/userkey", "POST", addUserKeyHandler)
+
 	// This route is used to delete users. Both user info and user attribute
 	// docs will be deleted for specified user
 	delTenantRoute("/user/{userid}", "GET", delUserHandler)
+
+	delTenantRoute("/userkey/{key}", "GET", delUserKeyHandler)
 
 	// This route is used to update/change the admin role of a user
 	// {role} = "admin-<group-name>" for attr group admin, or
@@ -217,7 +217,7 @@ func rdwrOnboard() {
 	addTenantRoute("/hostattrhdr", "POST", addHostAttrHdrHandler)
 
 	// This route is used to add attributes for a user
-	addTenantRoute("/userattr", "POST", addUserAttrHandler)
+	addTenantRoute("/userattr/{userid}", "POST", addUserAttrHandler)
 
 	// This route is used to update attributes for multiple users
 	addTenantRoute("/userattr/multiple", "POST", updMultiUsersAttrHandler)
@@ -475,35 +475,6 @@ func signupWithIdp(w http.ResponseWriter, tenant string, email string) (string, 
 	return gid, nil
 }
 
-func addBasePolicies(uuid string, user string) error {
-	accessPolicy := "package app.access\n\nallow = true\n"
-	routePolicy := "package user.routing\n\ndefault route_tag = \"\"\n"
-	tracePolicy := "package user.tracing\n\ndefault request = {\"no\": [\"\"]}\n"
-	statsPolicy := "package user.stats\n\ndefault attributes = {\"exclude\": [\"uid\", \"maj_ver\", \"min_ver\", \"_hostname\", \"_model\", \"_osMinor\", \"_osPatch\", \"_osName\"]}\n"
-
-	policy := db.Policy{PolicyId: "AccessPolicy", Rego: []rune(accessPolicy)}
-	err := db.DBAddPolicy(uuid, user, &policy)
-	if err != nil {
-		return err
-	}
-	policy = db.Policy{PolicyId: "RoutePolicy", Rego: []rune(routePolicy)}
-	err = db.DBAddPolicy(uuid, user, &policy)
-	if err != nil {
-		return err
-	}
-	policy = db.Policy{PolicyId: "TracePolicy", Rego: []rune(tracePolicy)}
-	err = db.DBAddPolicy(uuid, user, &policy)
-	if err != nil {
-		return err
-	}
-	policy = db.Policy{PolicyId: "StatsPolicy", Rego: []rune(statsPolicy)}
-	err = db.DBAddPolicy(uuid, user, &policy)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 func signupHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 	var signup db.Signup
@@ -539,7 +510,9 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 	var data db.TenantJson
 	data.ID = signup.Tenant
 	data.Group = gid
-	err = db.DBAddTenant(&data, signup.Email, false)
+	data.IsMsp = signup.IsMsp
+	data.IsManaged = false
+	err = db.DBAddTenant(&data, signup.Email)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -575,14 +548,14 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Add "base" attributes
-	err = db.DBAddUserAttr(signup.Tenant, user.Uid, user.Uid, nil)
+	err = db.DBAddUserAttr(signup.Tenant, user.Uid, user.Uid, "admin", nil)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
 		return
 	}
 
-	err = addBasePolicies(signup.Tenant, user.Uid)
+	err = db.DBAddBasePolicies(signup.Tenant, user.Uid)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -599,13 +572,13 @@ type GetTenantResult struct {
 }
 
 type GetTenantAdminGroupsResult struct {
-	Result    string `json:"Result"`
-	AdmGroups []string
+	Result    string   `json:"Result"`
+	AdmGroups []string `json:"admgroups"`
 }
 
 type GetTenantGroupAdminsResult struct {
-	Result    string `json:"Result"`
-	GrpAdmins []string
+	Result    string   `json:"Result"`
+	GrpAdmins []string `json:"grpadmins"`
 }
 
 // Get existing tenant's parameters
@@ -625,7 +598,7 @@ func gettenantHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // Modify existing tenant's parameters
-func modifytenantHandler(w http.ResponseWriter, r *http.Request) {
+func localtenantAddHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 	var data db.TenantJson
 
@@ -647,15 +620,117 @@ func modifytenantHandler(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		admin = "UnknownUser"
 	}
-	err = db.DBAddTenant(&data, admin, true)
+	usertype, ok := r.Context().Value("usertype").(string)
+	if !ok {
+		usertype = "regular"
+	}
+	usertenant := r.Context().Value("user-tenant").(string)
+	tenant := db.DBFindTenant(usertenant)
+	if tenant == nil {
+		result.Result = "User's tenant not found"
+		utils.WriteResult(w, result)
+		return
+	}
+	managed := db.DBFindTenant(data.ID)
+	if usertenant != data.ID {
+		allowed := false
+		if usertype == "superadmin" {
+			// super admin is allowed to whatever!
+			allowed = true
+		}
+		if usertype == "admin" && tenant.Type == "MSP" {
+			// An MSP admin trying to modify an existing tenant, we should ensure
+			// that the existing tenant is managed by this MSP
+			if managed != nil {
+				for _, m := range tenant.MgdTenants {
+					if m == managed.ID {
+						allowed = true
+						break
+					}
+				}
+			} else {
+				// MSP admin trying to add a new tenant, that is fine
+				allowed = true
+				data.IsMsp = false
+				data.IsManaged = true
+			}
+		}
+		if !allowed {
+			result.Result = "Only super admins or Managed Service Providers allowed to add tenants"
+			utils.WriteResult(w, result)
+			return
+		}
+	}
+	err = db.DBAddTenant(&data, admin)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
 		return
 	}
 
+	// We are adding a new tenant, and if we are an MSP, link both
+	if usertype == "admin" && tenant.Type == "MSP" && data.ID != usertenant && managed == nil {
+		err := db.DBAddManagedTenant(usertenant, data.ID)
+		if err != nil {
+			db.DBDelTenant(data.ID)
+			result.Result = err.Error()
+			utils.WriteResult(w, result)
+			return
+		}
+	}
+
 	result.Result = "ok"
 	utils.WriteResult(w, result)
+}
+
+// Used by a tenant to delete self OR MSP to delete an MSP-managed tenant
+func localtenantDelHandler(w http.ResponseWriter, r *http.Request) {
+	var result DeltenantResult
+
+	uuid := r.Context().Value("tenant").(string)
+	usertype := r.Context().Value("usertype").(string)
+	usertenant := r.Context().Value("user-tenant").(string)
+	tenant := db.DBFindTenant(usertenant)
+	if tenant == nil {
+		result.Result = "User's tenant not found"
+		utils.WriteResult(w, result)
+		return
+	}
+	managed := db.DBFindTenant(uuid)
+	if managed == nil {
+		result.Result = "User's managed tenant not found"
+		utils.WriteResult(w, result)
+		return
+	}
+	if usertenant != uuid {
+		allowed := false
+		if usertype == "superadmin" {
+			// super admin is allowed to whatever!
+			allowed = true
+		}
+		if usertype == "admin" && tenant.Type == "MSP" {
+			// An MSP admin trying to delete an existing tenant, we should ensure
+			// that the existing tenant is managed by this MSP
+			for _, m := range tenant.MgdTenants {
+				if m == managed.ID {
+					allowed = true
+					break
+				}
+			}
+		}
+		if !allowed {
+			result.Result = "Only super admins or Managed Service Providers allowed to delete tenants"
+			utils.WriteResult(w, result)
+			return
+		}
+		err := db.DBDelManagedTenant(usertenant, managed.ID)
+		if err != nil {
+			result.Result = err.Error()
+			utils.WriteResult(w, result)
+			return
+		}
+	}
+	deltenantHandlerFunc(w, r, uuid)
 }
 
 // Update type of tenant
@@ -730,8 +805,8 @@ func delManagedTenant(w http.ResponseWriter, r *http.Request) {
 }
 
 type GetMgdTenantsResult struct {
-	Result  string `json:"Result"`
-	Tenants []string
+	Result  string   `json:"Result"`
+	Tenants []string `json:"tenants"`
 }
 
 // Get managed tenants for an MSP
@@ -787,7 +862,9 @@ func addtenantHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data.Group = gid
-	err = db.DBAddTenant(&data, admin, false)
+	data.IsMsp = false
+	data.IsManaged = false
+	err = db.DBAddTenant(&data, admin)
 	if err != nil {
 		glog.Errorf("DB tenant fail " + err.Error())
 		result.Result = err.Error()
@@ -797,7 +874,7 @@ func addtenantHandler(w http.ResponseWriter, r *http.Request) {
 
 	setDeviceAttrSet(data.ID, admin)
 
-	err = addBasePolicies(data.ID, admin)
+	err = db.DBAddBasePolicies(data.ID, admin)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -822,17 +899,15 @@ type DeltenantResult struct {
 	Result string `json:"Result"`
 }
 
-// Delete a tenant
-// When a tenant is deleted, all users, app-bundles, host attributes,
-// and policies (basically all tenant specific collections) also need
-// to be deleted. Should we do that automatically here or require that
-// they be separately deleted first before deleting the tenant ?
-func deltenantHandler(w http.ResponseWriter, r *http.Request) {
-	var result OpResult
+func deltenantHandlerFunc(w http.ResponseWriter, r *http.Request, uuid string) {
+	var result DeltenantResult
 
-	v := mux.Vars(r)
-	uuid := v["tenant-uuid"]
-
+	mgd := db.DBGetManagedTenants(uuid)
+	if mgd != nil && len(*mgd) != 0 {
+		result.Result = "Tenant still has managed tenants"
+		utils.WriteResult(w, result)
+		return
+	}
 	if db.DBFindAllUsers(uuid) != nil {
 		result.Result = "Tenant still has users"
 		utils.WriteResult(w, result)
@@ -896,6 +971,18 @@ func deltenantHandler(w http.ResponseWriter, r *http.Request) {
 		result.Result = "ok"
 	}
 	utils.WriteResult(w, result)
+}
+
+// Delete a tenant
+// When a tenant is deleted, all users, app-bundles, host attributes,
+// and policies (basically all tenant specific collections) also need
+// to be deleted. Should we do that automatically here or require that
+// they be separately deleted first before deleting the tenant ?
+func deltenantHandler(w http.ResponseWriter, r *http.Request) {
+
+	v := mux.Vars(r)
+	uuid := v["tenant-uuid"]
+	deltenantHandlerFunc(w, r, uuid)
 }
 
 // Add a tenant's admin group
@@ -1114,8 +1201,8 @@ func delcertHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 type GetcertResult struct {
-	Result string `json:"Result"`
-	db.Certificate
+	Result      string `json:"Result"`
+	Certificate db.Certificate
 }
 
 // Get a certificate
@@ -1244,7 +1331,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 		result.Services = user.Services
 		result.Gateway = user.Gateway
 		result.Cluster = db.DBGetClusterName(user.Gateway)
-		result.Version = tenant.ConfigVersion
+		result.Version = strconv.FormatUint(tenant.ConfigVersion, 10)
 		result.SplitTunnel = tenant.SplitTunnel
 	} else {
 		bundle := db.DBFindBundle(data.Tenant, data.Userid)
@@ -1268,7 +1355,10 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 			result.Services = bundle.Services
 			result.Gateway = bundle.Gateway
 			result.Cluster = db.DBGetClusterName(bundle.Gateway)
-			result.Version = tenant.ConfigVersion
+			// there is no particular logic behind the math here, we just want a unique
+			// number combining both the numbers, it can be addition/xor whatever
+			ver := tenant.ConfigVersion + bundle.ConfigVersion
+			result.Version = strconv.FormatUint(ver, 10)
 		} else {
 			result.Result = "IDP user/bundle not found on controller"
 			utils.WriteResult(w, result)
@@ -1349,7 +1439,6 @@ func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	result.Version = t.ConfigVersion
 	user := db.DBFindUser(tenant, userid)
 	if user != nil {
 		// We dont check the keepalive return value, keepalives are sent periodically
@@ -1361,6 +1450,7 @@ func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
 		if client_id != nil {
 			result.Clientid = client_id.Clientid
 		}
+		result.Version = strconv.FormatUint(t.ConfigVersion, 10)
 	} else {
 		bundle := db.DBFindBundle(tenant, userid)
 		if bundle == nil {
@@ -1368,6 +1458,10 @@ func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
 			utils.WriteResult(w, result)
 			return
 		}
+		// there is no particular logic behind the math here, we just want a unique
+		// number combining both the numbers, it can be addition/xor whatever
+		ver := t.ConfigVersion + bundle.ConfigVersion
+		result.Version = strconv.FormatUint(ver, 10)
 		// We dont check the keepalive return value, keepalives are sent periodically
 		db.BundleKeepalive(tenant, bundle, data)
 	}
@@ -1383,6 +1477,12 @@ type OpResult struct {
 func addUserHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
 	var data db.User
+
+	if !allowTenantAdminOnly(r) {
+		result.Result = "Not privileged to add a new user"
+		utils.WriteResult(w, result)
+		return
+	}
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -1401,6 +1501,10 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 	admin, ok := r.Context().Value("userid").(string)
 	if !ok {
 		admin = "UnknownUser"
+	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = "regular"
 	}
 
 	idpgid, err := IdpGetGroupID(API, TOKEN, uuid)
@@ -1438,7 +1542,7 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Add/Update base attributes
-	err = db.DBAddUserAttr(uuid, admin, data.Uid, nil)
+	err = db.DBAddUserAttr(uuid, admin, data.Uid, group, nil)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1513,10 +1617,87 @@ func delUserHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
+type UserKeyResult struct {
+	Result string `json:"Result"`
+	Key    string `json:"key"`
+}
+
+// Add a new user, with basic information that identifies the user
+func addUserKeyHandler(w http.ResponseWriter, r *http.Request) {
+	var result UserKeyResult
+	var data db.UserKeyJson
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		result.Result = "Add user info - HTTP Req Read fail"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		result.Result = "Add user info - Error parsing json " + err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+	uuid := r.Context().Value("user-tenant").(string)
+	userid := r.Context().Value("userid").(string)
+	usertype := r.Context().Value("usertype").(string)
+	token, err := db.DBAddUserKey(uuid, userid, usertype, &data)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+	result.Result = "ok"
+	result.Key = token
+	utils.WriteResult(w, result)
+}
+
+// Add a new user, with basic information that identifies the user
+func delUserKeyHandler(w http.ResponseWriter, r *http.Request) {
+	var result OpResult
+
+	v := mux.Vars(r)
+	key := v["key"]
+
+	uuid := r.Context().Value("user-tenant").(string)
+	userid := r.Context().Value("userid").(string)
+	err := db.DBDelUserKey(uuid, userid, key)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+	result.Result = "ok"
+	utils.WriteResult(w, result)
+}
+
+type UserKeysResult struct {
+	Result string           `json:"Result"`
+	Keys   []db.UserKeyJson `json:"keys"`
+}
+
+func getUserKeysHandler(w http.ResponseWriter, r *http.Request) {
+	var result UserKeysResult
+
+	uuid := r.Context().Value("user-tenant").(string)
+	userid := r.Context().Value("userid").(string)
+	keys, err := db.DBGetUserKeys(uuid, userid)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+	result.Result = "ok"
+	result.Keys = *keys
+	utils.WriteResult(w, result)
+}
+
 // Get all attribute sets
 func getAllAttrSet(w http.ResponseWriter, r *http.Request) {
 	uuid := r.Context().Value("tenant").(string)
-	set := db.DBFindAllAttrSet(uuid)
+	set := db.DBFindSpecificAttrSet(uuid, "all", "all")
 	if set == nil {
 		result := make([]db.AttrSet, 0)
 		utils.WriteResult(w, result)
@@ -1527,6 +1708,7 @@ func getAllAttrSet(w http.ResponseWriter, r *http.Request) {
 }
 
 type GetAdminRoleResult struct {
+	Result   string `json:"Result"`
 	UserRole string `json:"UserRole"`
 }
 
@@ -1538,17 +1720,18 @@ func getUserAdminRole(w http.ResponseWriter, r *http.Request) {
 	uid := v["userid"]
 	if !allowAnyAdminAccess(r, "") {
 		glog.Errorf("getUserAdminRole: Need admin privileges to get user type")
-		result.UserRole = "Only Admin users can query roles of other users"
+		result.Result = "Only Admin users can query roles of other users"
 		utils.WriteResult(w, result)
 		return
 	}
 	_, _, usertype, err := IdpGetUserInfo(API, TOKEN, uid)
 	if err != nil {
 		glog.Errorf("getUserAdminRole: user %s info not found in Idp - %v", uid, err)
-		result.UserRole = "Error-UnknownUser"
+		result.Result = "Error-UnknownUser"
 		utils.WriteResult(w, result)
 		return
 	}
+	result.Result = "ok"
 	result.UserRole = usertype
 	utils.WriteResult(w, result)
 }
@@ -1673,6 +1856,7 @@ func updUserAdminRole(w http.ResponseWriter, r *http.Request) {
 
 // Get attribute sets for specified type - "Users", "Bundles", "Hosts"
 func getSpecificAttrSet(w http.ResponseWriter, r *http.Request) {
+	var set []db.AttrSet
 	uuid := r.Context().Value("tenant").(string)
 	usertype, ok := r.Context().Value("usertype").(string)
 	if !ok {
@@ -1685,7 +1869,42 @@ func getSpecificAttrSet(w http.ResponseWriter, r *http.Request) {
 
 	v := mux.Vars(r)
 	atyp := v["type"]
-	set := db.DBFindSpecificAttrSet(uuid, atyp, group)
+	switch atyp {
+	case "All":
+		fallthrough
+	case "all":
+		if group == "admin" || group == "superadmin" {
+			// Get all entries in the AttrSet collection - all appliesTo
+			// values and all groups
+			set = db.DBFindSpecificAttrSet(uuid, "all", "all")
+		} else {
+			// Get AttrSet entries for all appliesTo values but filtered
+			// for group
+			set = db.DBFindSpecificAttrSet(uuid, "all", group)
+		}
+	case "Users":
+	case "Bundles":
+	case "Appgroups":
+	case "Hosts":
+	case "Apps":
+	default:
+		// Unknown type
+		result := make([]db.AttrSet, 0)
+		utils.WriteResult(w, result)
+		return
+	}
+	// atyp == "all" is covered above, so cover all the other cases below
+	if atyp != "all" && atyp != "All" {
+		if group == "superadmin" || group == "admin" {
+			// Get AttrSet entries for specific appliesTo value for all
+			// groups
+			set = db.DBFindSpecificAttrSet(uuid, atyp, "all")
+		} else {
+			// Get AttrSet entries for specific appliesTo value and specific
+			// group
+			set = db.DBFindSpecificAttrSet(uuid, atyp, group)
+		}
+	}
 	if set == nil {
 		result := make([]db.AttrSet, 0)
 		utils.WriteResult(w, result)
@@ -1829,22 +2048,33 @@ func addUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-// Get user attribute header
-func getUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
-	var hdr []db.DataHdr
-
-	uuid := r.Context().Value("tenant").(string)
-	dhdr := db.DBFindUserAttrHdr(uuid)
-	if dhdr == nil {
-		utils.WriteResult(w, hdr)
-	} else {
-		utils.WriteResult(w, []db.DataHdr{*dhdr})
-	}
-}
-
 // Add a user's attributes, used in policies applied to the user etc.
 func addUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
+
+	v := mux.Vars(r)
+	user := v["userid"]
+	if user == "" {
+		result.Result = "Missing user id"
+		utils.WriteResult(w, result)
+		return
+	}
+
+	uuid := r.Context().Value("tenant").(string)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = "regular"
+	}
+
+	if !allowAnyAdminAccess(r, group) {
+		result.Result = "Not privileged to add/update user attributes provided"
+		utils.WriteResult(w, result)
+		return
+	}
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -1854,27 +2084,16 @@ func addUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var Uattr bson.M
-	var user string
 	err = json.Unmarshal(body, &Uattr)
 	if err != nil {
 		result.Result = "User json decode fail"
 		utils.WriteResult(w, result)
 		return
 	}
-	if v, found := Uattr["uid"]; found {
-		user = fmt.Sprintf("%s", v)
+	if _, found := Uattr["uid"]; found {
 		delete(Uattr, "uid")
-	} else {
-		result.Result = "Missing user id"
-		utils.WriteResult(w, result)
-		return
 	}
-	uuid := r.Context().Value("tenant").(string)
-	admin, ok := r.Context().Value("userid").(string)
-	if !ok {
-		admin = "UnknownUser"
-	}
-	err = db.DBAddUserAttr(uuid, admin, user, Uattr)
+	err = db.DBAddUserAttr(uuid, admin, user, group, Uattr)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -1887,6 +2106,22 @@ func addUserAttrHandler(w http.ResponseWriter, r *http.Request) {
 
 func updMultiUsersAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
+
+	uuid := r.Context().Value("tenant").(string)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = "regular"
+	}
+
+	if !allowAnyAdminAccess(r, group) {
+		result.Result = "Not privileged to update user attributes provided"
+		utils.WriteResult(w, result)
+		return
+	}
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -1902,12 +2137,7 @@ func updMultiUsersAttrHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	uuid := r.Context().Value("tenant").(string)
-	admin, ok := r.Context().Value("userid").(string)
-	if !ok {
-		admin = "UnknownUser"
-	}
-	err = db.DBUpdateAttrsForMultipleUsers(uuid, admin, Uattr)
+	err = db.DBUpdateAttrsForMultipleUsers(uuid, admin, group, Uattr)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -2092,19 +2322,6 @@ func addBundleAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-// Get bundle attribute header
-func getBundleAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
-	uuid := r.Context().Value("tenant").(string)
-	hdr := db.DBFindBundleAttrHdr(uuid)
-	if hdr == nil {
-		result := make([]db.DataHdr, 0)
-		utils.WriteResult(w, result)
-	} else {
-		result := []db.DataHdr{*hdr}
-		utils.WriteResult(w, result)
-	}
-}
-
 // Add a bundle's attribute, used to decide what policies are applied to the bundle etc.
 func addBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
@@ -2178,19 +2395,6 @@ func getAllBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	utils.WriteResult(w, attrs)
 
-}
-
-// Get host attributes header for a tenant
-func getHostAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
-	uuid := r.Context().Value("tenant").(string)
-	hdr := db.DBFindHostAttrHdr(uuid)
-	if hdr == nil {
-		result := make([]db.DataHdr, 0)
-		utils.WriteResult(w, result)
-	} else {
-		result := []db.DataHdr{*hdr}
-		utils.WriteResult(w, result)
-	}
 }
 
 // Get all host attributes for a tenant
@@ -2469,7 +2673,7 @@ func getTraceReqHandler(w http.ResponseWriter, r *http.Request) {
 	v := mux.Vars(r)
 	traceid := v["traceid"]
 	uuid := r.Context().Value("tenant").(string)
-	treq := db.DBFindUserAttr(uuid, traceid)
+	treq := db.DBFindTraceReq(uuid, traceid)
 	if treq == nil {
 		result.Result = "Cannot find trace request"
 	} else {
