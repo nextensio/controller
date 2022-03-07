@@ -2249,10 +2249,6 @@ func DBAddBundle(uuid string, admin string, data *Bundle) error {
 	if tenant == nil {
 		return fmt.Errorf("Unknown tenant")
 	}
-	err := DBUpdateTenantCfgvn(uuid, uint64(time.Now().Unix()))
-	if err != nil {
-		return err
-	}
 	user := DBFindUser(uuid, data.Bid)
 	if user != nil {
 		return fmt.Errorf("ID already taken for a user, please use different id")
