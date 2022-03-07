@@ -2365,7 +2365,7 @@ func DBAddBundle(uuid string, admin string, data *Bundle) error {
 	}
 	DBUpdateBundleInfoHdr(uuid, admin)
 
-	err = DBAddClusterBundle(uuid, data)
+	err := DBAddClusterBundle(uuid, data)
 	if err != nil {
 		return err
 	}
