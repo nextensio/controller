@@ -33,6 +33,7 @@ type CustomClaims struct {
 	Tenant   string `json:"tenant"`
 	Username string `json:"sub"`
 	Secret   string `json:"secret"`
+	Usertype string `json:"usertype"`
 	Name     string `json:"name"`
 	Time     uint64 `json:"time"`
 	jwt.StandardClaims
@@ -45,7 +46,7 @@ func VerifyMyJwt(r *http.Request, bearerToken string) *context.Context {
 	}
 	ctx := context.WithValue(r.Context(), "user-tenant", claims.Tenant)
 	ctx = context.WithValue(ctx, "userid", claims.Username)
-	ctx = context.WithValue(ctx, "usertype", "regular")
+	ctx = context.WithValue(ctx, "usertype", claims.Usertype)
 	ctx = context.WithValue(ctx, "secret", claims.Secret)
 
 	user := DBFindUser(claims.Tenant, claims.Username)
@@ -85,7 +86,7 @@ func GetMyJwt(bearerToken string) *CustomClaims {
 	return claims
 }
 
-func GenMyJwt(name string, tenant string, username string) (string, error) {
+func GenMyJwt(name string, tenant string, username string, usertype string) (string, error) {
 	secret, err := password.Generate(64, 10, 10, false, false)
 	if err != nil {
 		return "", err
@@ -93,6 +94,7 @@ func GenMyJwt(name string, tenant string, username string) (string, error) {
 	claims := CustomClaims{
 		Tenant:   tenant,
 		Username: username,
+		Usertype: usertype,
 		Secret:   secret,
 		Name:     name,
 		Time:     uint64(time.Now().Unix()),
@@ -1374,8 +1376,12 @@ type User struct {
 }
 
 // This API will add a new user API key
-func DBAddUserKey(uuid string, userid string, key *UserKeyJson) (string, error) {
+func DBAddUserKey(uuid string, userid string, usertype string, key *UserKeyJson) (string, error) {
 
+	key.Name = strings.TrimSpace(key.Name)
+	if key.Name == "" {
+		return "", fmt.Errorf("Need non empty key name")
+	}
 	tenant := DBFindTenant(uuid)
 	if tenant == nil {
 		return "", fmt.Errorf("Unknown tenant")
@@ -1389,7 +1395,7 @@ func DBAddUserKey(uuid string, userid string, key *UserKeyJson) (string, error) 
 			return "", fmt.Errorf("Key already exists")
 		}
 	}
-	token, err := GenMyJwt(key.Name, uuid, userid)
+	token, err := GenMyJwt(key.Name, uuid, userid, usertype)
 	if err != nil {
 		return "", err
 	}
@@ -2305,7 +2311,7 @@ func DBAddBundle(uuid string, admin string, data *Bundle) error {
 			}
 		}
 	} else {
-		s, e := GenMyJwt("bundlekey", uuid, data.Bid)
+		s, e := GenMyJwt("bundlekey", uuid, data.Bid, "regular")
 		if e != nil {
 			return e
 		}

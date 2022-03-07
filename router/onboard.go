@@ -1619,7 +1619,7 @@ func delUserHandler(w http.ResponseWriter, r *http.Request) {
 
 type UserKeyResult struct {
 	Result string `json:"Result"`
-	Key    string `json:"Key"`
+	Key    string `json:"key"`
 }
 
 // Add a new user, with basic information that identifies the user
@@ -1642,7 +1642,8 @@ func addUserKeyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	uuid := r.Context().Value("user-tenant").(string)
 	userid := r.Context().Value("userid").(string)
-	token, err := db.DBAddUserKey(uuid, userid, &data)
+	usertype := r.Context().Value("usertype").(string)
+	token, err := db.DBAddUserKey(uuid, userid, usertype, &data)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
