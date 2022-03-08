@@ -1393,8 +1393,11 @@ func dbGeneratePolicyFromHostRules(tenant string) []string {
 	for _, subrule := range allRules {
 		// A subrule is a collection of snippets (match expressions)
 		// for a group within a rule for a host
-		// First check if we've seen this host
-		rids, found1 := hostMap[subrule.Host]
+		// First check if we've seen this host. Since we prefix route
+		// tag to host, split it out first to get untagged hostid.
+		taggedHost := strings.SplitN(subrule.Host, ".", 2)
+		hostid := taggedHost[1]
+		rids, found1 := hostMap[hostid]
 		if found1 {
 			// Known host id. rids contains rule ids known so far
 			// for this host. Check if the rule id is new or
@@ -1408,32 +1411,27 @@ func dbGeneratePolicyFromHostRules(tenant string) []string {
 			}
 			if !found2 {
 				// new rule id found for host
-				hostMap[subrule.Host] = append(hostMap[subrule.Host], subrule.Rid)
+				hostMap[hostid] = append(hostMap[hostid], subrule.Rid)
 				tagneeded = true
 			}
 		} else {
 			// New host id, so track host and rule ids.
-			hostMap[subrule.Host] = append(hostMap[subrule.Host], subrule.Rid)
+			hostMap[hostid] = append(hostMap[hostid], subrule.Rid)
 			tagneeded = true
 		}
 		// Consolidate all the snippets from the group into the rule
-		host := subrule.Host
 		rid := subrule.Rid
 		for i := 0; i < len(subrule.Rule); i++ {
-			ridMap[host+":"+rid] = append(ridMap[host+":"+rid], subrule.Rule[i])
+			ridMap[hostid+":"+rid] = append(ridMap[hostid+":"+rid], subrule.Rule[i])
 		}
 		// The tag for a host route is being included as a snippet in every rule by the ux code
 		// It will be changed to instead prefix the hostid with the tag. We therefore need
 		// this piece of code to check if the hostid is prefixed with the tag, and if so,
 		// extract the tag to create a new snippet per rule.
 		if tagneeded {
-			taggedhost := strings.SplitN(host, ".", 2)
-			if len(taggedhost) == 2 {
-				// Host is prefixed with tag
-				tagneeded = false
-				tagsnip := []string{"tag", "==", taggedhost[0], "string", "false"}
-				ridMap[host+":"+rid] = append(ridMap[host+":"+rid], tagsnip)
-			}
+			tagneeded = false
+			tagsnip := []string{"tag", "==", taggedHost[0], "string", "false"}
+			ridMap[hostid+":"+rid] = append(ridMap[hostid+":"+rid], tagsnip)
 		}
 		grp := subrule.Group
 		ver := fmt.Sprintf("%d", subrule.Version)
