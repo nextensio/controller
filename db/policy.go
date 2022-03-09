@@ -615,6 +615,10 @@ func DBAddHostRuleGroup(uuid string, group string, admin string, body *[]byte) e
 	if err != nil {
 		return fmt.Errorf("Rule unmarshal error - %v", err)
 	}
+	taggedhost := strings.SplitN(data.Host, ":", 2)
+	if len(taggedhost) != 2 {
+		return fmt.Errorf("Rule host " + data.Host + " does not contain route tag prefix")
+	}
 	sts, newsnips := dbValidateGroupOwnership(uuid, &data.Rule, group, "Route", true)
 	if !sts {
 		return fmt.Errorf("Host route rule group has attributes not belonging to group")
@@ -678,33 +682,42 @@ func DBHostRuleExists(tenant string, host string, tags *[]string) bool {
 	if hostRuleCltn == nil {
 		return false
 	}
-	cursor, err := hostRuleCltn.Find(
-		context.TODO(),
-		bson.M{"host": host},
-	)
-	if err != nil {
+	if tags != nil {
+		for _, t := range *tags {
+			taggedhost := t + ":" + host
+			_, err := hostRuleCltn.Find(
+				context.TODO(),
+				bson.M{"host": taggedhost},
+			)
+			if err == nil {
+				// A host rule exists for a route tag
+				return true
+			}
+		}
 		return false
 	}
 
+	// tags == nil case - check if any rule for the host exists
+	cursor, err := hostRuleCltn.Find(
+		context.TODO(),
+		bson.M{},
+	)
+	if err != nil {
+		// Could not find any host rule
+		return false
+	}
 	defer cursor.Close(context.TODO())
 	for cursor.Next(context.TODO()) {
-		// tag == nil means return true as long as any one rule exists
-		if tags == nil {
-			return true
-		}
 		if err = cursor.Decode(&rule); err != nil {
 			return false
 		}
-
-		for _, t := range *tags {
-			for _, r := range rule.Rule {
-				if len(r) >= 3 && r[0] == "tag" && r[2] == t {
-					return true
-				}
-			}
+		taggedhost := strings.SplitN(rule.Host, ":", 2)
+		// taggedhost[0] = tag, taggedhost[1] = hostid
+		if taggedhost[1] == host {
+			return true
 		}
-	}
 
+	}
 	return false
 }
 
@@ -1395,7 +1408,7 @@ func dbGeneratePolicyFromHostRules(tenant string) []string {
 		// for a group within a rule for a host
 		// First check if we've seen this host. Since we prefix route
 		// tag to host, split it out first to get untagged hostid.
-		taggedHost := strings.SplitN(subrule.Host, ".", 2)
+		taggedHost := strings.SplitN(subrule.Host, ":", 2)
 		hostid := taggedHost[1]
 		rids, found1 := hostMap[hostid]
 		if found1 {
