@@ -2212,6 +2212,10 @@ func addBundleHandler(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		admin = "UnknownUser"
 	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = "regular"
+	}
 	err = db.DBAddBundle(uuid, admin, &data)
 	if err != nil {
 		result.Result = err.Error()
@@ -2219,7 +2223,7 @@ func addBundleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Add/update "base" attributes
-	err = db.DBAddBundleAttr(uuid, admin, data.Bid, nil)
+	err = db.DBAddBundleAttr(uuid, admin, data.Bid, group, nil)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -2354,7 +2358,11 @@ func addBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		admin = "UnknownUser"
 	}
-	err = db.DBAddBundleAttr(uuid, admin, bid, Battr)
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = "regular"
+	}
+	err = db.DBAddBundleAttr(uuid, admin, bid, group, Battr)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)

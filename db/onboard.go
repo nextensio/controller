@@ -1749,23 +1749,18 @@ func DBFindUserStatus(tenant string, userid string) []UserStatus {
 	return status
 }
 
-// When adding a new user, we also create a user attributes doc with
-// just the userid (key field). This is ok if no user attributes have
-// been defined. But if user attributes have been defined, then create
-// the user attributes doc with default values for those attributes
-// defined.
-// This function looks at the AttrSet to see if there are user attributes
-// we should add to the doc.
-func dbGetDefaultUserAttr(tenant string) *bson.M {
+// Common function to get default set of attributes for Users,
+// or bundles
+func dbGetDefaultAttrs(tenant string, appliesTo string) *bson.M {
 	defAttr := make(bson.M, 0)
-	attrset := DBFindSpecificAttrSet(tenant, "Users", "all")
+	attrset := DBFindSpecificAttrSet(tenant, appliesTo, "all")
 	if attrset == nil || len(attrset) == 0 {
 		return nil
 	}
 	nattrs := 0
 	for _, a := range attrset {
 		if strings.HasPrefix(a.Name, "_") {
-			// Skip system attributes
+			// Skip any system attributes
 			continue
 		}
 		switch a.Type {
@@ -1794,7 +1789,30 @@ func dbGetDefaultUserAttr(tenant string) *bson.M {
 	return &defAttr
 }
 
-func dbCheckUserAttrGroupOwnership(tenant string, group string, Uattr *bson.M, upd bool) (bool, string) {
+// When adding a new bundle, we also create a bundle attributes doc with
+// just the bid (key field). This is ok if no bundle attributes have
+// been defined. But if bundle attributes have been defined, then create
+// the bundle attributes doc with default values for those attributes
+// defined.
+// This function looks at the AttrSet to see if there are bundle attributes
+// we should add to the doc.
+func dbGetDefaultBundleAttr(tenant string) *bson.M {
+	return dbGetDefaultAttrs(tenant, "Bundles")
+}
+
+// When adding a new user, we also create a user attributes doc with
+// just the userid (key field). This is ok if no user attributes have
+// been defined. But if user attributes have been defined, then create
+// the user attributes doc with default values for those attributes
+// defined.
+// This function looks at the AttrSet to see if there are user attributes
+// we should add to the doc.
+func dbGetDefaultUserAttr(tenant string) *bson.M {
+	return dbGetDefaultAttrs(tenant, "Users")
+}
+
+func dbCheckAttrGroupOwnership(tenant string, group string, appliesTo string, Xattr *bson.M, upd bool) (bool, string) {
+
 	grp := group
 	if group == "admin" || group == "superadmin" {
 		grp = "all"
@@ -1805,7 +1823,7 @@ func dbCheckUserAttrGroupOwnership(tenant string, group string, Uattr *bson.M, u
 		// be done by group.
 		grp = "all"
 	}
-	attrset := DBFindSpecificAttrSet(tenant, "Users", grp)
+	attrset := DBFindSpecificAttrSet(tenant, appliesTo, grp)
 	nattrs := 0
 	if !upd {
 		// New attributes are being added. A group admin has to add all
@@ -1813,13 +1831,13 @@ func dbCheckUserAttrGroupOwnership(tenant string, group string, Uattr *bson.M, u
 		// has to add all user attributes.
 		for _, a := range attrset {
 			if strings.HasPrefix(a.Name, "_") {
-				// Skip system attributes since their values
+				// Skip any system attributes since their values
 				// cannot be updated.
 				continue
 			}
 			nattrs += 1
 			found := false
-			for k := range *Uattr {
+			for k := range *Xattr {
 				if k == a.Name {
 					found = true
 					break
@@ -1836,7 +1854,7 @@ func dbCheckUserAttrGroupOwnership(tenant string, group string, Uattr *bson.M, u
 	// For now, filter out attributes not belonging to group since
 	// ux code sends all attributes if group admin is updating.
 	invalid := false
-	for k := range *Uattr {
+	for k := range *Xattr {
 		if strings.HasPrefix(k, "_") {
 			// Cannot add/update a system user attribute
 			invalid = true
@@ -1850,7 +1868,7 @@ func dbCheckUserAttrGroupOwnership(tenant string, group string, Uattr *bson.M, u
 			}
 		}
 		if !found {
-			delete(*Uattr, k)
+			delete(*Xattr, k)
 			continue
 			// invalid = true
 			// break
@@ -1860,6 +1878,14 @@ func dbCheckUserAttrGroupOwnership(tenant string, group string, Uattr *bson.M, u
 		return false, "Attribute list has attributes without required privilege"
 	}
 	return true, ""
+}
+
+func dbCheckUserAttrGroupOwnership(tenant string, group string, Uattr *bson.M, upd bool) (bool, string) {
+	return dbCheckAttrGroupOwnership(tenant, group, "Users", Uattr, upd)
+}
+
+func dbCheckBundleAttrGroupOwnership(tenant string, group string, Uattr *bson.M, upd bool) (bool, string) {
+	return dbCheckAttrGroupOwnership(tenant, group, "Bundles", Uattr, upd)
 }
 
 func dbAddUserAttr(uuid string, user string, Uattr bson.M, replace bool) error {
@@ -1909,6 +1935,7 @@ func dbAddUserAttr(uuid string, user string, Uattr bson.M, replace bool) error {
 			Uattr,
 		)
 		if err != nil {
+			glog.Errorf("User attribute doc replace error - %v", err)
 			return err
 		}
 		if result.MatchedCount == 0 {
@@ -2615,6 +2642,7 @@ func dbAddBundleAttr(uuid string, bid string, Battr bson.M, replace bool) error 
 				bson.M{"_id": bid},
 			)
 			if err != nil {
+				glog.Errorf("AppGroup attribute doc insert error - %v", err)
 				return err
 			}
 		} else {
@@ -2625,6 +2653,7 @@ func dbAddBundleAttr(uuid string, bid string, Battr bson.M, replace bool) error 
 				&opt,
 			)
 			if result.Err() != nil {
+				glog.Errorf("AppGroup attribute doc add/update error - %v", result.Err())
 				return result.Err()
 			}
 		}
@@ -2635,10 +2664,11 @@ func dbAddBundleAttr(uuid string, bid string, Battr bson.M, replace bool) error 
 			Battr,
 		)
 		if err != nil {
+			glog.Errorf("AppGroup attribute doc replace error - %v", err)
 			return err
 		}
 		if result.MatchedCount == 0 {
-			return fmt.Errorf("Did not update any bundle")
+			return fmt.Errorf("Did not update any AppGroup")
 		}
 	}
 	return nil
@@ -2691,34 +2721,44 @@ func DBUpdateBundleServices(uuid string, admin string, host string, deleted *[]s
 
 // This API will add/update a bundle attribute. If the data is nil,
 // it just updates the "base" attributes and returns
-func DBAddBundleAttr(uuid string, admin string, bid string, Battr bson.M) error {
+func DBAddBundleAttr(uuid string, admin string, bid string, group string, Battr bson.M) error {
 	dbBundle := DBFindBundle(uuid, bid)
 	if dbBundle == nil {
+		glog.Errorf("AddAppGroupAttr: cannot find AppGroup " + bid)
 		return fmt.Errorf("Cannot find bundle")
 	}
 
+	upd := false
+	battr := DBFindBundleAttr(uuid, bid)
 	if Battr != nil {
-		attrset := DBFindSpecificAttrSet(uuid, "Bundles", "all")
-		nattrs := 0
-		for _, a := range attrset {
-			nattrs += 1
-			found := false
-			for k := range Battr {
-				if k == a.Name {
-					found = true
-				}
-			}
-			if !found {
-				return fmt.Errorf("Attribute %s not defined in AttributeEditor", a.Name)
+		// Bundle attributes add or update via api. Figure out if it's an
+		// add or update
+		if battr != nil {
+			// A bundle attributes doc exists. If the doc has just the
+			// key field, it's an add case, else an update
+			if len(*battr) > 1 {
+				upd = true
 			}
 		}
+		sts, errstr := dbCheckBundleAttrGroupOwnership(uuid, group, &Battr, upd)
+		if !sts {
+			return fmt.Errorf(errstr)
+		}
 	}
+
 	if Battr == nil || len(Battr) == 0 {
-		attr := DBFindBundleAttr(uuid, bid)
-		if attr != nil {
-			// Well there is already some attributes, and we are not
-			// having anything new / changing here, so just return
+		if battr != nil {
+			// Bundle attributes doc exists and no new bundle attributes
+			// supplied, so just return
 			return nil
+		} else {
+			// bundle attributes doc does not exist and no bundle attributes have
+			// been supplied. See if AttrSet has any attributes defined, and
+			// if so, add them with default values.
+			defAttr := dbGetDefaultBundleAttr(uuid)
+			if defAttr != nil {
+				Battr = *defAttr
+			}
 		}
 	}
 	err := dbAddBundleAttr(uuid, bid, Battr, false)
