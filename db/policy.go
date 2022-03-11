@@ -691,9 +691,11 @@ func DBHostRuleExists(tenant string, host string, tags *[]string) bool {
 			)
 			if err == nil {
 				// A host rule exists for a route tag
+				glog.Infof("HostRuleExists: host rule found for " + taggedhost)
 				return true
 			}
 		}
+		glog.Infof("HostRuleExists: no host rule found for tags %v", *tags)
 		return false
 	}
 
@@ -704,6 +706,7 @@ func DBHostRuleExists(tenant string, host string, tags *[]string) bool {
 	)
 	if err != nil {
 		// Could not find any host rule
+		glog.Infof("HostRuleExists: no host rule found for any tag")
 		return false
 	}
 	defer cursor.Close(context.TODO())
@@ -714,6 +717,7 @@ func DBHostRuleExists(tenant string, host string, tags *[]string) bool {
 		taggedhost := strings.SplitN(rule.Host, ":", 2)
 		// taggedhost[0] = tag, taggedhost[1] = hostid
 		if taggedhost[1] == host {
+			glog.Infof("HostRuleExists: host rule found for host " + host)
 			return true
 		}
 

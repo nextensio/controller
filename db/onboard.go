@@ -3151,8 +3151,26 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 				}
 			}
 			if !found {
-				glog.Errorf("AddHostAttr: AttrSet attribute missing - " + a.Name)
-				return fmt.Errorf("All attributes defined in AttributeEditor need to be present - " + a.Name)
+				// Add the attribute from the AttrSet if missing. Don't
+				// flag an error.
+				switch a.Type {
+				case "String":
+					if a.IsArray == "true" {
+						route[a.Name] = []string{}
+					} else {
+						route[a.Name] = ""
+					}
+				case "Number":
+					if a.IsArray == "true" {
+						route[a.Name] = []int{}
+					} else {
+						route[a.Name] = 0
+					}
+				case "Boolean":
+					route[a.Name] = false
+				case "Date":
+					route[a.Name] = ""
+				}
 			}
 		}
 	}
