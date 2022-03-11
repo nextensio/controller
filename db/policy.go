@@ -609,6 +609,7 @@ func DBAddHostRuleGroup(uuid string, group string, admin string, body *[]byte) e
 		return fmt.Errorf("Cant find tenant %s", uuid)
 	}
 	if !t.EasyMode {
+		glog.Errorf("AddAppRule: Rules are supported only in Easy Mode")
 		return fmt.Errorf("Rules are supported only in Easy Mode")
 	}
 	err := json.Unmarshal(*body, &data)
@@ -617,6 +618,7 @@ func DBAddHostRuleGroup(uuid string, group string, admin string, body *[]byte) e
 	}
 	taggedhost := strings.SplitN(data.Host, ":", 2)
 	if len(taggedhost) != 2 {
+		glog.Errorf("AddAppRule: Host field does not contain tag prefix - " + data.Host)
 		return fmt.Errorf("Rule host " + data.Host + " does not contain route tag prefix")
 	}
 	sts, newsnips := dbValidateGroupOwnership(uuid, &data.Rule, group, "Route", true)
@@ -672,6 +674,7 @@ func DBAddHostRuleGroup(uuid string, group string, admin string, body *[]byte) e
 	if aerr != nil {
 		return aerr.Err()
 	}
+	glog.Infof("AddHostRuleGroup: Added rule with id " + Id)
 	return nil
 }
 
@@ -685,14 +688,16 @@ func DBHostRuleExists(tenant string, host string, tags *[]string) bool {
 	if tags != nil {
 		for _, t := range *tags {
 			taggedhost := t + ":" + host
-			_, err := hostRuleCltn.Find(
+			count, err := hostRuleCltn.CountDocuments(
 				context.TODO(),
 				bson.M{"host": taggedhost},
 			)
 			if err == nil {
-				// A host rule exists for a route tag
-				glog.Infof("HostRuleExists: host rule found for " + taggedhost)
-				return true
+				if count > 0 {
+					// One or more host rule entries exist for a route tag
+					glog.Infof("HostRuleExists: Found %d host rule entries for %s", count, taggedhost)
+					return true
+				}
 			}
 		}
 		glog.Infof("HostRuleExists: no host rule found for tags %v", *tags)
@@ -717,7 +722,7 @@ func DBHostRuleExists(tenant string, host string, tags *[]string) bool {
 		taggedhost := strings.SplitN(rule.Host, ":", 2)
 		// taggedhost[0] = tag, taggedhost[1] = hostid
 		if taggedhost[1] == host {
-			glog.Infof("HostRuleExists: host rule found for host " + host)
+			glog.Infof("HostRuleExists: host rule found for host " + rule.Host + "/" + rule.Rid + "/" + rule.Group)
 			return true
 		}
 
