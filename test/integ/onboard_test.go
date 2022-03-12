@@ -894,7 +894,7 @@ func TestAttrHdrGet_v1(t *testing.T) {
 	testUserAttrHdrAdd_v1(t)
 	dbTenants := db.DBFindAllTenants()
 
-	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/userattrhdr", nil)
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/attrhdr/Users", nil)
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -1623,7 +1623,7 @@ func TestHostAttrHdrGet_v1(t *testing.T) {
 	testHostAttrHdrAdd_v1(t)
 	dbTenants := db.DBFindAllTenants()
 
-	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/hostattrhdr", nil)
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/attrhdr/Apps", nil)
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -1933,7 +1933,7 @@ func TestBundleAttrHdrGet_v1(t *testing.T) {
 	testBundleAttrHdrAdd_v1(t)
 	dbTenants := db.DBFindAllTenants()
 
-	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/bundleattrhdr", nil)
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/attrhdr/AppGroups", nil)
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)

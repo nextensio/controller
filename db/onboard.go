@@ -539,23 +539,23 @@ func DBAddTenant(data *TenantJson, admin string) error {
 func DBAddTenantCollectionHdrs(tenant string, admin string) {
 	hdr := DataHdr{Majver: 1, Minver: 0}
 
-	_ = DBAddUserInfoHdr(tenant, admin, &hdr)
-	_ = DBAddUserAttrHdr(tenant, admin, &hdr)
-	_ = DBAddBundleInfoHdr(tenant, admin, &hdr)
-	_ = DBAddBundleAttrHdr(tenant, admin, &hdr)
-	_ = DBAddHostAttrHdr(tenant, admin, &hdr)
-	_ = DBAddTraceRequestsHdr(tenant, admin, &hdr)
+	_ = dbAddUserInfoHdr(tenant, admin, &hdr)
+	_ = dbAddUserAttrHdr(tenant, admin, &hdr)
+	_ = dbAddBundleInfoHdr(tenant, admin, &hdr)
+	_ = dbAddBundleAttrHdr(tenant, admin, &hdr)
+	_ = dbAddHostAttrHdr(tenant, admin, &hdr)
+	_ = dbAddTraceRequestsHdr(tenant, admin, &hdr)
 	// TenantCluster collection does not have a header doc for now
 }
 
 func DBDelTenantCollectionHdrs(tenant string) {
 
-	_ = DBDelUserInfoHdr(tenant)
-	_ = DBDelUserAttrHdr(tenant)
-	_ = DBDelBundleInfoHdr(tenant)
-	_ = DBDelBundleAttrHdr(tenant)
-	_ = DBDelHostAttrHdr(tenant)
-	_ = DBDelTraceRequestsHdr(tenant)
+	_ = dbDelUserInfoHdr(tenant)
+	_ = dbDelUserAttrHdr(tenant)
+	_ = dbDelBundleInfoHdr(tenant)
+	_ = dbDelBundleAttrHdr(tenant)
+	_ = dbDelHostAttrHdr(tenant)
+	_ = dbDelTraceRequestsHdr(tenant)
 	// TenantCluster collection does not have a header doc for now
 }
 
@@ -1241,7 +1241,7 @@ func DBGetHdrKey(val string) string {
 	return HDRKEY // common name for all header docs
 }
 
-func DBAddCollectionHdr(uuid string, admin string, data *DataHdr, htype string, hkey string) error {
+func dbAddCollectionHdr(uuid string, admin string, data *DataHdr, htype string, hkey string) error {
 	// The upsert option asks the DB to add  if one is not found
 	upsert := true
 	after := options.After
@@ -1267,16 +1267,16 @@ func DBAddCollectionHdr(uuid string, admin string, data *DataHdr, htype string, 
 	return err.Err()
 }
 
-func DBUpdateCollectionHdr(tenant string, admin string, htype string, hkey string) error {
-	hdr := DBFindCollectionHdr(tenant, htype, hkey)
+func dbUpdateCollectionHdr(tenant string, admin string, htype string, hkey string) error {
+	hdr := dbFindCollectionHdr(tenant, htype, hkey)
 	if hdr == nil {
 		return nil //TODO return error ?
 	}
 	hdr.Minver += 1
-	return DBAddCollectionHdr(tenant, admin, hdr, htype, hkey)
+	return dbAddCollectionHdr(tenant, admin, hdr, htype, hkey)
 }
 
-func DBFindCollectionHdr(tenant string, htype string, hkey string) *DataHdr {
+func dbFindCollectionHdr(tenant string, htype string, hkey string) *DataHdr {
 	var hdr DataHdr
 	Cltn := dbGetCollection(tenant, htype)
 	if Cltn == nil {
@@ -1293,7 +1293,7 @@ func DBFindCollectionHdr(tenant string, htype string, hkey string) *DataHdr {
 	return &hdr
 }
 
-func DBDelCollectionHdr(tenant string, htype string, hkey string) error {
+func dbDelCollectionHdr(tenant string, htype string, hkey string) error {
 
 	Cltn := dbGetCollection(tenant, htype)
 	if Cltn == nil {
@@ -1310,46 +1310,46 @@ func DBDelCollectionHdr(tenant string, htype string, hkey string) error {
 //--------------------------User Info and Attributes---------=-------------------
 
 // This API will add/update a user info Header
-func DBAddUserInfoHdr(uuid string, admin string, data *DataHdr) error {
+func dbAddUserInfoHdr(uuid string, admin string, data *DataHdr) error {
 
-	return DBAddCollectionHdr(uuid, admin, data, "NxtUsers", "UserInfo")
+	return dbAddCollectionHdr(uuid, admin, data, "NxtUsers", "UserInfo")
 }
 
 // This API will update a user Info Header
-func DBUpdateUserInfoHdr(uuid string, admin string) error {
+func dbUpdateUserInfoHdr(uuid string, admin string) error {
 
-	return DBUpdateCollectionHdr(uuid, admin, "NxtUsers", "UserInfo")
+	return dbUpdateCollectionHdr(uuid, admin, "NxtUsers", "UserInfo")
 }
 
 func DBFindUserInfoHdr(tenant string) *DataHdr {
 
-	return DBFindCollectionHdr(tenant, "NxtUsers", "UserInfo")
+	return dbFindCollectionHdr(tenant, "NxtUsers", "UserInfo")
 }
 
-func DBDelUserInfoHdr(tenant string) error {
+func dbDelUserInfoHdr(tenant string) error {
 
-	return DBDelCollectionHdr(tenant, "NxtUsers", "UserInfo")
+	return dbDelCollectionHdr(tenant, "NxtUsers", "UserInfo")
 }
 
 // This API will add a user Attribute Header
-func DBAddUserAttrHdr(uuid string, admin string, data *DataHdr) error {
+func dbAddUserAttrHdr(uuid string, admin string, data *DataHdr) error {
 
-	return DBAddCollectionHdr(uuid, admin, data, "NxtUserAttr", "UserAttr")
+	return dbAddCollectionHdr(uuid, admin, data, "NxtUserAttr", "UserAttr")
 }
 
 // This API will update a user Attribute Header
-func DBUpdateUserAttrHdr(uuid string, admin string) error {
+func dbUpdateUserAttrHdr(uuid string, admin string) error {
 
-	return DBUpdateCollectionHdr(uuid, admin, "NxtUserAttr", "UserAttr")
+	return dbUpdateCollectionHdr(uuid, admin, "NxtUserAttr", "UserAttr")
 }
 
 func DBFindUserAttrHdr(tenant string) *DataHdr {
 
-	return DBFindCollectionHdr(tenant, "NxtUserAttr", "UserAttr")
+	return dbFindCollectionHdr(tenant, "NxtUserAttr", "UserAttr")
 }
 
-func DBDelUserAttrHdr(tenant string) error {
-	return DBDelCollectionHdr(tenant, "NxtUserAttr", "UserAttr")
+func dbDelUserAttrHdr(tenant string) error {
+	return dbDelCollectionHdr(tenant, "NxtUserAttr", "UserAttr")
 }
 
 type UserKeyJson struct {
@@ -1584,7 +1584,7 @@ func DBAddUser(uuid string, admin string, data *User) error {
 	if result.Err() != nil {
 		return result.Err()
 	}
-	DBUpdateUserInfoHdr(uuid, admin)
+	dbUpdateUserInfoHdr(uuid, admin)
 
 	return nil
 }
@@ -1665,7 +1665,7 @@ func DBDelUser(tenant string, admin string, userid string) error {
 	if err != nil {
 		return err
 	}
-	DBUpdateUserInfoHdr(tenant, admin)
+	dbUpdateUserInfoHdr(tenant, admin)
 
 	return nil
 }
@@ -1996,7 +1996,7 @@ func DBUpdateAttrsForMultipleUsers(uuid string, admin string, group string, Uatt
 	}
 	if count > 0 {
 		// Some user attribute docs were updated
-		DBUpdateUserAttrHdr(uuid, admin)
+		dbUpdateUserAttrHdr(uuid, admin)
 		glog.Infof("DBUpdateAttrsForMultpleUsers: updated %d users", count)
 	} else {
 		glog.Infof("DBUpdateAttrsForMultpleUsers: could not update any users")
@@ -2060,7 +2060,7 @@ func DBAddUserAttr(uuid string, admin string, user string, group string, Uattr b
 	}
 	err := dbAddUserAttr(uuid, user, Uattr, false)
 	if err == nil {
-		DBUpdateUserAttrHdr(uuid, admin)
+		dbUpdateUserAttrHdr(uuid, admin)
 	}
 	return err
 }
@@ -2132,7 +2132,7 @@ func DBDelUserAttr(tenant string, admin string, userid string) error {
 	)
 
 	if err == nil {
-		DBUpdateUserAttrHdr(tenant, admin)
+		dbUpdateUserAttrHdr(tenant, admin)
 	}
 	return err
 }
@@ -2165,7 +2165,7 @@ func DBDelAllUsersOneAttr(tenant string, admin string, todel string) error {
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateUserAttrHdr(tenant, admin)
+		dbUpdateUserAttrHdr(tenant, admin)
 	}
 	return err
 }
@@ -2203,7 +2203,7 @@ func DBAddAllUsersOneAttr(tenant string, admin string, set AttrSet) error {
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateUserAttrHdr(tenant, admin)
+		dbUpdateUserAttrHdr(tenant, admin)
 	}
 	return err
 }
@@ -2211,47 +2211,47 @@ func DBAddAllUsersOneAttr(tenant string, admin string, set AttrSet) error {
 //----------------------App bundle Info and Attributes-----------------------
 
 // This API will add/update a bundle info Header
-func DBAddBundleInfoHdr(uuid string, admin string, data *DataHdr) error {
+func dbAddBundleInfoHdr(uuid string, admin string, data *DataHdr) error {
 
-	return DBAddCollectionHdr(uuid, admin, data, "NxtApps", "AppInfo")
+	return dbAddCollectionHdr(uuid, admin, data, "NxtApps", "AppInfo")
 }
 
 // This API will update a bundle Info Header
-func DBUpdateBundleInfoHdr(uuid string, admin string) error {
+func dbUpdateBundleInfoHdr(uuid string, admin string) error {
 
-	return DBUpdateCollectionHdr(uuid, admin, "NxtApps", "AppInfo")
+	return dbUpdateCollectionHdr(uuid, admin, "NxtApps", "AppInfo")
 }
 
 func DBFindBundleInfoHdr(tenant string) *DataHdr {
 
-	return DBFindCollectionHdr(tenant, "NxtApps", "AppInfo")
+	return dbFindCollectionHdr(tenant, "NxtApps", "AppInfo")
 }
 
-func DBDelBundleInfoHdr(tenant string) error {
+func dbDelBundleInfoHdr(tenant string) error {
 
-	return DBDelCollectionHdr(tenant, "NxtApps", "AppInfo")
+	return dbDelCollectionHdr(tenant, "NxtApps", "AppInfo")
 }
 
 // This API will add a bundle Attribute Header
-func DBAddBundleAttrHdr(uuid string, admin string, data *DataHdr) error {
+func dbAddBundleAttrHdr(uuid string, admin string, data *DataHdr) error {
 
-	return DBAddCollectionHdr(uuid, admin, data, "NxtAppAttr", "AppAttr")
+	return dbAddCollectionHdr(uuid, admin, data, "NxtAppAttr", "AppAttr")
 }
 
 // This API will update a bundle Attribute Header
-func DBUpdateBundleAttrHdr(uuid string, admin string) error {
+func dbUpdateBundleAttrHdr(uuid string, admin string) error {
 
-	return DBUpdateCollectionHdr(uuid, admin, "NxtAppAttr", "AppAttr")
+	return dbUpdateCollectionHdr(uuid, admin, "NxtAppAttr", "AppAttr")
 }
 
 func DBFindBundleAttrHdr(tenant string) *DataHdr {
 
-	return DBFindCollectionHdr(tenant, "NxtAppAttr", "AppAttr")
+	return dbFindCollectionHdr(tenant, "NxtAppAttr", "AppAttr")
 }
 
-func DBDelBundleAttrHdr(tenant string) error {
+func dbDelBundleAttrHdr(tenant string) error {
 
-	return DBDelCollectionHdr(tenant, "NxtAppAttr", "AppAttr")
+	return dbDelCollectionHdr(tenant, "NxtAppAttr", "AppAttr")
 }
 
 // The Pod here indicates the "pod set" that this user should
@@ -2390,7 +2390,7 @@ func DBAddBundle(uuid string, admin string, data *Bundle) error {
 	if result.Err() != nil {
 		return result.Err()
 	}
-	DBUpdateBundleInfoHdr(uuid, admin)
+	dbUpdateBundleInfoHdr(uuid, admin)
 
 	err := DBAddClusterBundle(uuid, data)
 	if err != nil {
@@ -2427,7 +2427,7 @@ func DBUpdateBundle(tenant string, admin string, data *Bundle) error {
 	if result.Err() != nil {
 		return result.Err()
 	}
-	DBUpdateBundleInfoHdr(tenant, admin)
+	dbUpdateBundleInfoHdr(tenant, admin)
 
 	return nil
 }
@@ -2539,7 +2539,7 @@ func DBDelBundle(tenant string, admin string, bundleid string) error {
 	if err != nil {
 		return err
 	}
-	DBUpdateBundleInfoHdr(tenant, admin)
+	dbUpdateBundleInfoHdr(tenant, admin)
 
 	err = DBDelClusterBundle(tenant, bundleid)
 	if err != nil {
@@ -2763,7 +2763,7 @@ func DBAddBundleAttr(uuid string, admin string, bid string, group string, Battr 
 	}
 	err := dbAddBundleAttr(uuid, bid, Battr, false)
 	if err == nil {
-		DBUpdateBundleAttrHdr(uuid, admin)
+		dbUpdateBundleAttrHdr(uuid, admin)
 	}
 	return err
 }
@@ -2835,7 +2835,7 @@ func DBDelBundleAttr(tenant string, admin string, bundleid string) error {
 	)
 
 	if err == nil {
-		DBUpdateBundleAttrHdr(tenant, admin)
+		dbUpdateBundleAttrHdr(tenant, admin)
 	}
 	return err
 }
@@ -2868,7 +2868,7 @@ func DBDelAllBundlesOneAttr(tenant string, admin string, todel string) error {
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateBundleAttrHdr(tenant, admin)
+		dbUpdateBundleAttrHdr(tenant, admin)
 	}
 	return err
 }
@@ -2904,7 +2904,7 @@ func DBAddAllBundlesOneAttr(tenant string, admin string, set AttrSet) error {
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateBundleAttrHdr(tenant, admin)
+		dbUpdateBundleAttrHdr(tenant, admin)
 	}
 	return err
 }
@@ -2912,27 +2912,27 @@ func DBAddAllBundlesOneAttr(tenant string, admin string, set AttrSet) error {
 //-------------------------------Host Attributes -------------------------
 
 // This API will add a Host Attributes Header
-func DBAddHostAttrHdr(uuid string, admin string, data *DataHdr) error {
+func dbAddHostAttrHdr(uuid string, admin string, data *DataHdr) error {
 
-	return DBAddCollectionHdr(uuid, admin, data, "NxtHostAttr", "HostAttr")
+	return dbAddCollectionHdr(uuid, admin, data, "NxtHostAttr", "HostAttr")
 
 }
 
 // This API will update a Host Attributes Header
-func DBUpdateHostAttrHdr(uuid string, admin string) error {
+func dbUpdateHostAttrHdr(uuid string, admin string) error {
 
-	return DBUpdateCollectionHdr(uuid, admin, "NxtHostAttr", "HostAttr")
+	return dbUpdateCollectionHdr(uuid, admin, "NxtHostAttr", "HostAttr")
 
 }
 
 func DBFindHostAttrHdr(tenant string) *DataHdr {
 
-	return DBFindCollectionHdr(tenant, "NxtHostAttr", "HostAttr")
+	return dbFindCollectionHdr(tenant, "NxtHostAttr", "HostAttr")
 }
 
-func DBDelHostAttrHdr(tenant string) error {
+func dbDelHostAttrHdr(tenant string) error {
 
-	return DBDelCollectionHdr(tenant, "NxtHostAttr", "HostAttr")
+	return dbDelCollectionHdr(tenant, "NxtHostAttr", "HostAttr")
 }
 
 func DBFindHostAttr(tenant string, host string) *bson.M {
@@ -3256,7 +3256,7 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	DBUpdateHostAttrHdr(uuid, admin)
+	dbUpdateHostAttrHdr(uuid, admin)
 
 	if !hostfound {
 		// Adding a new host, aka App. Add it to tenant's domain list.
@@ -3290,7 +3290,7 @@ func DBDelHostAttr(tenant string, admin string, hostid string) error {
 	if err != nil {
 		return err
 	}
-	DBUpdateHostAttrHdr(tenant, admin)
+	dbUpdateHostAttrHdr(tenant, admin)
 	dbUpdateBundleServices(tenant, admin, hostid)
 	err = dbdelTenantDomain(tenant, hostid)
 	if err != nil {
@@ -3331,7 +3331,7 @@ func DBDelAllHostsOneAttr(tenant string, admin string, todel string) error {
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateHostAttrHdr(tenant, admin)
+		dbUpdateHostAttrHdr(tenant, admin)
 	}
 	return err
 }
@@ -3402,7 +3402,7 @@ func DBAddAllHostsOneAttr(tenant string, admin string, set AttrSet) error {
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateHostAttrHdr(tenant, admin)
+		dbUpdateHostAttrHdr(tenant, admin)
 	}
 	return err
 }
@@ -3410,27 +3410,27 @@ func DBAddAllHostsOneAttr(tenant string, admin string, set AttrSet) error {
 //-------------------------------Trace Attributes -------------------------
 
 // This API will add a Trace Requests Header
-func DBAddTraceRequestsHdr(uuid string, admin string, data *DataHdr) error {
+func dbAddTraceRequestsHdr(uuid string, admin string, data *DataHdr) error {
 
-	return DBAddCollectionHdr(uuid, admin, data, "NxtTraceRequests", "TraceReqs")
+	return dbAddCollectionHdr(uuid, admin, data, "NxtTraceRequests", "TraceReqs")
 
 }
 
 // This API will update a Trace Requests Header
-func DBUpdateTraceRequestsHdr(uuid string, admin string) error {
+func dbUpdateTraceRequestsHdr(uuid string, admin string) error {
 
-	return DBUpdateCollectionHdr(uuid, admin, "NxtTraceRequests", "TraceReqs")
+	return dbUpdateCollectionHdr(uuid, admin, "NxtTraceRequests", "TraceReqs")
 
 }
 
 func DBFindTraceRequestsHdr(tenant string) *DataHdr {
 
-	return DBFindCollectionHdr(tenant, "NxtTraceRequests", "TraceReqs")
+	return dbFindCollectionHdr(tenant, "NxtTraceRequests", "TraceReqs")
 }
 
-func DBDelTraceRequestsHdr(tenant string) error {
+func dbDelTraceRequestsHdr(tenant string) error {
 
-	return DBDelCollectionHdr(tenant, "NxtTraceRequests", "TraceReqs")
+	return dbDelCollectionHdr(tenant, "NxtTraceRequests", "TraceReqs")
 }
 
 func dbAddTraceReq(uuid string, traceid string, Uattr bson.M, replace bool) error {
@@ -3478,7 +3478,7 @@ func DBAddTraceReq(uuid string, admin string, traceid string, Uattr bson.M) erro
 
 	err := dbAddTraceReq(uuid, traceid, Uattr, false)
 	if err == nil {
-		DBUpdateTraceRequestsHdr(uuid, admin)
+		dbUpdateTraceRequestsHdr(uuid, admin)
 	}
 	return err
 }
@@ -3553,7 +3553,7 @@ func DBDelTraceReq(tenant string, admin string, traceid string) error {
 	)
 
 	if err == nil {
-		DBUpdateTraceRequestsHdr(tenant, admin)
+		dbUpdateTraceRequestsHdr(tenant, admin)
 	}
 	return err
 }
@@ -3588,7 +3588,7 @@ func DBDelAllTraceReqsOneAttr(tenant string, admin string, attrtodel string) err
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateTraceRequestsHdr(tenant, admin)
+		dbUpdateTraceRequestsHdr(tenant, admin)
 	}
 	return err
 }
