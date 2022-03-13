@@ -32,6 +32,7 @@ func PolicyAdd_v1(t *testing.T, addtenant bool, pid string) {
 	}
 
 	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/policy", bytes.NewBuffer(body))
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -75,6 +76,7 @@ func TestPolicyGet_v1(t *testing.T) {
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/policy/agent-authorization", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -114,6 +116,7 @@ func TestGetAllPolicies_v1(t *testing.T) {
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allpolicies", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -157,6 +160,7 @@ func PolicyDel_v1(t *testing.T, name string) {
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/policy/"+name, nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)

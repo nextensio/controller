@@ -31,6 +31,7 @@ func addGateway(gw *Gateway_v1) bool {
 	}
 
 	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/global/add/gateway", bytes.NewBuffer(body))
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -83,6 +84,7 @@ func delGateway(gw *Gateway_v1) bool {
 	}
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/global/del/gateway/"+gw.Name, nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -153,6 +155,7 @@ func TestGetAllGateway_v1(t *testing.T) {
 	}
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/global/get/allgateways", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -193,9 +196,9 @@ func TestGetAllGateway_v1(t *testing.T) {
 }
 
 type Tenant_v1 struct {
-	ID      string      `json:"_id" bson:"_id"`
-	Name    string      `json:"name" bson:"name"`
-	Domains []db.Domain `json:"domains"`
+	ID       string `json:"_id" bson:"_id"`
+	Name     string `json:"name" bson:"name"`
+	EasyMode bool   `json:"easymode" bson:"easymode"`
 }
 
 type TenantCluster_v1 struct {
@@ -212,6 +215,7 @@ func addTenant(tenant *Tenant_v1) bool {
 		return false
 	}
 	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/global/add/tenant", bytes.NewBuffer(body))
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -254,6 +258,7 @@ func addTenantCluster_v1(tenant string, tcl *TenantCluster_v1) bool {
 	}
 	url := "http://127.0.0.1:8080/api/v1/tenant/" + tenant + "/add/tenantcluster"
 	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -287,6 +292,7 @@ func testTenantClusterDel(t *testing.T, cluster string) {
 	}
 	url := "http://127.0.0.1:8080/api/v1/tenant/" + dbTenants[0].ID + "/del/tenantcluster/" + cluster
 	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -323,9 +329,9 @@ func testTenantClusterDel(t *testing.T, cluster string) {
 // Each cluster has two pods.
 func AddTenant_v1(t *testing.T) {
 	var tenant = Tenant_v1{
-		ID:      "nextensio",
-		Name:    "foobar",
-		Domains: []db.Domain{{Name: "kismis.org"}},
+		ID:       "nextensio",
+		Name:     "foobar",
+		EasyMode: false,
 	}
 	add := addTenant(&tenant)
 	if add == false {
@@ -424,9 +430,9 @@ func TestGetAllTenant_v1(t *testing.T) {
 		return
 	}
 	var tenant1 = Tenant_v1{
-		ID:      "nextensio1",
-		Name:    "foobar",
-		Domains: []db.Domain{{Name: "kismis.org"}},
+		ID:       "nextensio1",
+		Name:     "foobar",
+		EasyMode: false,
 	}
 	add = addTenant(&tenant1)
 	if add == false {
@@ -435,9 +441,9 @@ func TestGetAllTenant_v1(t *testing.T) {
 		return
 	}
 	var tenant2 = Tenant_v1{
-		ID:      "nextensio2",
-		Name:    "gloobar",
-		Domains: []db.Domain{{Name: "kismis.org"}},
+		ID:       "nextensio2",
+		Name:     "gloobar",
+		EasyMode: false,
 	}
 	add = addTenant(&tenant2)
 	if add == false {
@@ -447,6 +453,7 @@ func TestGetAllTenant_v1(t *testing.T) {
 	}
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/global/get/alltenants", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -490,6 +497,7 @@ func testTenantDel(t *testing.T, expect_delete bool) {
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/global/del/tenant/"+dbTenants[0].ID, nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -578,9 +586,9 @@ func addGatewayAndTenant(t *testing.T) {
 		return
 	}
 	var tenant = Tenant_v1{
-		ID:      "nextensio",
-		Name:    "foobar",
-		Domains: []db.Domain{{Name: "kismis.org"}},
+		ID:       "nextensio",
+		Name:     "foobar",
+		EasyMode: false,
 	}
 	add = addTenant(&tenant)
 	if add == false {
@@ -630,6 +638,7 @@ func TestOnboard_v1(t *testing.T) {
 	CertAdd_v1(t, "CACert")
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/global/get/onboard/", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -651,14 +660,6 @@ func TestOnboard_v1(t *testing.T) {
 		return
 	}
 	if data.Result != "ok" {
-		t.Error()
-		return
-	}
-	if len(data.Domains) != 1 {
-		t.Error()
-		return
-	}
-	if data.Domains[0].Name != "kismis.org" {
 		t.Error()
 		return
 	}
@@ -703,6 +704,7 @@ func UserAdd_v1(t *testing.T, tenantadd bool, userid string, services []string) 
 	}
 
 	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/user", bytes.NewBuffer(body))
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -746,6 +748,7 @@ func TestUserGet_v1(t *testing.T) {
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/user/gopa", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -785,6 +788,7 @@ func TestGetAllUsers_v1(t *testing.T) {
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allusers", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -824,69 +828,25 @@ func TestGetAllUsers_v1(t *testing.T) {
 	}
 }
 
-type UserAttrHdr_v1 struct {
-	Majver int `bson:"majver" json:"majver"`
-	Minver int `bson:"minver" json:"minver"`
-}
-
 func testUserAttrHdrAdd_v1(t *testing.T) {
 	// Just to get a user collection created
 	UserAdd_v1(t, true, "some-user", []string{})
 	dbTenants := db.DBFindAllTenants()
-
-	attr := UserAttrHdr_v1{
-		Majver: 2,
-		Minver: 1,
-	}
-	body, err := json.Marshal(attr)
-	if err != nil {
-		t.Error()
-		return
-	}
-
-	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/userattrhdr", bytes.NewBuffer(body))
-	req.Header.Add("Accept", "application/json")
-	req.Header.Add("Authorization", "Bearer "+AccessToken)
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Error()
-		return
-	}
-	defer resp.Body.Close()
-
-	body, err = ioutil.ReadAll(resp.Body)
-	if err != nil {
-		t.Error()
-		return
-	}
-	var data router.OpResult
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		t.Error()
-		return
-	}
-	if data.Result != "ok" {
-		t.Error()
-		return
-	}
 
 	dbHdr := db.DBFindUserAttrHdr(dbTenants[0].ID)
 	if dbHdr == nil {
 		t.Error()
 		return
 	}
-	if dbHdr.Majver != 2 {
-		t.Error()
-		return
-	}
-	if dbHdr.Minver != 1 {
+	if dbHdr.Majver != 1 {
 		t.Error()
 		return
 	}
 }
-func TestUserAttrHdrAdd_v1(t *testing.T) {
-	db.DBReinit()
-	testUserAttrHdrAdd_v1(t)
+
+type HdrResult struct {
+	Result  string `json:"Result"`
+	DataHdr db.DataHdr
 }
 
 func TestAttrHdrGet_v1(t *testing.T) {
@@ -895,6 +855,7 @@ func TestAttrHdrGet_v1(t *testing.T) {
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/attrhdr/Users", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -909,21 +870,17 @@ func TestAttrHdrGet_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	var data []db.DataHdr
+	var data HdrResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		t.Error()
 		return
 	}
-	if len(data) != 1 {
+	if data.Result != "ok" {
 		t.Error()
 		return
 	}
-	if data[0].Majver != 2 {
-		t.Error()
-		return
-	}
-	if data[0].Minver != 1 {
+	if data.DataHdr.Majver != 1 {
 		t.Error()
 		return
 	}
@@ -940,6 +897,12 @@ type UserAttr_v1 struct {
 
 func testUserAttrAdd_v1(t *testing.T, tenantadd bool, userid string) {
 	UserAdd_v1(t, tenantadd, userid, []string{})
+	testAttrSetAdd_v1(t, false, "category", "Users", "String", "false")
+	testAttrSetAdd_v1(t, false, "type", "Users", "String", "false")
+	testAttrSetAdd_v1(t, false, "level", "Users", "Number", "false")
+	testAttrSetAdd_v1(t, false, "dept", "Users", "String", "true")
+	testAttrSetAdd_v1(t, false, "team", "Users", "String", "true")
+
 	dbTenants := db.DBFindAllTenants()
 
 	attr := UserAttr_v1{
@@ -956,7 +919,8 @@ func testUserAttrAdd_v1(t *testing.T, tenantadd bool, userid string) {
 		return
 	}
 
-	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/userattr", bytes.NewBuffer(body))
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/userattr/"+userid, bytes.NewBuffer(body))
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -1018,6 +982,7 @@ func TestUserAttrGet_v1(t *testing.T) {
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/userattr/gopa", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -1072,6 +1037,7 @@ func TestGetAllUserAttr_v1(t *testing.T) {
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/alluserattr", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -1112,22 +1078,17 @@ func TestGetAllUserAttr_v1(t *testing.T) {
 	}
 }
 
-func testAttrSetAdd_v1(t *testing.T, tenant bool, name string, total int) {
+func testAttrSetAdd_v1(t *testing.T, tenant bool, name string, appliesTo string, atype string, isArray string) {
 	if tenant {
 		AddTenant_v1(t)
 	}
 	dbTenants := db.DBFindAllTenants()
 
-	attrcnt := 0
-	defAttr := db.DBFindSpecificAttrSet(dbTenants[0].ID, "Users", "all")
-	if defAttr != nil {
-		attrcnt = len(defAttr)
-	}
 	attr := db.AttrSet{
 		Name:      name,
-		AppliesTo: "Users",
-		Type:      "string",
-		IsArray:   "false",
+		AppliesTo: appliesTo,
+		Type:      atype,
+		IsArray:   isArray,
 		Group:     "superadmin",
 	}
 
@@ -1138,6 +1099,7 @@ func testAttrSetAdd_v1(t *testing.T, tenant bool, name string, total int) {
 	}
 
 	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/attrset", bytes.NewBuffer(body))
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -1164,19 +1126,17 @@ func testAttrSetAdd_v1(t *testing.T, tenant bool, name string, total int) {
 		return
 	}
 
-	total = attrcnt + 1  // we just added one more attribute above
-	dbAttr := db.DBFindSpecificAttrSet(dbTenants[0].ID, "Users", "all")
+	dbAttr := db.DBFindSpecificAttrSet(dbTenants[0].ID, appliesTo, "all")
 	if dbAttr == nil {
 		t.Error()
 		return
 	}
-	if len(dbAttr) != total {
-		t.Error()
-		return
-	}
+	// Remove check for attribute count because we may be adding the
+	// same attribute twice, in which case, the second time is an update.
+	// Just ensure the attribute is there by checking the name.
 	found := false
-	for i := 0; i < total; i++ {
-		if dbAttr[i].Name == name {
+	for _, attr := range dbAttr {
+		if attr.Name == name {
 			found = true
 			break
 		}
@@ -1189,13 +1149,13 @@ func testAttrSetAdd_v1(t *testing.T, tenant bool, name string, total int) {
 
 func TestAttrSetAdd_v1(t *testing.T) {
 	db.DBReinit()
-	testAttrSetAdd_v1(t, true, "foobar", 1)
+	testAttrSetAdd_v1(t, true, "foobar", "Users", "String", "false")
 }
 
 func TestAttrSetGet_v1(t *testing.T) {
 	const attrnm = "foobar"
 	db.DBReinit()
-	testAttrSetAdd_v1(t, true, attrnm, 1)
+	testAttrSetAdd_v1(t, true, attrnm, "Users", "String", "false")
 	dbTenants := db.DBFindAllTenants()
 
 	attrcnt := 0
@@ -1204,6 +1164,7 @@ func TestAttrSetGet_v1(t *testing.T) {
 		attrcnt = len(defAttr)
 	}
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/attrset/Users", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -1229,8 +1190,8 @@ func TestAttrSetGet_v1(t *testing.T) {
 		return
 	}
 	found := false
-	for i := 0; i < attrcnt; i++ {
-		if dbAttr[i].Name == attrnm {
+	for _, attr := range dbAttr {
+		if attr.Name == attrnm {
 			found = true
 			break
 		}
@@ -1249,8 +1210,8 @@ func TestAttrSetDel_v1(t *testing.T) {
 	const attrnm1 = "foobar"
 	const attrnm2 = "abcd"
 	db.DBReinit()
-	testAttrSetAdd_v1(t, true, attrnm1, 1)
-	testAttrSetAdd_v1(t, false, attrnm2, 2)
+	testAttrSetAdd_v1(t, true, attrnm1, "Users", "String", "false")
+	testAttrSetAdd_v1(t, false, attrnm2, "Users", "String", "false")
 	dbTenants := db.DBFindAllTenants()
 
 	attrcnt := 0
@@ -1261,7 +1222,7 @@ func TestAttrSetDel_v1(t *testing.T) {
 	attr := db.AttrSet{
 		Name:      attrnm1,
 		AppliesTo: "Users",
-		Type:      "string",
+		Type:      "String",
 		IsArray:   "false",
 		Group:     "superadmin",
 	}
@@ -1272,6 +1233,7 @@ func TestAttrSetDel_v1(t *testing.T) {
 	}
 
 	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/attrset", bytes.NewBuffer(body))
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -1296,7 +1258,7 @@ func TestAttrSetDel_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	attrcnt = attrcnt - 1  // we just deleted one above
+	attrcnt = attrcnt - 1 // we just deleted one above
 	dbAttr := db.DBFindSpecificAttrSet(dbTenants[0].ID, "Users", "all")
 	if dbAttr == nil {
 		t.Error()
@@ -1309,7 +1271,7 @@ func TestAttrSetDel_v1(t *testing.T) {
 	}
 	found := false
 	for i := 0; i < attrcnt; i++ {
-		if dbAttr[i].Name == attrnm2 {  // remaining one since we deleted "foobar"
+		if dbAttr[i].Name == attrnm2 { // remaining one since we deleted "foobar"
 			found = true
 			break
 		}
@@ -1331,7 +1293,9 @@ type HostAttr_v1 struct {
 }
 
 func testHostAttrAdd_v1(t *testing.T, tenantadd bool, host string, attrnm string) {
-	testAttrSetAdd_v1(t, tenantadd, attrnm, 1)
+	testAttrSetAdd_v1(t, tenantadd, attrnm, "Users", "String", "false")
+	testAttrSetAdd_v1(t, false, "location", "Hosts", "String", "false")
+
 	dbTenants := db.DBFindAllTenants()
 
 	attr := HostAttr_v1{
@@ -1345,6 +1309,7 @@ func testHostAttrAdd_v1(t *testing.T, tenantadd bool, host string, attrnm string
 	}
 
 	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/hostattr", bytes.NewBuffer(body))
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -1404,6 +1369,7 @@ func TestHostAttrGet_v1(t *testing.T) {
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/hostattr/google.com", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -1469,6 +1435,7 @@ func TestHostAttrDel_v1(t *testing.T) {
 	}
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/hostattr/google.com", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -1516,6 +1483,7 @@ func TestHostAttrGetAll_v1(t *testing.T) {
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allhostattr", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -1555,75 +1523,13 @@ func TestHostAttrGetAll_v1(t *testing.T) {
 	}
 }
 
-type HostAttrHdr_v1 struct {
-	Majver int `bson:"majver" json:"majver"`
-	Minver int `bson:"minver" json:"minver"`
-}
-
-func testHostAttrHdrAdd_v1(t *testing.T) {
-	testHostAttrAdd_v1(t, true, "google.com", "saddle")
-	dbTenants := db.DBFindAllTenants()
-	attr := BundleAttrHdr_v1{
-		Majver: 2,
-		Minver: 1,
-	}
-	body, err := json.Marshal(attr)
-	if err != nil {
-		t.Error()
-		return
-	}
-
-	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/hostattrhdr", bytes.NewBuffer(body))
-	req.Header.Add("Accept", "application/json")
-	req.Header.Add("Authorization", "Bearer "+AccessToken)
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Error()
-		return
-	}
-	defer resp.Body.Close()
-
-	body, err = ioutil.ReadAll(resp.Body)
-	if err != nil {
-		t.Error()
-		return
-	}
-	var data router.OpResult
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		t.Error()
-		return
-	}
-	if data.Result != "ok" {
-		t.Error()
-		return
-	}
-
-	dbHdr := db.DBFindHostAttrHdr(dbTenants[0].ID)
-	if dbHdr == nil {
-		t.Error()
-		return
-	}
-	if dbHdr.Majver != 2 {
-		t.Error()
-		return
-	}
-	if dbHdr.Minver != 1 {
-		t.Error()
-		return
-	}
-}
-func TestHostttrHdrAdd_v1(t *testing.T) {
-	db.DBReinit()
-	testHostAttrHdrAdd_v1(t)
-}
-
 func TestHostAttrHdrGet_v1(t *testing.T) {
 	db.DBReinit()
-	testHostAttrHdrAdd_v1(t)
+	testHostAttrAdd_v1(t, true, "google.com", "saddle")
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/attrhdr/Apps", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -1638,21 +1544,17 @@ func TestHostAttrHdrGet_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	var data []db.DataHdr
+	var data HdrResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		t.Error()
 		return
 	}
-	if len(data) != 1 {
+	if data.Result != "ok" {
 		t.Error()
 		return
 	}
-	if data[0].Majver != 2 {
-		t.Error()
-		return
-	}
-	if data[0].Minver != 1 {
+	if data.DataHdr.Majver != 1 {
 		t.Error()
 		return
 	}
@@ -1667,6 +1569,7 @@ func testUserDel(t *testing.T, user string) {
 		return
 	}
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/user/"+user, nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -1737,6 +1640,7 @@ func testBundleAdd_v1(t *testing.T, tenantadd bool, bid string, services []strin
 	}
 
 	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/bundle", bytes.NewBuffer(body))
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -1786,6 +1690,7 @@ func TestBundleGet_v1(t *testing.T) {
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/bundle/youtube", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -1825,6 +1730,7 @@ func TestGetAllBundles_v1(t *testing.T) {
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allbundles", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -1864,68 +1770,20 @@ func TestGetAllBundles_v1(t *testing.T) {
 	}
 }
 
-type BundleAttrHdr_v1 struct {
-	Majver int `bson:"majver" json:"majver"`
-	Minver int `bson:"minver" json:"minver"`
-}
-
 func testBundleAttrHdrAdd_v1(t *testing.T) {
 	// Just to get a bundle collection created
 	testBundleAdd_v1(t, true, "some-bundle", []string{})
 	dbTenants := db.DBFindAllTenants()
-	attr := BundleAttrHdr_v1{
-		Majver: 2,
-		Minver: 1,
-	}
-	body, err := json.Marshal(attr)
-	if err != nil {
-		t.Error()
-		return
-	}
-
-	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/bundleattrhdr", bytes.NewBuffer(body))
-	req.Header.Add("Accept", "application/json")
-	req.Header.Add("Authorization", "Bearer "+AccessToken)
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Error()
-		return
-	}
-	defer resp.Body.Close()
-
-	body, err = ioutil.ReadAll(resp.Body)
-	if err != nil {
-		t.Error()
-		return
-	}
-	var data router.OpResult
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		t.Error()
-		return
-	}
-	if data.Result != "ok" {
-		t.Error()
-		return
-	}
 
 	dbHdr := db.DBFindBundleAttrHdr(dbTenants[0].ID)
 	if dbHdr == nil {
 		t.Error()
 		return
 	}
-	if dbHdr.Majver != 2 {
+	if dbHdr.Majver != 1 {
 		t.Error()
 		return
 	}
-	if dbHdr.Minver != 1 {
-		t.Error()
-		return
-	}
-}
-func TestBundleAttrHdrAdd_v1(t *testing.T) {
-	db.DBReinit()
-	testBundleAttrHdrAdd_v1(t)
 }
 
 func TestBundleAttrHdrGet_v1(t *testing.T) {
@@ -1934,6 +1792,7 @@ func TestBundleAttrHdrGet_v1(t *testing.T) {
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/attrhdr/AppGroups", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -1948,21 +1807,17 @@ func TestBundleAttrHdrGet_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	var data []db.DataHdr
+	var data HdrResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		t.Error()
 		return
 	}
-	if len(data) != 1 {
+	if data.Result != "ok" {
 		t.Error()
 		return
 	}
-	if data[0].Majver != 2 {
-		t.Error()
-		return
-	}
-	if data[0].Minver != 1 {
+	if data.DataHdr.Majver != 1 {
 		t.Error()
 		return
 	}
@@ -1979,6 +1834,12 @@ type BundleAttr_v1 struct {
 
 func testBundleAttrAdd_v1(t *testing.T, tenantadd bool, bid string) {
 	testBundleAdd_v1(t, tenantadd, bid, []string{})
+	testAttrSetAdd_v1(t, false, "team", "Bundles", "String", "true")
+	testAttrSetAdd_v1(t, false, "dept", "Bundles", "String", "true")
+	testAttrSetAdd_v1(t, false, "IC", "Bundles", "Number", "false")
+	testAttrSetAdd_v1(t, false, "manager", "Bundles", "Number", "false")
+	testAttrSetAdd_v1(t, false, "nonemployee", "Bundles", "String", "false")
+
 	dbTenants := db.DBFindAllTenants()
 
 	attr := BundleAttr_v1{
@@ -1996,6 +1857,7 @@ func testBundleAttrAdd_v1(t *testing.T, tenantadd bool, bid string) {
 	}
 
 	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/bundleattr", bytes.NewBuffer(body))
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -2021,12 +1883,12 @@ func testBundleAttrAdd_v1(t *testing.T, tenantadd bool, bid string) {
 		return
 	}
 
-	dbBson := db.DBFindBundleAttr(dbTenants[0].ID, attr.Bid)
+	dbBson := db.DBFindBundleAttr(dbTenants[0].ID, bid)
 	if dbBson == nil {
 		t.Error()
 		return
 	}
-	dbJson, jerr := json.Marshal(&dbBson)
+	dbJson, jerr := json.Marshal(dbBson)
 	if jerr != nil {
 		t.Error()
 		return
@@ -2057,6 +1919,7 @@ func TestBundleAttrGet_v1(t *testing.T) {
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/bundleattr/youtube", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -2111,6 +1974,7 @@ func TestGetAllBundleAttr_v1(t *testing.T) {
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allbundleattr", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -2160,6 +2024,7 @@ func testBundleDel(t *testing.T, bundle string) {
 		return
 	}
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/bundle/"+bundle, nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -2215,6 +2080,7 @@ func CertAdd_v1(t *testing.T, name string) {
 	}
 
 	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/global/add/cert", bytes.NewBuffer(body))
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -2261,6 +2127,7 @@ func TestCertGet_v1(t *testing.T) {
 	CertAdd_v1(t, "rootCA")
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/global/get/cert/"+"rootCA", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -2285,7 +2152,7 @@ func TestCertGet_v1(t *testing.T) {
 		t.Error()
 		return
 	}
-	if string(data.Cert) != "some-certificate-here" {
+	if string(data.Certificate.Cert) != "some-certificate-here" {
 		t.Error()
 		return
 	}
@@ -2298,6 +2165,7 @@ func TestGetAllCerts_v1(t *testing.T) {
 	CertAdd_v1(t, "interCA")
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/global/get/allcerts", nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
@@ -2339,6 +2207,7 @@ func TestGetAllCerts_v1(t *testing.T) {
 
 func CertDel_v1(t *testing.T, name string) {
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/global/del/cert/"+name, nil)
+	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
 	resp, err := client.Do(req)
