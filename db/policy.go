@@ -34,36 +34,57 @@ type Policy struct {
 	Rego     []rune `json:"rego" bson:"rego"`
 }
 
-func DBAddBasePolicies(uuid string, user string) error {
-	accessPolicy := "package app.access\n\nallow = true\n"
-	routePolicy := "package user.routing\n\ndefault route_tag = \"\"\n"
-	tracePolicy := "package user.tracing\n\ndefault request = {\"no\": [\"\"]}\n"
-	statsPolicy := "package user.stats\n\ndefault attributes = {\"exclude\": [\"uid\", \"maj_ver\", \"min_ver\", \"_hostname\", \"_model\", \"_osMinor\", \"_osPatch\", \"_osName\"]}\n"
-
+func dbAddDefaultAccessPolicy(uuid string, user string) error {
+	// Allow all traffic by default
+	accessPolicy := "package app.access\nallow = is_allowed\ndefault is_allowed = true\n"
 	policy := Policy{PolicyId: "AccessPolicy", Rego: []rune(accessPolicy)}
-	err := dbAddPolicy(uuid, user, &policy)
-	if err != nil {
-		return err
-	}
-	policy = Policy{PolicyId: "RoutePolicy", Rego: []rune(routePolicy)}
-	err = dbAddPolicy(uuid, user, &policy)
-	if err != nil {
-		return err
-	}
-	policy = Policy{PolicyId: "TracePolicy", Rego: []rune(tracePolicy)}
-	err = dbAddPolicy(uuid, user, &policy)
-	if err != nil {
-		return err
-	}
-	policy = Policy{PolicyId: "StatsPolicy", Rego: []rune(statsPolicy)}
-	err = dbAddPolicy(uuid, user, &policy)
-	if err != nil {
-		return err
-	}
+	return dbAddPolicy(uuid, user, &policy)
+}
+
+func dbAddDefaultRoutePolicy(uuid string, user string) error {
+	// Do not route or drop/deny any traffic by default
+	routePolicy := "package user.routing\ndefault route_tag = \"\"\n"
+	policy := Policy{PolicyId: "RoutePolicy", Rego: []rune(routePolicy)}
+	return dbAddPolicy(uuid, user, &policy)
+}
+
+func dbAddDefaultTracePolicy(uuid string, user string) error {
+	// No tracing enabled by default
+	tracePolicy := "package user.tracing\ndefault request = {\"no\": [\"\"]}\n"
+	policy := Policy{PolicyId: "TracePolicy", Rego: []rune(tracePolicy)}
+	return dbAddPolicy(uuid, user, &policy)
+}
+
+func dbAddDefaultStatsPolicy(uuid string, user string) error {
+	// No attributes included as stats dimensions by default
+	statsPolicy := "package user.stats\ndefault attributes = {\"exclude\": [\"all\"]}\n"
+	policy := Policy{PolicyId: "StatsPolicy", Rego: []rune(statsPolicy)}
+	return dbAddPolicy(uuid, user, &policy)
+}
+
+// Add the default base policies required by minion
+func DBAddBasePolicies(uuid string, user string) error {
+	dbAddDefaultAccessPolicy(uuid, user)
+	dbAddDefaultRoutePolicy(uuid, user)
+	dbAddDefaultTracePolicy(uuid, user)
+	dbAddDefaultStatsPolicy(uuid, user)
 	return nil
 }
 
-// This API will add a new policy or update a policy if it already exists
+// Delete the default base policies used by minion.
+// Currently called only when a tenant is deleted
+func DBDelPolicies(uuid string) {
+	dbDelPolicy(uuid, "AccessPolicy")
+	dbDelPolicy(uuid, "RoutePolicy")
+	dbDelPolicy(uuid, "TracePolicy")
+	dbDelPolicy(uuid, "StatsPolicy")
+}
+
+// This API will add a new policy or update a policy if it already exists.
+// This can only be done in Expert mode. Any policyid can be specified,
+// allowing a tenant to store policy copies under any name. For a policy
+// to be picked up by minion, it must have one of four names - AccessPolicy,
+// RoutePolicy, TracePolicy, or StatsPolicy.
 func DBAddPolicy(uuid string, admin string, data *Policy) error {
 
 	t := DBFindTenant(uuid)
@@ -151,7 +172,13 @@ func DBFindAllPolicies(tenant string) []Policy {
 	return policies
 }
 
-func DBDelPolicy(tenant string, policyId string) error {
+// This API will physically delete a policy if it is not one of the
+// four used by minion (AccessPolicy, RoutePolicy, TracePolicy, or StatsPolicy).
+// If it is a policy used by minion, this function will revert that policy
+// to the default base policy so that the system always has some version
+// of those policies.
+// This can only be done in Expert mode.
+func DBDelPolicy(tenant string, user string, policyId string) error {
 	t := DBFindTenant(tenant)
 	if t == nil {
 		return fmt.Errorf("Cannot find tenant %s", tenant)
@@ -159,7 +186,19 @@ func DBDelPolicy(tenant string, policyId string) error {
 	if t.EasyMode {
 		return fmt.Errorf("A policy cannot be deleted directly in Easy Mode")
 	}
-	return dbDelPolicy(tenant, policyId)
+	switch policyId {
+	case "AccessPolicy":
+		return dbAddDefaultAccessPolicy(tenant, user)
+	case "RoutePolicy":
+		return dbAddDefaultRoutePolicy(tenant, user)
+	case "TracePolicy":
+		return dbAddDefaultTracePolicy(tenant, user)
+	case "StatsPolicy":
+		return dbAddDefaultStatsPolicy(tenant, user)
+	default:
+		return dbDelPolicy(tenant, policyId)
+	}
+	return nil
 }
 
 func dbDelPolicy(tenant string, policyId string) error {
@@ -1262,7 +1301,7 @@ func dbGeneratePolicyFromBundleRules(tenant string) []string {
 }
 
 func generateAccessPolicyHeader() string {
-	return "package app.access\nallow = is_allowed\ndefault is_allowed = false\n\n"
+	return "package app.access\nallow = is_allowed\ndefault is_allowed = true\n\n"
 }
 
 func processBundleRule(bid string, bundleRule [][]string) (string, string) {

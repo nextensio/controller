@@ -156,7 +156,7 @@ func TestGetAllPolicies_v1(t *testing.T) {
 	}
 }
 
-func PolicyDel_v1(t *testing.T, name string) {
+func PolicyDel_v1(t *testing.T, name string, shoulddel bool) {
 	dbTenants := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/policy/"+name, nil)
@@ -187,16 +187,25 @@ func PolicyDel_v1(t *testing.T, name string) {
 	}
 
 	policies := db.DBFindAllPolicies(dbTenants[0].ID)
+	found := false
 	for _, policy := range policies {
 		if policy.PolicyId == name {
-			t.Error()
-			return
+			found = true
+			break
 		}
+	}
+	if shoulddel && found {
+		t.Error()
+		return
+	}
+	if !shoulddel && !found {
+		t.Error()
+		return
 	}
 }
 
 func TestPolicyDel_v1(t *testing.T) {
 	db.DBReinit()
 	PolicyAdd_v1(t, true, "agent-authorization")
-	PolicyDel_v1(t, "agent-authorization")
+	PolicyDel_v1(t, "agent-authorization", true)
 }

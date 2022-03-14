@@ -928,6 +928,7 @@ func deltenantHandlerFunc(w http.ResponseWriter, r *http.Request, uuid string) {
 		utils.WriteResult(w, result)
 		return
 	}
+	db.DBDelPolicies(uuid)
 	if db.DBFindAllPolicies(uuid) != nil {
 		result.Result = "Tenant still has policies"
 		utils.WriteResult(w, result)

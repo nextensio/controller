@@ -562,12 +562,12 @@ func TestTenantDel(t *testing.T) {
 	testTenantDel(t, false)
 	testBundleDel(t, "youtube")
 	testTenantDel(t, false)
-	PolicyDel_v1(t, "agent-access")
+	PolicyDel_v1(t, "agent-access", true)
 	// Delete all the default base policies too...
-	PolicyDel_v1(t, "AccessPolicy")
-	PolicyDel_v1(t, "RoutePolicy")
-	PolicyDel_v1(t, "TracePolicy")
-	PolicyDel_v1(t, "StatsPolicy")
+	PolicyDel_v1(t, "AccessPolicy", false)
+	PolicyDel_v1(t, "RoutePolicy", false)
+	PolicyDel_v1(t, "TracePolicy", false)
+	PolicyDel_v1(t, "StatsPolicy", false)
 	testTenantDel(t, true)
 }
 

@@ -95,6 +95,12 @@ func addpolicyHandler(w http.ResponseWriter, r *http.Request) {
 	var result AddpolicyResult
 	var data db.Policy
 
+	if !allowTenantAdminOnly(r) {
+		result.Result = "Not privileged to add a policy"
+		utils.WriteResult(w, result)
+		return
+	}
+		
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		result.Result = "Read fail"
@@ -186,10 +192,20 @@ type DelpolicyResult struct {
 func delpolicyHandler(w http.ResponseWriter, r *http.Request) {
 	var result DelpolicyResult
 
+	if !allowTenantAdminOnly(r) {
+		result.Result = "Not privileged to delete a policy"
+		utils.WriteResult(w, result)
+		return
+	}
+		
 	v := mux.Vars(r)
 	pid := v["policy-id"]
 	uuid := r.Context().Value("tenant").(string)
-	err := db.DBDelPolicy(uuid, pid)
+	admin, ok := r.Context().Value("userid").(string)
+	if !ok {
+		admin = "UnknownUser"
+	}
+	err := db.DBDelPolicy(uuid, admin, pid)
 	if err != nil {
 		result.Result = err.Error()
 	} else {
