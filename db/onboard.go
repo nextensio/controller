@@ -1071,48 +1071,78 @@ type AttrSet struct {
 }
 
 func DBAddAttrSet(tenant string, admin string, group string, s AttrSet, rsrvd bool) error {
-	s.Group = group
-	uscore := strings.HasPrefix(s.Name, "_")
-	if rsrvd && !uscore {
-		return fmt.Errorf("Attribute name does not conform to reserved attributes")
-	}
-	if !rsrvd && uscore {
-		return fmt.Errorf("Attribute name indicates reserved attribute")
-	}
+	var attrdef AttrSet
 
-	// Validate some fields in the AttrSet
-	switch s.AppliesTo {
-	case "Users":
-	case "Hosts":
-	case "Bundles":
-	default:
-		return fmt.Errorf("Attribute has invalid AppliesTo " + s.AppliesTo)
+	Cltn := dbGetCollection(tenant, "NxtAttrSet")
+	if Cltn == nil {
+		return fmt.Errorf("Unknown Collection")
 	}
-	switch s.Type {
-	case "String":
-	case "Number":
-	case "Boolean":
-	case "Date":
-	default:
-		return fmt.Errorf("Attribute has invalid type " + s.Type)
+	uscore := strings.HasPrefix(s.Name, "_")
+	afound := true
+	err := Cltn.FindOne(context.TODO(), bson.M{"_id": s.Name + ":" + s.AppliesTo}).Decode(&attrdef)
+	if err != nil {
+		// This attribute is not defined, so validate input
+		afound = false
+		if rsrvd && !uscore {
+			return fmt.Errorf("Attribute name does not conform to reserved attributes")
+		}
+		if !rsrvd && uscore {
+			return fmt.Errorf("Attribute name indicates reserved attribute")
+		}
+
+		// Validate some fields in the AttrSet
+		switch s.AppliesTo {
+		case "Users":
+		case "Hosts":
+		case "Bundles":
+		default:
+			return fmt.Errorf("Attribute has invalid AppliesTo " + s.AppliesTo)
+		}
+		switch s.Type {
+		case "String":
+		case "Number":
+		case "Boolean":
+			if s.IsArray == "true" {
+				return fmt.Errorf("Boolean type attribute cannot be an array")
+			}
+		case "Date":
+		default:
+			return fmt.Errorf("Attribute has invalid type " + s.Type)
+		}
+		switch s.IsArray {
+		case "true":
+		case "false":
+		default:
+			return fmt.Errorf("Attribute has invalid isArray " + s.IsArray)
+		}
 	}
-	switch s.IsArray {
-	case "true":
-	case "false":
-	default:
-		return fmt.Errorf("Attribute has invalid isArray " + s.IsArray)
+	if afound {
+		// Attribute is already defined, ensure that its type is not
+		// being changed in any way.
+		if attrdef.Type != s.Type || attrdef.IsArray != s.IsArray {
+			return fmt.Errorf("Attribute is defined. Its type cannot be changed")
+		}
+		if attrdef.Group == group {
+			// If group is not changing, nothing has changed in the
+			// attribute definition, so return without fuss.
+			return nil
+		}
+		// Only Group field is changing. Allow this only for a rsrvd attribute,
+		// for eg., the device attributes. If not reserved, return error.
+		if !uscore {
+			return fmt.Errorf("To change attribute group, ensure it is not in use, then delete and recreate it")
+		}
+		glog.Infof("AddAttrSet: Updating %s attribute %s from group %s to %s", s.AppliesTo, s.Name, attrdef.Group, group)
 	}
+	s.Group = group
+
 	upsert := true
 	after := options.After
 	opt := options.FindOneAndUpdateOptions{
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	Cltn := dbGetCollection(tenant, "NxtAttrSet")
-	if Cltn == nil {
-		return fmt.Errorf("Unknown Collection")
-	}
-	err := Cltn.FindOneAndUpdate(
+	ferr := Cltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": s.Name + ":" + s.AppliesTo},
 		bson.D{
@@ -1121,9 +1151,16 @@ func DBAddAttrSet(tenant string, admin string, group string, s AttrSet, rsrvd bo
 		},
 		&opt,
 	)
-	if err.Err() != nil {
-		glog.Errorf("AttrSet: Add error - %v", err)
-		return err.Err()
+	if ferr.Err() != nil {
+		glog.Errorf("AttrSet: Add/update error - %v", ferr)
+		return ferr.Err()
+	}
+	if uscore || afound {
+		// If attribute exists, no need to add it again to docs in the attribute
+		// collection involved.
+		// Also, if it's a reserved attribute, don't add it to any attribute
+		// collection. Reserved attribute names start with _.
+		return nil
 	}
 	glog.Infof("AddAttrSet: Added %s attribute %s in group %s", s.AppliesTo, s.Name, group)
 	switch s.AppliesTo {
@@ -1143,8 +1180,15 @@ func DBAddAttrSet(tenant string, admin string, group string, s AttrSet, rsrvd bo
 	return nil
 }
 
-func DBDelAttrSet(tenant string, admin string, group string, set AttrSet) error {
+// Delete an attribute definition. At a minimum, the name and appliesTo fields
+// are required. System attributes cannot be deleted via the api, only from
+// within the system.
+func DBDelAttrSet(tenant string, admin string, group string, set AttrSet, apicall bool) error {
 
+	sysattr := strings.HasPrefix(set.Name, "_")
+	if apicall && sysattr {
+		return fmt.Errorf("Cannot delete a system attribute via the api")
+	}
 	Cltn := dbGetCollection(tenant, "NxtAttrSet")
 	if Cltn == nil {
 		return fmt.Errorf("Unknown Collection")
@@ -1155,29 +1199,41 @@ func DBDelAttrSet(tenant string, admin string, group string, set AttrSet) error 
 	if err != nil {
 		return err
 	}
-	if curSet.Group != "" && curSet.Group != group {
-		return fmt.Errorf("Admin group not matching attribute group")
+	if apicall {
+		// Check group privilege if it's an api call. If an internal delete to
+		// clean up, disregard group.
+		if group != "admin" && group != "superadmin" {
+			// If user trying to delete attribute is a group admin, ensure the
+			// group admin owns the attribute
+			if curSet.Group != "" && curSet.Group != group {
+				return fmt.Errorf("Admin group not matching attribute group")
+			}
+		}
 	}
-	switch set.AppliesTo {
-	case "Hosts":
-		if err := DBDelAllHostsOneAttr(tenant, admin, set.Name); err != nil {
-			return err
-		}
-	case "Users":
-		// First check if attribute is being used in any rules (in Easy mode)
-		tnt := DBFindTenant(tenant)
-		if tnt == nil {
-			return fmt.Errorf("Tenant " + tenant + " not found")
-		}
-		if tnt.EasyMode && DBRulesContainAttribute(tenant, set.Name) {
-			return fmt.Errorf("Rules contain attribute " + set.Name + " being deleted")
-		}
-		if err := DBDelAllUsersOneAttr(tenant, admin, set.Name); err != nil {
-			return err
-		}
-	case "Bundles":
-		if err := DBDelAllBundlesOneAttr(tenant, admin, set.Name); err != nil {
-			return err
+	if !sysattr {
+		// Do not try to remove system attributes from any attribute collection.
+		// They don't exist there.
+		switch set.AppliesTo {
+		case "Hosts":
+			if err := DBDelAllHostsOneAttr(tenant, admin, set.Name); err != nil {
+				return err
+			}
+		case "Users":
+			// First check if attribute is being used in any rules (in Easy mode)
+			tnt := DBFindTenant(tenant)
+			if tnt == nil {
+				return fmt.Errorf("Tenant " + tenant + " not found")
+			}
+			if tnt.EasyMode && DBRulesContainAttribute(tenant, set.Name) {
+				return fmt.Errorf("Rules contain attribute " + set.Name + " being deleted")
+			}
+			if err := DBDelAllUsersOneAttr(tenant, admin, set.Name); err != nil {
+				return err
+			}
+		case "Bundles":
+			if err := DBDelAllBundlesOneAttr(tenant, admin, set.Name); err != nil {
+				return err
+			}
 		}
 	}
 	_, err = Cltn.DeleteOne(
@@ -2138,6 +2194,12 @@ func DBDelUserAttr(tenant string, admin string, userid string) error {
 }
 
 func DBDelAllUsersOneAttr(tenant string, admin string, todel string) error {
+
+	if strings.HasPrefix(todel, "_") {
+		// Silently ignore system attributes (names starting with _)
+		return nil
+	}
+
 	userAttrCltn := dbGetCollection(tenant, "NxtUserAttr")
 	if userAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -2171,6 +2233,12 @@ func DBDelAllUsersOneAttr(tenant string, admin string, todel string) error {
 }
 
 func DBAddAllUsersOneAttr(tenant string, admin string, set AttrSet) error {
+
+	if strings.HasPrefix(set.Name, "_") {
+		// Silently ignore system attributes (names starting with _)
+		return nil
+	}
+
 	userAttrCltn := dbGetCollection(tenant, "NxtUserAttr")
 	if userAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -2841,6 +2909,12 @@ func DBDelBundleAttr(tenant string, admin string, bundleid string) error {
 }
 
 func DBDelAllBundlesOneAttr(tenant string, admin string, todel string) error {
+
+	if strings.HasPrefix(todel, "_") {
+		// Silently ignore system attributes (names starting with _)
+		return nil
+	}
+
 	appAttrCltn := dbGetCollection(tenant, "NxtAppAttr")
 	if appAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -2874,6 +2948,12 @@ func DBDelAllBundlesOneAttr(tenant string, admin string, todel string) error {
 }
 
 func DBAddAllBundlesOneAttr(tenant string, admin string, set AttrSet) error {
+
+	if strings.HasPrefix(set.Name, "_") {
+		// Silently ignore system attributes (names starting with _)
+		return nil
+	}
+
 	appAttrCltn := dbGetCollection(tenant, "NxtAppAttr")
 	if appAttrCltn == nil {
 		return fmt.Errorf("Cant find AppGroup collection")
@@ -3301,6 +3381,12 @@ func DBDelHostAttr(tenant string, admin string, hostid string) error {
 }
 
 func DBDelAllHostsOneAttr(tenant string, admin string, todel string) error {
+
+	if strings.HasPrefix(todel, "_") {
+		// Silently ignore system attributes (names starting with _)
+		return nil
+	}
+
 	hostAttrCltn := dbGetCollection(tenant, "NxtHostAttr")
 	if hostAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -3369,6 +3455,12 @@ func defaultType(set AttrSet) interface{} {
 }
 
 func DBAddAllHostsOneAttr(tenant string, admin string, set AttrSet) error {
+
+	if strings.HasPrefix(set.Name, "_") {
+		// Silently ignore system attributes (names starting with _)
+		return nil
+	}
+
 	hostAttrCltn := dbGetCollection(tenant, "NxtHostAttr")
 	if hostAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")

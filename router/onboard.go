@@ -1998,7 +1998,7 @@ func delAttrSet(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBDelAttrSet(uuid, admin, group, data)
+	err = db.DBDelAttrSet(uuid, admin, group, data, true)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
