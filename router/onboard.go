@@ -215,7 +215,7 @@ func rdwrOnboard() {
 	delTenantRoute("/attrset", "POST", delAttrSet)
 
 	// This route is used to add attributes for a user
-	addTenantRoute("/userattr/{userid}", "POST", addUserAttrHandler)
+	addTenantRoute("/userattr/single/{userid}", "POST", addUserAttrHandler)
 
 	// This route is used to update attributes for multiple users
 	addTenantRoute("/userattr/multiple", "POST", updMultiUsersAttrHandler)
