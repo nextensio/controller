@@ -56,7 +56,7 @@ func rdwrPolicy() {
 	// This route is used by the tenant admin to add a new bundle ID sub-rule
 	// for a group (or update an existing one). The json body contains the
 	// details such as bid, rid, group and sub-rules.
-	addTenantRoute("/bundlerule/", "POST", addBundleRuleHandler)
+	addTenantRoute("/bundlerule", "POST", addBundleRuleHandler)
 
 	// This route is used by an admin to delete bundle rule expressions for a group
 	delTenantRoute("/bundlerule/{bid}/{rid}/{group}", "GET", delBundleRuleGroupHandler)
@@ -72,14 +72,14 @@ func rdwrPolicy() {
 	// This route is used by an admin to add a new trace req sub-rule for a group
 	// (or update an existing one). The json body contains the
 	// details such as traceid, group and sub-rules.
-	addTenantRoute("/tracereqrule/", "POST", addTraceReqRuleGroupHandler)
+	addTenantRoute("/tracereqrule", "POST", addTraceReqRuleGroupHandler)
 
 	// This route is used by the tenant admin to delete a trace req group sub-rule
 	delTenantRoute("/tracereqrule/{rid}/{group}", "GET", delTraceReqRuleGroupHandler)
 
 	// This route is used by the an admin to add/update a new stats sub-rule for
 	// a group. The sub-rule contains the user attributes owned by the group
-	addTenantRoute("/statsrule/", "POST", addStatsRuleGroupHandler)
+	addTenantRoute("/statsrule", "POST", addStatsRuleGroupHandler)
 
 	// This route is used by the tenant admin to delete a stats sub-rule owned by
 	// the group.
@@ -100,7 +100,7 @@ func addpolicyHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-		
+
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		result.Result = "Read fail"
@@ -197,7 +197,7 @@ func delpolicyHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-		
+
 	v := mux.Vars(r)
 	pid := v["policy-id"]
 	uuid := r.Context().Value("tenant").(string)
@@ -343,7 +343,7 @@ func delBundleRuleGroupHandler(w http.ResponseWriter, r *http.Request) {
 //        ["lefttoken", "operator", "righttoken", "type", "isArray"],
 //        [ ... ]
 //      ]
-// Add a new host ID rule portion for a group 
+// Add a new host ID rule portion for a group
 func addHostRuleGroupHandler(w http.ResponseWriter, r *http.Request) {
 
 	addRuleGenericHandler(w, r, "App")
@@ -428,7 +428,7 @@ func getTraceReqRuleHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	utils.WriteResult(w, trule)
 }
- 
+
 // Delete a trace req rule
 func delTraceReqRuleGroupHandler(w http.ResponseWriter, r *http.Request) {
 	var result RuleOpResult
@@ -442,7 +442,7 @@ func delTraceReqRuleGroupHandler(w http.ResponseWriter, r *http.Request) {
 		group = usertype
 	}
 	v := mux.Vars(r)
- 	ruleid := v["rid"]
+	ruleid := v["rid"]
 	grp := v["group"]
 	if grp != group {
 		// someone is trying to delete some other group's rule expressions
