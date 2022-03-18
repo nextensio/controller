@@ -64,7 +64,7 @@ func rdwrPolicy() {
 	// This route is used by the tenant admin to add a new host ID sub-rule
 	// for a group (or update an existing one). The json body contains the
 	// details such as host, rid, group and sub-rules.
-	addTenantRoute("/hostrule/", "POST", addHostRuleGroupHandler)
+	addTenantRoute("/hostrule", "POST", addHostRuleGroupHandler)
 
 	// This route is used by the tenant admin to delete a host ID group sub-rule
 	delTenantRoute("/hostrule/{host}/{rid}/{group}", "GET", delHostRuleGroupHandler)
