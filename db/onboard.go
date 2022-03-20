@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
@@ -22,6 +23,10 @@ import (
 )
 
 const HDRKEY = "Header"
+
+var uattrLock sync.RWMutex
+var battrLock sync.RWMutex
+var hattrLock sync.RWMutex
 
 type Signup struct {
 	Tenant string `json:"tenant" bson:"tenant"`
@@ -1079,6 +1084,19 @@ func DBAddAttrSet(tenant string, admin string, group string, s AttrSet, rsrvd bo
 	}
 	uscore := strings.HasPrefix(s.Name, "_")
 	afound := true
+	switch s.AppliesTo {
+	case "Users":
+		uattrLock.Lock()
+		defer uattrLock.Unlock()
+	case "Hosts":
+		hattrLock.Lock()
+		defer hattrLock.Unlock()
+	case "Bundles":
+		battrLock.Lock()
+		defer battrLock.Unlock()
+	default:
+		return fmt.Errorf("Attribute has invalid AppliesTo " + s.AppliesTo)
+	}
 	err := Cltn.FindOne(context.TODO(), bson.M{"_id": s.Name + ":" + s.AppliesTo}).Decode(&attrdef)
 	if err != nil {
 		// This attribute is not defined, so validate input
@@ -1091,13 +1109,6 @@ func DBAddAttrSet(tenant string, admin string, group string, s AttrSet, rsrvd bo
 		}
 
 		// Validate some fields in the AttrSet
-		switch s.AppliesTo {
-		case "Users":
-		case "Hosts":
-		case "Bundles":
-		default:
-			return fmt.Errorf("Attribute has invalid AppliesTo " + s.AppliesTo)
-		}
 		switch s.Type {
 		case "String":
 		case "Number":
@@ -1147,7 +1158,7 @@ func DBAddAttrSet(tenant string, admin string, group string, s AttrSet, rsrvd bo
 		bson.M{"_id": s.Name + ":" + s.AppliesTo},
 		bson.D{
 			{"$set", bson.M{"name": s.Name, "appliesTo": s.AppliesTo,
-				"type": s.Type, "isArray": s.IsArray, "group": group}},
+				"type": s.Type, "isArray": s.IsArray, "group": s.Group}},
 		},
 		&opt,
 	)
@@ -1162,7 +1173,7 @@ func DBAddAttrSet(tenant string, admin string, group string, s AttrSet, rsrvd bo
 		// collection. Reserved attribute names start with _.
 		return nil
 	}
-	glog.Infof("AddAttrSet: Added %s attribute %s in group %s", s.AppliesTo, s.Name, group)
+	glog.Infof("AddAttrSet: Added %s attribute %s in group %s", s.AppliesTo, s.Name, s.Group)
 	switch s.AppliesTo {
 	case "Hosts":
 		if err := DBAddAllHostsOneAttr(tenant, admin, s); err != nil {
@@ -1194,6 +1205,17 @@ func DBDelAttrSet(tenant string, admin string, group string, set AttrSet, apical
 		return fmt.Errorf("Unknown Collection")
 	}
 
+	switch set.AppliesTo {
+	case "Hosts":
+		hattrLock.Lock()
+		defer hattrLock.Unlock()
+	case "Users":
+		uattrLock.Lock()
+		defer uattrLock.Unlock()
+	case "Bundles":
+		battrLock.Lock()
+		defer battrLock.Unlock()
+	}
 	var curSet AttrSet
 	err := Cltn.FindOne(context.TODO(), bson.M{"_id": set.Name + ":" + set.AppliesTo}).Decode(&curSet)
 	if err != nil {
@@ -1258,6 +1280,15 @@ func DBFindSpecificAttrSet(tenant string, atyp string, group string) []AttrSet {
 		return nil
 	}
 
+	switch atyp {
+	case "Users":
+	case "Hosts":
+	case "Bundles":
+	case "all":
+	default:
+		glog.Errorf("Attribute has invalid AppliesTo " + atyp)
+		return nil
+	}
 	if group == "all" {
 		if atyp == "all" {
 			cursor, err = attrSetCltn.Find(context.TODO(), bson.M{})
@@ -2081,6 +2112,8 @@ func DBAddUserAttr(uuid string, admin string, user string, group string, Uattr b
 		return fmt.Errorf("Cannot find user " + user)
 	}
 
+	uattrLock.Lock()
+	defer uattrLock.Unlock()
 	upd := false
 	uattr := DBFindUserAttr(uuid, user)
 	if Uattr != nil {
@@ -2182,6 +2215,8 @@ func DBDelUserAttr(tenant string, admin string, userid string) error {
 	if userAttrCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
+	uattrLock.Lock()
+	defer uattrLock.Unlock()
 	_, err := userAttrCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": userid},
@@ -2796,6 +2831,8 @@ func DBAddBundleAttr(uuid string, admin string, bid string, group string, Battr 
 		return fmt.Errorf("Cannot find bundle")
 	}
 
+	battrLock.Lock()
+	defer battrLock.Unlock()
 	upd := false
 	battr := DBFindBundleAttr(uuid, bid)
 	if Battr != nil {
@@ -2897,6 +2934,8 @@ func DBDelBundleAttr(tenant string, admin string, bundleid string) error {
 	if appAttrCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
+	battrLock.Lock()
+	defer battrLock.Unlock()
 	_, err := appAttrCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": bundleid},
@@ -3196,6 +3235,8 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 		tags[tag] = true
 	}
 
+	hattrLock.Lock()
+	defer hattrLock.Unlock()
 	// See if we have a new host or it's an existing host
 	hosts := DBFindAllHosts(uuid)
 	hostfound := false
@@ -3363,6 +3404,8 @@ func DBDelHostAttr(tenant string, admin string, hostid string) error {
 		return fmt.Errorf("Unknown Collection")
 	}
 
+	hattrLock.Lock()
+	defer hattrLock.Unlock()
 	_, err := hostAttrCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": hostid},
