@@ -1327,7 +1327,10 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 		result.Services = user.Services
 		result.Gateway = user.Gateway
 		result.Cluster = db.DBGetClusterName(user.Gateway)
-		result.Version = strconv.FormatUint(tenant.ConfigVersion, 10)
+		// there is no particular logic behind the math here, we just want a unique
+		// number combining both the numbers, it can be addition/xor whatever
+		ver := tenant.ConfigVersion + db.DBGetGlboalCfgVn()
+		result.Version = strconv.FormatUint(ver, 10)
 		result.SplitTunnel = tenant.SplitTunnel
 	} else {
 		bundle := db.DBFindBundle(data.Tenant, data.Userid)
@@ -1353,7 +1356,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 			result.Cluster = db.DBGetClusterName(bundle.Gateway)
 			// there is no particular logic behind the math here, we just want a unique
 			// number combining both the numbers, it can be addition/xor whatever
-			ver := tenant.ConfigVersion + bundle.ConfigVersion
+			ver := tenant.ConfigVersion + bundle.ConfigVersion + db.DBGetGlboalCfgVn()
 			result.Version = strconv.FormatUint(ver, 10)
 		} else {
 			result.Result = "IDP user/bundle not found on controller"
@@ -1446,7 +1449,8 @@ func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
 		if client_id != nil {
 			result.Clientid = client_id.Clientid
 		}
-		result.Version = strconv.FormatUint(t.ConfigVersion, 10)
+		ver := t.ConfigVersion + db.DBGetGlboalCfgVn()
+		result.Version = strconv.FormatUint(ver, 10)
 	} else {
 		bundle := db.DBFindBundle(tenant, userid)
 		if bundle == nil {
@@ -1456,7 +1460,7 @@ func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		// there is no particular logic behind the math here, we just want a unique
 		// number combining both the numbers, it can be addition/xor whatever
-		ver := t.ConfigVersion + bundle.ConfigVersion
+		ver := t.ConfigVersion + bundle.ConfigVersion + db.DBGetGlboalCfgVn()
 		result.Version = strconv.FormatUint(ver, 10)
 		// We dont check the keepalive return value, keepalives are sent periodically
 		db.BundleKeepalive(tenant, bundle, data)

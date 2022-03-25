@@ -799,7 +799,9 @@ type Certificate struct {
 
 // This API will add a new certificate or update a certificate if it already exists
 func DBAddCert(data *Certificate) error {
-
+	if err := DBSetGlboalCfgVn(); err != nil {
+		return err
+	}
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
@@ -824,7 +826,9 @@ func DBAddCert(data *Certificate) error {
 
 // This API will delete a certificate
 func DBDelCert(name string) error {
-
+	if err := DBSetGlboalCfgVn(); err != nil {
+		return err
+	}
 	_, err := certCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": name},
@@ -861,6 +865,51 @@ func DBFindAllCerts() []Certificate {
 	}
 
 	return certs
+}
+
+//---------------------------Version functions---------------------------
+
+// NOTE: The bson decoder will not work if the structure field names dont start with upper case
+type GlobalVersions struct {
+	ConfigVersion uint64 `json:"version" bson:"version"`
+}
+
+// This API will add a new certificate or update a certificate if it already exists
+func DBSetGlboalCfgVn() error {
+
+	// The upsert option asks the DB to add if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	err := versionCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": "cfgvn"},
+		bson.D{
+			{"$set", bson.M{"_id": "cfgvn", "version": uint64(time.Now().Unix())}},
+		},
+		&opt,
+	)
+
+	if err.Err() != nil {
+		return err.Err()
+	}
+	return nil
+}
+
+func DBGetGlboalCfgVn() uint64 {
+	var vn GlobalVersions
+	err := versionCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": "cfgvn"},
+	).Decode(&vn)
+	if err != nil {
+		fmt.Println("Get global version failed", err)
+		return 0
+	}
+	return vn.ConfigVersion
 }
 
 //---------------------------Clientid functions---------------------------

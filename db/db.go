@@ -21,6 +21,7 @@ var tenantCltn *mongo.Collection
 var certCltn *mongo.Collection
 var clientIdCltn *mongo.Collection
 var gatewayCltn *mongo.Collection
+var versionCltn *mongo.Collection
 
 var nxtDB *mongo.Database
 var tenantDBs = make(map[string]*mongo.Database, maxTenants)
@@ -79,6 +80,7 @@ func dbCollections() {
 	certCltn = nxtDB.Collection("NxtCerts")
 	clientIdCltn = nxtDB.Collection("NxtClientId")
 	gatewayCltn = nxtDB.Collection("NxtGateways")
+	versionCltn = nxtDB.Collection("NxtVersions")
 }
 
 func dbGetCollection(tnt string, cltn string) *mongo.Collection {
