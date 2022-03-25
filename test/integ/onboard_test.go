@@ -919,7 +919,7 @@ func testUserAttrAdd_v1(t *testing.T, tenantadd bool, userid string) {
 		return
 	}
 
-	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/userattr/"+userid, bytes.NewBuffer(body))
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/add/userattr/single/"+userid, bytes.NewBuffer(body))
 	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
