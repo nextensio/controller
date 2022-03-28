@@ -1038,7 +1038,7 @@ func DBAddGateway(data *Gateway) error {
 	// ALL gateways to ALL tenants. Obviously that wont work in the long run for the same
 	// reason mentioned in the TODO above. So we will have to come back and revisit this
 	tenants, e := DBFindAllTenants()
-	if err != nil {
+	if e != nil {
 		return e
 	}
 	for _, t := range tenants {
