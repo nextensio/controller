@@ -200,6 +200,7 @@ type Tenant struct {
 	Type          string   `json:"type" bson:"type"`
 	MspID         string   `json:"mspid" bson:"mspid"`
 	MgdTenants    []string `json:"mgdtenants" bson:"mgdtenants"`
+	OwnedEmails   []string `json:"ownedemails" bson:"ownedemails"`
 }
 
 type Domain struct {
@@ -476,6 +477,7 @@ func dbTenantUpdateJson(tenant *Tenant, data *TenantJson) *Tenant {
 		}
 		t.Group = data.Group
 		t.Domains = []Domain{}
+		t.OwnedEmails = []string{}
 		if data.IsMsp {
 			t.Type = "MSP"
 		} else if data.IsManaged {
@@ -1027,6 +1029,31 @@ func DBAddGateway(data *Gateway) error {
 			if e != nil {
 				return e
 			}
+		}
+	}
+
+	// TODO: This is not scaleable and needs to change, but initially at least till our
+	// solution gets customer acceptance, we dont want them to know anything about our
+	// gateways and stuff, we just want to keep it simple for them. So we just want to assign
+	// ALL gateways to ALL tenants. Obviously that wont work in the long run for the same
+	// reason mentioned in the TODO above. So we will have to come back and revisit this
+	tenants, e := DBFindAllTenants()
+	if err != nil {
+		return e
+	}
+	for _, t := range tenants {
+		tcl := TenantCluster{Gateway: data.Name, Image: "", ApodSets: 1, ApodRepl: 1}
+		e = DBAddTenantCluster(t.ID, &tcl)
+		if e != nil {
+			// Well, try to cleanup all that we added and get out. The cleanup can fail,
+			// in which case
+			for _, t := range tenants {
+				ec := DBDelTenantCluster(t.ID, DBGetClusterName(data.Name))
+				if ec != nil {
+					fmt.Println("Error cleaning up failed tenant cluster", e, t.ID, data.Name)
+				}
+			}
+			return e
 		}
 	}
 
@@ -1631,6 +1658,118 @@ func DBGetUserKeys(uuid string, userid string) (*[]UserKeyJson, error) {
 	return &keys, nil
 }
 
+type DomainOwner struct {
+	Domain string `json:"domain" bson:"domain"`
+	Tenant string `json:"tenant" bson:"tenant"`
+}
+
+func DBAddEmailOwner(email string, tenant string) error {
+	owned := DomainOwner{Domain: email, Tenant: tenant}
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	err := domainsCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"domain": email},
+		bson.D{
+			{"$set", owned},
+		},
+		&opt,
+	)
+	if err.Err() != nil {
+		return err.Err()
+	}
+	return nil
+}
+
+func DBDelEmailOwner(email string) error {
+	_, err := domainsCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"domain": email},
+	)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func DBDelTenantOwnedDomains(uuid string) error {
+	tenant := DBFindTenant(uuid)
+	if tenant == nil {
+		return fmt.Errorf("Unknown tenant")
+	}
+	for _, owned := range tenant.OwnedEmails {
+		err := DBDelEmailOwner(owned)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func DBGetEmailOwner(email string) (string, error) {
+	var owner DomainOwner
+	err := domainsCltn.FindOne(
+		context.TODO(),
+		bson.M{"domain": email},
+	).Decode(&owner)
+	if err != nil {
+		// No tenant owns this email-domain yet
+		if err == mongo.ErrNoDocuments {
+			return "", nil
+		}
+		return "", err
+	}
+	return email, nil
+}
+
+func isFortune1000(domain string) bool {
+	for _, f := range Fortune1000 {
+		if f == domain {
+			return true
+		}
+	}
+	return false
+}
+
+func DBUpdateOwnedDomains(ownedDomain string, tenant *Tenant) error {
+	for _, o := range tenant.OwnedEmails {
+		if o == ownedDomain {
+			return nil
+		}
+	}
+	// TODO: For now this is to prevent a random/malicious user just coming and
+	// just blocking up fortune1000 email ids, not sure exactly how SAAS services
+	// handle this issue. At any rate if a fortune1000 is trying to use us then its
+	// good we get to know and give them a white glove treatment ? Or I dont know,
+	// if this is just making it painful for them to signup we can just comment out
+	// the below check
+	if isFortune1000(ownedDomain) {
+		return fmt.Errorf("Fortune 1000 domain name " + ownedDomain + ", please contact sales@nextensio.com to ensure security")
+	}
+	curOwner, err := DBGetEmailOwner(ownedDomain)
+	if err != nil {
+		return err
+	}
+	if curOwner != "" && curOwner != tenant.ID {
+		return fmt.Errorf("Domain name already registered by another customer, please contact sales@nextensio.com")
+	}
+	err = DBAddEmailOwner(ownedDomain, tenant.ID)
+	if err != nil {
+		return err
+	}
+	tenant.OwnedEmails = append(tenant.OwnedEmails, ownedDomain)
+	err = dbUpdateTenant(tenant)
+	if err != nil {
+		DBDelEmailOwner(ownedDomain)
+		return err
+	}
+	return nil
+}
+
 // This API will add/update a new user
 func DBAddUser(uuid string, admin string, data *User) error {
 
@@ -1638,6 +1777,17 @@ func DBAddUser(uuid string, admin string, data *User) error {
 	if tenant == nil {
 		return fmt.Errorf("Unknown tenant")
 	}
+
+	components := strings.Split(data.Uid, "@")
+	if len(components) != 2 {
+		return fmt.Errorf("Please enter a valid email id")
+	}
+	_, ownedDomain := components[0], components[1]
+	err := DBUpdateOwnedDomains(ownedDomain, tenant)
+	if err != nil {
+		return err
+	}
+
 	user := DBFindUser(uuid, data.Uid)
 	bundle := DBFindBundle(uuid, data.Uid)
 	if bundle != nil {
@@ -1712,7 +1862,8 @@ func DBAddUser(uuid string, admin string, data *User) error {
 		bson.D{
 			{"$set", bson.M{"name": data.Username, "email": data.Email,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
-				"services": data.Services, "usertype": data.Usertype, "keys": keys}},
+				"services": data.Services, "usertype": data.Usertype, "keys": keys,
+				"ownedemails": tenant.OwnedEmails}},
 		},
 		&opt,
 	)

@@ -959,6 +959,13 @@ func deltenantHandlerFunc(w http.ResponseWriter, r *http.Request, uuid string) {
 		}
 	}
 
+	err = db.DBDelTenantOwnedDomains(uuid)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
+	}
+
 	// DBDelTenant() will remove all header docs for tenant collections
 	err = db.DBDelTenant(uuid)
 	if err != nil {
@@ -2760,6 +2767,12 @@ func addIDPHandler(w http.ResponseWriter, r *http.Request) {
 	tenant := db.DBFindTenant(uuid)
 	if tenant == nil {
 		result.Result = "Cant find tenant: " + uuid
+		utils.WriteResult(w, result)
+		return
+	}
+	err = db.DBUpdateOwnedDomains(data.Domain, tenant)
+	if err != nil {
+		result.Result = err.Error()
 		utils.WriteResult(w, result)
 		return
 	}
