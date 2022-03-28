@@ -554,11 +554,11 @@ func testTenantDel(t *testing.T, expect_delete bool) {
 
 func TestTenantDel(t *testing.T) {
 	dbReinit()
-	testUserAttrAdd_v1(t, true, "gopa")
+	testUserAttrAdd_v1(t, true, "gopa@unittest.com")
 	testBundleAttrAdd_v1(t, false, "youtube")
 	PolicyAdd_v1(t, false, "agent-access")
 	testTenantDel(t, false)
-	testUserDel(t, "gopa")
+	testUserDel(t, "gopa@unittest.com")
 	testTenantDel(t, false)
 	testBundleDel(t, "youtube")
 	testTenantDel(t, false)
@@ -726,6 +726,7 @@ func UserAdd_v1(t *testing.T, tenantadd bool, userid string, services []string) 
 		return
 	}
 	if data.Result != "ok" {
+		t.Log(data.Result)
 		t.Error()
 		return
 	}
@@ -739,15 +740,15 @@ func UserAdd_v1(t *testing.T, tenantadd bool, userid string, services []string) 
 
 func TestUserAdd_v1(t *testing.T) {
 	dbReinit()
-	UserAdd_v1(t, true, "gopa", []string{})
+	UserAdd_v1(t, true, "gopa@unittest.com", []string{})
 }
 
 func TestUserGet_v1(t *testing.T) {
 	dbReinit()
-	UserAdd_v1(t, true, "gopa", []string{})
+	UserAdd_v1(t, true, "gopa@unittest.com", []string{})
 	dbTenants, _ := db.DBFindAllTenants()
 
-	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/user/gopa", nil)
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/user/gopa@unittest.com", nil)
 	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
@@ -782,8 +783,8 @@ func TestUserGet_v1(t *testing.T) {
 func TestGetAllUsers_v1(t *testing.T) {
 	dbReinit()
 
-	UserAdd_v1(t, true, "gopa", []string{})
-	UserAdd_v1(t, false, "kumar", []string{})
+	UserAdd_v1(t, true, "gopa@unittest.com", []string{})
+	UserAdd_v1(t, false, "kumar@unittest.com", []string{})
 
 	dbTenants, _ := db.DBFindAllTenants()
 
@@ -815,10 +816,10 @@ func TestGetAllUsers_v1(t *testing.T) {
 	}
 	found := 0
 	for i := 0; i < len(data); i++ {
-		if data[i].Uid == "gopa" {
+		if data[i].Uid == "gopa@unittest.com" {
 			found++
 		}
-		if data[i].Uid == "kumar" {
+		if data[i].Uid == "kumar@unittest.com" {
 			found++
 		}
 	}
@@ -830,7 +831,7 @@ func TestGetAllUsers_v1(t *testing.T) {
 
 func testUserAttrHdrAdd_v1(t *testing.T) {
 	// Just to get a user collection created
-	UserAdd_v1(t, true, "some-user", []string{})
+	UserAdd_v1(t, true, "some-user@unittest.com", []string{})
 	dbTenants, _ := db.DBFindAllTenants()
 
 	dbHdr := db.DBFindUserAttrHdr(dbTenants[0].ID)
@@ -973,15 +974,15 @@ func testUserAttrAdd_v1(t *testing.T, tenantadd bool, userid string) {
 }
 func TestUserAttrAdd_v1(t *testing.T) {
 	dbReinit()
-	testUserAttrAdd_v1(t, true, "gopa")
+	testUserAttrAdd_v1(t, true, "gopa@unittest.com")
 }
 
 func TestUserAttrGet_v1(t *testing.T) {
 	dbReinit()
-	testUserAttrAdd_v1(t, true, "gopa")
+	testUserAttrAdd_v1(t, true, "gopa@unittest.com")
 	dbTenants, _ := db.DBFindAllTenants()
 
-	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/userattr/gopa", nil)
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/userattr/gopa@unittest.com", nil)
 	req.Header.Add("X-Nextensio-Group", "superadmin")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", "Bearer "+AccessToken)
@@ -1031,8 +1032,8 @@ func TestUserAttrGet_v1(t *testing.T) {
 func TestGetAllUserAttr_v1(t *testing.T) {
 	dbReinit()
 
-	testUserAttrAdd_v1(t, true, "gopa")
-	testUserAttrAdd_v1(t, false, "kumar")
+	testUserAttrAdd_v1(t, true, "gopa@unittest.com")
+	testUserAttrAdd_v1(t, false, "kumar@unittest.com")
 
 	dbTenants, _ := db.DBFindAllTenants()
 
@@ -1065,10 +1066,10 @@ func TestGetAllUserAttr_v1(t *testing.T) {
 	}
 	found := 0
 	for i := 0; i < len(data); i++ {
-		if data[i].Uid == "gopa" {
+		if data[i].Uid == "gopa@unittest.com" {
 			found++
 		}
-		if data[i].Uid == "kumar" {
+		if data[i].Uid == "kumar@unittest.com" {
 			found++
 		}
 	}
@@ -1603,8 +1604,8 @@ func testUserDel(t *testing.T, user string) {
 
 func TestUserDel(t *testing.T) {
 	dbReinit()
-	testUserAttrAdd_v1(t, true, "gopa")
-	testUserDel(t, "gopa")
+	testUserAttrAdd_v1(t, true, "gopa@unittest.com")
+	testUserDel(t, "gopa@unittest.com")
 }
 
 type Bundle_v1 struct {
