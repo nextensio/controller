@@ -19,7 +19,7 @@ func PolicyAdd_v1(t *testing.T, addtenant bool, pid string) {
 	if addtenant {
 		AddTenant_v1(t)
 	}
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	policy := Policy_v1{
 		PolicyId: pid,
@@ -66,14 +66,14 @@ func PolicyAdd_v1(t *testing.T, addtenant bool, pid string) {
 }
 
 func TestPolicyAdd_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	PolicyAdd_v1(t, true, "agent-authorization")
 }
 
 func TestPolicyGet_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	PolicyAdd_v1(t, true, "agent-authorization")
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/policy/agent-authorization", nil)
 	req.Header.Add("X-Nextensio-Group", "superadmin")
@@ -108,12 +108,12 @@ func TestPolicyGet_v1(t *testing.T) {
 }
 
 func TestGetAllPolicies_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 
 	PolicyAdd_v1(t, true, "agent-authorization")
 	PolicyAdd_v1(t, false, "agent-access")
 
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allpolicies", nil)
 	req.Header.Add("X-Nextensio-Group", "superadmin")
@@ -157,7 +157,7 @@ func TestGetAllPolicies_v1(t *testing.T) {
 }
 
 func PolicyDel_v1(t *testing.T, name string, shoulddel bool) {
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/del/policy/"+name, nil)
 	req.Header.Add("X-Nextensio-Group", "superadmin")
@@ -205,7 +205,7 @@ func PolicyDel_v1(t *testing.T, name string, shoulddel bool) {
 }
 
 func TestPolicyDel_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	PolicyAdd_v1(t, true, "agent-authorization")
 	PolicyDel_v1(t, "agent-authorization", true)
 }

@@ -576,19 +576,19 @@ func DBFindTenant(id string) *Tenant {
 	return &tenant
 }
 
-func DBFindAllTenants() []Tenant {
+func DBFindAllTenants() ([]Tenant, error) {
 	var tenants []Tenant
 
 	cursor, err := tenantCltn.Find(context.TODO(), bson.M{})
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	err = cursor.All(context.TODO(), &tenants)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
-	return tenants
+	return tenants, nil
 }
 
 // TODO: This API returns ALL gateways as of now, but a tenant

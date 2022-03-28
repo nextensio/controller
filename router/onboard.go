@@ -882,7 +882,7 @@ func addtenantHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get all tenants
 func getAllTenantsHandler(w http.ResponseWriter, r *http.Request) {
-	tenants := db.DBFindAllTenants()
+	tenants, _ := db.DBFindAllTenants()
 	if tenants == nil {
 		tenants = make([]db.Tenant, 0)
 	}

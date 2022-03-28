@@ -73,7 +73,7 @@ func testGatewayAdd_v1(t *testing.T) {
 }
 
 func TestAddGateway_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	testGatewayAdd_v1(t)
 }
 
@@ -117,7 +117,7 @@ func delGateway(gw *Gateway_v1) bool {
 }
 
 func TestDelGateway_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	AddTenant_v1(t)
 	gw := Gateway_v1{Name: "sjc.nextensio.net", Location: "sjc"}
 	if delGateway(&gw) {
@@ -140,7 +140,7 @@ func TestDelGateway_v1(t *testing.T) {
 }
 
 func TestGetAllGateway_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	gw := Gateway_v1{Name: "sjc.nextensio.net", Location: "sjc"}
 	add := addGateway(&gw)
 	if add == false {
@@ -238,7 +238,7 @@ func addTenant(tenant *Tenant_v1) bool {
 	}
 
 	found := false
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 	for i := 0; i < len(dbTenants); i++ {
 		if dbTenants[i].Name == tenant.Name {
 			found = true
@@ -283,7 +283,7 @@ func addTenantCluster_v1(tenant string, tcl *TenantCluster_v1) bool {
 }
 
 func testTenantClusterDel(t *testing.T, cluster string) {
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	cldoc := db.DBFindTenantCluster(dbTenants[0].ID, cluster)
 	if cldoc == nil {
@@ -340,7 +340,7 @@ func AddTenant_v1(t *testing.T) {
 		return
 	}
 
-	tenants := db.DBFindAllTenants()
+	tenants, _ := db.DBFindAllTenants()
 	if tenants == nil {
 		t.Error()
 		return
@@ -409,12 +409,12 @@ func AddTenant_v1(t *testing.T) {
 }
 
 func TestAddTenant_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	AddTenant_v1(t)
 }
 
 func TestGetAllTenant_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 
 	// add one gateway, but the tenant add should still fail since only one is added yet
 	gw := Gateway_v1{Name: "sjc.nextensio.net", Location: "sjc"}
@@ -494,7 +494,7 @@ func TestGetAllTenant_v1(t *testing.T) {
 }
 
 func testTenantDel(t *testing.T, expect_delete bool) {
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/global/del/tenant/"+dbTenants[0].ID, nil)
 	req.Header.Add("X-Nextensio-Group", "superadmin")
@@ -553,7 +553,7 @@ func testTenantDel(t *testing.T, expect_delete bool) {
 }
 
 func TestTenantDel(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	testUserAttrAdd_v1(t, true, "gopa")
 	testBundleAttrAdd_v1(t, false, "youtube")
 	PolicyAdd_v1(t, false, "agent-access")
@@ -597,7 +597,7 @@ func addGatewayAndTenant(t *testing.T) {
 		return
 	}
 
-	tenants := db.DBFindAllTenants()
+	tenants, _ := db.DBFindAllTenants()
 	if tenants == nil {
 		t.Error()
 		return
@@ -631,7 +631,7 @@ func addGatewayAndTenant(t *testing.T) {
 }
 
 func TestOnboard_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 
 	addGatewayAndTenant(t)
 	UserAdd_v1(t, false, "abcd", []string{})
@@ -686,7 +686,7 @@ func UserAdd_v1(t *testing.T, tenantadd bool, userid string, services []string) 
 	if tenantadd {
 		AddTenant_v1(t)
 	}
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	user := User_v1{
 		Uid:       userid,
@@ -738,14 +738,14 @@ func UserAdd_v1(t *testing.T, tenantadd bool, userid string, services []string) 
 }
 
 func TestUserAdd_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	UserAdd_v1(t, true, "gopa", []string{})
 }
 
 func TestUserGet_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	UserAdd_v1(t, true, "gopa", []string{})
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/user/gopa", nil)
 	req.Header.Add("X-Nextensio-Group", "superadmin")
@@ -780,12 +780,12 @@ func TestUserGet_v1(t *testing.T) {
 }
 
 func TestGetAllUsers_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 
 	UserAdd_v1(t, true, "gopa", []string{})
 	UserAdd_v1(t, false, "kumar", []string{})
 
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allusers", nil)
 	req.Header.Add("X-Nextensio-Group", "superadmin")
@@ -831,7 +831,7 @@ func TestGetAllUsers_v1(t *testing.T) {
 func testUserAttrHdrAdd_v1(t *testing.T) {
 	// Just to get a user collection created
 	UserAdd_v1(t, true, "some-user", []string{})
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	dbHdr := db.DBFindUserAttrHdr(dbTenants[0].ID)
 	if dbHdr == nil {
@@ -850,9 +850,9 @@ type HdrResult struct {
 }
 
 func TestAttrHdrGet_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	testUserAttrHdrAdd_v1(t)
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/attrhdr/Users", nil)
 	req.Header.Add("X-Nextensio-Group", "superadmin")
@@ -903,7 +903,7 @@ func testUserAttrAdd_v1(t *testing.T, tenantadd bool, userid string) {
 	testAttrSetAdd_v1(t, false, "dept", "Users", "String", "true")
 	testAttrSetAdd_v1(t, false, "team", "Users", "String", "true")
 
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	attr := UserAttr_v1{
 		Uid:      userid,
@@ -972,14 +972,14 @@ func testUserAttrAdd_v1(t *testing.T, tenantadd bool, userid string) {
 	}
 }
 func TestUserAttrAdd_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	testUserAttrAdd_v1(t, true, "gopa")
 }
 
 func TestUserAttrGet_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	testUserAttrAdd_v1(t, true, "gopa")
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/userattr/gopa", nil)
 	req.Header.Add("X-Nextensio-Group", "superadmin")
@@ -1029,12 +1029,12 @@ func TestUserAttrGet_v1(t *testing.T) {
 }
 
 func TestGetAllUserAttr_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 
 	testUserAttrAdd_v1(t, true, "gopa")
 	testUserAttrAdd_v1(t, false, "kumar")
 
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/alluserattr", nil)
 	req.Header.Add("X-Nextensio-Group", "superadmin")
@@ -1082,7 +1082,7 @@ func testAttrSetAdd_v1(t *testing.T, tenant bool, name string, appliesTo string,
 	if tenant {
 		AddTenant_v1(t)
 	}
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	attr := db.AttrSet{
 		Name:      name,
@@ -1148,15 +1148,15 @@ func testAttrSetAdd_v1(t *testing.T, tenant bool, name string, appliesTo string,
 }
 
 func TestAttrSetAdd_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	testAttrSetAdd_v1(t, true, "foobar", "Users", "String", "false")
 }
 
 func TestAttrSetGet_v1(t *testing.T) {
 	const attrnm = "foobar"
-	db.DBReinit()
+	dbReinit()
 	testAttrSetAdd_v1(t, true, attrnm, "Users", "String", "false")
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	attrcnt := 0
 	defAttr := db.DBFindSpecificAttrSet(dbTenants[0].ID, "Users", "all")
@@ -1209,10 +1209,10 @@ type AttrDelResult struct {
 func TestAttrSetDel_v1(t *testing.T) {
 	const attrnm1 = "foobar"
 	const attrnm2 = "abcd"
-	db.DBReinit()
+	dbReinit()
 	testAttrSetAdd_v1(t, true, attrnm1, "Users", "String", "false")
 	testAttrSetAdd_v1(t, false, attrnm2, "Users", "String", "false")
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	attrcnt := 0
 	defAttr := db.DBFindSpecificAttrSet(dbTenants[0].ID, "Users", "all")
@@ -1296,7 +1296,7 @@ func testHostAttrAdd_v1(t *testing.T, tenantadd bool, host string, attrnm string
 	testAttrSetAdd_v1(t, tenantadd, attrnm, "Users", "String", "false")
 	testAttrSetAdd_v1(t, false, "location", "Hosts", "String", "false")
 
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	attr := HostAttr_v1{
 		Host:       host,
@@ -1359,14 +1359,14 @@ func testHostAttrAdd_v1(t *testing.T, tenantadd bool, host string, attrnm string
 }
 
 func TestHostAttrAdd_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	testHostAttrAdd_v1(t, true, "google.com", "doodle")
 }
 
 func TestHostAttrGet_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	testHostAttrAdd_v1(t, true, "google.com", "fiddle")
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/hostattr/google.com", nil)
 	req.Header.Add("X-Nextensio-Group", "superadmin")
@@ -1419,10 +1419,10 @@ func TestHostAttrDel_v1(t *testing.T) {
 	// Delete the App
 	// This should remove the services based on the App from the AppGroup
 	// Confirm that the AppGroup does not have the services
-	db.DBReinit()
+	dbReinit()
 	testHostAttrAdd_v1(t, true, "google.com", "riddle")
 	testBundleAdd_v1(t, false, "youtube", []string{"v1.google.com", "v2.google.com"})
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	bun := db.DBFindBundle(dbTenants[0].ID, "youtube")
 	if bun == nil {
@@ -1477,10 +1477,10 @@ func TestHostAttrDel_v1(t *testing.T) {
 }
 
 func TestHostAttrGetAll_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	testHostAttrAdd_v1(t, true, "google.com", "middle")
 	testHostAttrAdd_v1(t, false, "yahoo.com", "muddle")
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allhostattr", nil)
 	req.Header.Add("X-Nextensio-Group", "superadmin")
@@ -1524,9 +1524,9 @@ func TestHostAttrGetAll_v1(t *testing.T) {
 }
 
 func TestHostAttrHdrGet_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	testHostAttrAdd_v1(t, true, "google.com", "saddle")
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/attrhdr/Apps", nil)
 	req.Header.Add("X-Nextensio-Group", "superadmin")
@@ -1561,7 +1561,7 @@ func TestHostAttrHdrGet_v1(t *testing.T) {
 }
 
 func testUserDel(t *testing.T, user string) {
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	udoc := db.DBFindUser(dbTenants[0].ID, user)
 	if udoc == nil {
@@ -1602,7 +1602,7 @@ func testUserDel(t *testing.T, user string) {
 }
 
 func TestUserDel(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	testUserAttrAdd_v1(t, true, "gopa")
 	testUserDel(t, "gopa")
 }
@@ -1623,7 +1623,7 @@ func testBundleAdd_v1(t *testing.T, tenantadd bool, bid string, services []strin
 	if tenantadd {
 		AddTenant_v1(t)
 	}
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	user := Bundle_v1{
 		Bid:        bid,
@@ -1680,14 +1680,14 @@ func testBundleAdd_v1(t *testing.T, tenantadd bool, bid string, services []strin
 }
 
 func TestBundleAdd_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	testBundleAdd_v1(t, true, "youtube", []string{})
 }
 
 func TestBundleGet_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	testBundleAdd_v1(t, true, "youtube", []string{})
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/bundle/youtube", nil)
 	req.Header.Add("X-Nextensio-Group", "superadmin")
@@ -1722,12 +1722,12 @@ func TestBundleGet_v1(t *testing.T) {
 }
 
 func TestGetAllBundles_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 
 	testBundleAdd_v1(t, true, "youtube", []string{})
 	testBundleAdd_v1(t, false, "netflix", []string{})
 
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allbundles", nil)
 	req.Header.Add("X-Nextensio-Group", "superadmin")
@@ -1773,7 +1773,7 @@ func TestGetAllBundles_v1(t *testing.T) {
 func testBundleAttrHdrAdd_v1(t *testing.T) {
 	// Just to get a bundle collection created
 	testBundleAdd_v1(t, true, "some-bundle", []string{})
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	dbHdr := db.DBFindBundleAttrHdr(dbTenants[0].ID)
 	if dbHdr == nil {
@@ -1787,9 +1787,9 @@ func testBundleAttrHdrAdd_v1(t *testing.T) {
 }
 
 func TestBundleAttrHdrGet_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	testBundleAttrHdrAdd_v1(t)
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/attrhdr/AppGroups", nil)
 	req.Header.Add("X-Nextensio-Group", "superadmin")
@@ -1840,7 +1840,7 @@ func testBundleAttrAdd_v1(t *testing.T, tenantadd bool, bid string) {
 	testAttrSetAdd_v1(t, false, "manager", "Bundles", "Number", "false")
 	testAttrSetAdd_v1(t, false, "nonemployee", "Bundles", "String", "false")
 
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	attr := BundleAttr_v1{
 		Bid:         bid,
@@ -1909,14 +1909,14 @@ func testBundleAttrAdd_v1(t *testing.T, tenantadd bool, bid string) {
 	}
 }
 func TestBundleAttrAdd_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	testBundleAttrAdd_v1(t, true, "youtube")
 }
 
 func TestBundleAttrGet_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	testBundleAttrAdd_v1(t, true, "youtube")
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/bundleattr/youtube", nil)
 	req.Header.Add("X-Nextensio-Group", "superadmin")
@@ -1966,12 +1966,12 @@ func TestBundleAttrGet_v1(t *testing.T) {
 }
 
 func TestGetAllBundleAttr_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 
 	testBundleAttrAdd_v1(t, true, "youtube")
 	testBundleAttrAdd_v1(t, false, "netflix")
 
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/tenant/"+dbTenants[0].ID+"/get/allbundleattr", nil)
 	req.Header.Add("X-Nextensio-Group", "superadmin")
@@ -2016,7 +2016,7 @@ func TestGetAllBundleAttr_v1(t *testing.T) {
 }
 
 func testBundleDel(t *testing.T, bundle string) {
-	dbTenants := db.DBFindAllTenants()
+	dbTenants, _ := db.DBFindAllTenants()
 
 	udoc := db.DBFindBundle(dbTenants[0].ID, bundle)
 	if udoc == nil {
@@ -2058,7 +2058,7 @@ func testBundleDel(t *testing.T, bundle string) {
 }
 
 func TestBundleDel(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	testBundleAttrAdd_v1(t, true, "youtube")
 	testBundleDel(t, "youtube")
 }
@@ -2118,12 +2118,12 @@ func CertAdd_v1(t *testing.T, name string) {
 }
 
 func TestCertAdd_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	CertAdd_v1(t, "rootCA")
 }
 
 func TestCertGet_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	CertAdd_v1(t, "rootCA")
 
 	req, _ := http.NewRequest("GET", "http://127.0.0.1:8080/api/v1/global/get/cert/"+"rootCA", nil)
@@ -2159,7 +2159,7 @@ func TestCertGet_v1(t *testing.T) {
 }
 
 func TestGetAllCerts_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 
 	CertAdd_v1(t, "rootCA")
 	CertAdd_v1(t, "interCA")
@@ -2239,7 +2239,7 @@ func CertDel_v1(t *testing.T, name string) {
 }
 
 func TestCertDel_v1(t *testing.T) {
-	db.DBReinit()
+	dbReinit()
 	CertAdd_v1(t, "rootCA")
 	CertDel_v1(t, "rootCA")
 }

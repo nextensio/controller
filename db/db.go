@@ -15,7 +15,7 @@ import (
 const maxTenants = 1000
 
 // We open a connection to the DB and keep it around for ever
-var dbClient *mongo.Client
+var DBClient *mongo.Client
 
 var tenantCltn *mongo.Collection
 var certCltn *mongo.Collection
@@ -23,7 +23,7 @@ var clientIdCltn *mongo.Collection
 var gatewayCltn *mongo.Collection
 var versionCltn *mongo.Collection
 
-var nxtDB *mongo.Database
+var NxtDB *mongo.Database
 var tenantDBs = make(map[string]*mongo.Database, maxTenants)
 
 var tenantClusCltn = make(map[string]*mongo.Collection, maxTenants)
@@ -46,22 +46,22 @@ func dbConnect() bool {
 	mongoURI := utils.GetEnv("MONGO_URI", "mongodb://127.0.0.1:27017/")
 	var err error
 
-	if dbClient != nil {
-		dbClient.Disconnect(context.TODO())
-		dbClient = nil
+	if DBClient != nil {
+		DBClient.Disconnect(context.TODO())
+		DBClient = nil
 	}
-	dbClient, err = mongo.NewClient(options.Client().ApplyURI(mongoURI))
+	DBClient, err = mongo.NewClient(options.Client().ApplyURI(mongoURI))
 	if err != nil {
 		glog.Error(err)
 		return false
 	}
 
-	err = dbClient.Connect(context.TODO())
+	err = DBClient.Connect(context.TODO())
 	if err != nil {
 		glog.Error("Failed Database Init")
 		return false
 	}
-	err = dbClient.Ping(context.TODO(), readpref.Primary())
+	err = DBClient.Ping(context.TODO(), readpref.Primary())
 	if err != nil {
 		glog.Error(err)
 		return false
@@ -70,24 +70,24 @@ func dbConnect() bool {
 	return true
 }
 
-func dbGetTenantDBName(tenant string) string {
+func DBGetTenantDBName(tenant string) string {
 	return ("Nxt-" + tenant + "-DB")
 }
 
 func dbCollections() {
-	nxtDB = dbClient.Database("NxtDB")
-	tenantCltn = nxtDB.Collection("NxtTenants")
-	certCltn = nxtDB.Collection("NxtCerts")
-	clientIdCltn = nxtDB.Collection("NxtClientId")
-	gatewayCltn = nxtDB.Collection("NxtGateways")
-	versionCltn = nxtDB.Collection("NxtVersions")
+	NxtDB = DBClient.Database("NxtDB")
+	tenantCltn = NxtDB.Collection("NxtTenants")
+	certCltn = NxtDB.Collection("NxtCerts")
+	clientIdCltn = NxtDB.Collection("NxtClientId")
+	gatewayCltn = NxtDB.Collection("NxtGateways")
+	versionCltn = NxtDB.Collection("NxtVersions")
 }
 
 func dbGetCollection(tnt string, cltn string) *mongo.Collection {
 	tenant := tnt
 	_, ok := tenantDBs[tenant]
 	if ok == false {
-		tenantDBs[tenant] = dbClient.Database(dbGetTenantDBName(tenant))
+		tenantDBs[tenant] = DBClient.Database(DBGetTenantDBName(tenant))
 	}
 	switch cltn {
 	case "NxtTenantClusters":
@@ -190,7 +190,7 @@ func dbAddTenantDB(tnt string) {
 	if ok {
 		return
 	}
-	tenantDBs[tenant] = dbClient.Database(dbGetTenantDBName(tenant))
+	tenantDBs[tenant] = DBClient.Database(DBGetTenantDBName(tenant))
 	dbAddTenantCollections(tenant, tenantDBs[tenant])
 }
 
@@ -234,46 +234,15 @@ func dbDelTenantDB(tnt string) {
 
 }
 
-func dbDrop() {
-	// Purge the cluster related operational data first before removing
-	// gateway/cluster configuration
-	for {
-		err := ClusterDBDrop()
-		if err == nil {
-			break
-		}
-	}
-	dbTenants := DBFindAllTenants()
-	for i := 0; i < len(dbTenants); i++ {
-		tdb := dbClient.Database(dbGetTenantDBName(dbTenants[i].ID))
-		tdb.Drop(context.TODO())
-	}
-	nxtDB.Drop(context.TODO())
-}
-
-func DBReinit() {
-	// For automated tests using golang "testing" package.
-	// Open a client and reconnect to mongoDB server.
-	// Open NxtDB, ClusterDB and any tenant DBs and drop/nuke them from mongoDB.
-	// Open fresh databases for NxtDB and ClusterDB and open our collections within
-	// them. If separate tenant DBs are not supported, then open the tenant
-	// collections within NxtDB. If separate tenant DBs are supported, a tenant
-	// DB will be created when a tenant is added. The collections in that database
-	// will be opened at that time.
-	DBInit()
-	dbDrop()
-	dbSetup()
-}
-
 func DBInit() {
 	flag.Parse()
 	for dbConnect() != true {
 		time.Sleep(1 * time.Second)
 	}
-	dbSetup()
+	DBSetup()
 }
 
-func dbSetup() {
+func DBSetup() {
 	dbCollections()
-	ClusterDBInit(dbClient)
+	ClusterDBInit(DBClient)
 }
