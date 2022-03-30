@@ -262,8 +262,8 @@ func TenantMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 	}
 	uuid := match[1]
 	usertype := (*ctx).Value("usertype").(string)
-	userid := r.Context().Value("userid").(string)
-	utenant := r.Context().Value("user-tenant").(string)
+	userid := (*ctx).Value("userid").(string)
+	utenant := (*ctx).Value("user-tenant").(string)
 
 	// regular user, not allowed anything
 	if usertype != "superadmin" && usertype != "admin" && !strings.HasPrefix(usertype, "admin-") {
