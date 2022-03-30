@@ -1735,20 +1735,15 @@ func isFortune1000(domain string) bool {
 	return false
 }
 
-func DBUpdateOwnedDomains(ownedDomain string, tenant *Tenant) error {
+func DBUpdateOwnedDomains(ownedDomain string, tenantid string) error {
+	tenant := DBFindTenant(tenantid)
+	if tenant == nil {
+		return fmt.Errorf("Unknown tenant")
+	}
 	for _, o := range tenant.OwnedEmails {
 		if o == ownedDomain {
 			return nil
 		}
-	}
-	// TODO: For now this is to prevent a random/malicious user just coming and
-	// just blocking up fortune1000 email ids, not sure exactly how SAAS services
-	// handle this issue. At any rate if a fortune1000 is trying to use us then its
-	// good we get to know and give them a white glove treatment ? Or I dont know,
-	// if this is just making it painful for them to signup we can just comment out
-	// the below check
-	if isFortune1000(ownedDomain) {
-		return fmt.Errorf("Fortune 1000 domain name " + ownedDomain + ", please contact sales@nextensio.com to ensure security")
 	}
 	curOwner, err := DBGetEmailOwner(ownedDomain)
 	if err != nil {
@@ -1776,16 +1771,6 @@ func DBAddUser(uuid string, admin string, data *User) error {
 	tenant := DBFindTenant(uuid)
 	if tenant == nil {
 		return fmt.Errorf("Unknown tenant")
-	}
-
-	components := strings.Split(data.Uid, "@")
-	if len(components) != 2 {
-		return fmt.Errorf("Please enter a valid email id")
-	}
-	_, ownedDomain := components[0], components[1]
-	err := DBUpdateOwnedDomains(ownedDomain, tenant)
-	if err != nil {
-		return err
 	}
 
 	user := DBFindUser(uuid, data.Uid)

@@ -262,12 +262,30 @@ func TenantMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerF
 	}
 	uuid := match[1]
 	usertype := (*ctx).Value("usertype").(string)
+	userid := r.Context().Value("userid").(string)
+	utenant := r.Context().Value("user-tenant").(string)
 
 	// regular user, not allowed anything
 	if usertype != "superadmin" && usertype != "admin" && !strings.HasPrefix(usertype, "admin-") {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("User not authorized access to this tenant"))
 		return
+	}
+
+	if usertype == "admin" || strings.HasPrefix(usertype, "admin-") {
+		components := strings.Split(userid, "@")
+		if len(components) != 2 {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("Admin userid " + userid + " needs to be an email"))
+			return
+		}
+		_, ownedDomain := components[0], components[1]
+		err := db.DBUpdateOwnedDomains(ownedDomain, utenant)
+		if err != nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(err.Error()))
+			return
+		}
 	}
 
 	ctx1 := context.WithValue(*ctx, "tenant", uuid)

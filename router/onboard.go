@@ -2770,9 +2770,15 @@ func addIDPHandler(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBUpdateOwnedDomains(data.Domain, tenant)
-	if err != nil {
-		result.Result = err.Error()
+	found := false
+	for _, o := range tenant.OwnedEmails {
+		if o == data.Domain {
+			found = true
+			break
+		}
+	}
+	if !found {
+		result.Result = "Please add an admin for the domain " + data.Domain + ", and have the admin login to the controller first to verify the domain ownership"
 		utils.WriteResult(w, result)
 		return
 	}
