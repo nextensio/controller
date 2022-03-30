@@ -1726,15 +1726,6 @@ func DBGetEmailOwner(email string) (string, error) {
 	return email, nil
 }
 
-func isFortune1000(domain string) bool {
-	for _, f := range Fortune1000 {
-		if f == domain {
-			return true
-		}
-	}
-	return false
-}
-
 func DBUpdateOwnedDomains(ownedDomain string, tenantid string) error {
 	tenant := DBFindTenant(tenantid)
 	if tenant == nil {
