@@ -173,6 +173,11 @@ type IDP struct {
 	Keyid    string `json:"keyid" bson:"keyid"`
 }
 
+type EmailDomains struct {
+	Domain string `json:"domain" bson:"domain"`
+	Admins int    `json:"admins" bson:"admins"`
+}
+
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type TenantJson struct {
 	ID        string  `json:"_id"`
@@ -188,19 +193,19 @@ type TenantJson struct {
 // If MSP, MgdTenants will contain tenant IDs of MSP-managed tenants
 // A self-managed tenant should not have any values in MspID or MgdTenants
 type Tenant struct {
-	ID            string   `json:"_id" bson:"_id"`
-	Name          string   `json:"name" bson:"name"`
-	Group         string   `json:"group" bson:"group"`
-	Domains       []Domain `json:"domains" bson:"domains"`
-	EasyMode      bool     `json:"easymode" bson:"easymode"`
-	SplitTunnel   bool     `json:"splittunnel" bson:"splittunnel"`
-	ConfigVersion uint64   `json:"cfgvn" bson:"cfgvn"`
-	Idps          []IDP    `json:"idps" bson:"idps"`
-	AdmGroups     []string `json:"admgroups" bson:"admgroups"`
-	Type          string   `json:"type" bson:"type"`
-	MspID         string   `json:"mspid" bson:"mspid"`
-	MgdTenants    []string `json:"mgdtenants" bson:"mgdtenants"`
-	OwnedEmails   []string `json:"ownedemails" bson:"ownedemails"`
+	ID            string         `json:"_id" bson:"_id"`
+	Name          string         `json:"name" bson:"name"`
+	Group         string         `json:"group" bson:"group"`
+	Domains       []Domain       `json:"domains" bson:"domains"`
+	EasyMode      bool           `json:"easymode" bson:"easymode"`
+	SplitTunnel   bool           `json:"splittunnel" bson:"splittunnel"`
+	ConfigVersion uint64         `json:"cfgvn" bson:"cfgvn"`
+	Idps          []IDP          `json:"idps" bson:"idps"`
+	AdmGroups     []string       `json:"admgroups" bson:"admgroups"`
+	Type          string         `json:"type" bson:"type"`
+	MspID         string         `json:"mspid" bson:"mspid"`
+	MgdTenants    []string       `json:"mgdtenants" bson:"mgdtenants"`
+	OwnedEmails   []EmailDomains `json:"ownedemails" bson:"ownedemails"`
 }
 
 type Domain struct {
@@ -477,7 +482,7 @@ func dbTenantUpdateJson(tenant *Tenant, data *TenantJson) *Tenant {
 		}
 		t.Group = data.Group
 		t.Domains = []Domain{}
-		t.OwnedEmails = []string{}
+		t.OwnedEmails = []EmailDomains{}
 		if data.IsMsp {
 			t.Type = "MSP"
 		} else if data.IsManaged {
@@ -1702,7 +1707,7 @@ func DBDelTenantOwnedDomains(uuid string) error {
 		return fmt.Errorf("Unknown tenant")
 	}
 	for _, owned := range tenant.OwnedEmails {
-		err := DBDelEmailOwner(owned)
+		err := DBDelEmailOwner(owned.Domain)
 		if err != nil {
 			return err
 		}
@@ -1732,7 +1737,7 @@ func DBUpdateOwnedDomains(ownedDomain string, tenantid string) error {
 		return fmt.Errorf("Unknown tenant")
 	}
 	for _, o := range tenant.OwnedEmails {
-		if o == ownedDomain {
+		if o.Domain == ownedDomain {
 			return nil
 		}
 	}
@@ -1747,7 +1752,7 @@ func DBUpdateOwnedDomains(ownedDomain string, tenantid string) error {
 	if err != nil {
 		return err
 	}
-	tenant.OwnedEmails = append(tenant.OwnedEmails, ownedDomain)
+	tenant.OwnedEmails = append(tenant.OwnedEmails, EmailDomains{Domain: ownedDomain, Admins: 0})
 	err = dbUpdateTenant(tenant)
 	if err != nil {
 		DBDelEmailOwner(ownedDomain)

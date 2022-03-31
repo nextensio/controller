@@ -1953,6 +1953,11 @@ func addAttrSet(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
+	if data.Name == "all" {
+		result.Result = "all is a reserved keyword, please choose another group name"
+		utils.WriteResult(w, result)
+		return
+	}
 	// If data.Group is not set, we will set it to group of caller.
 	// If it is set, ensure it matches group of caller.
 	if !allowAnyAdminAccess(r, data.Group) {
@@ -2772,7 +2777,7 @@ func addIDPHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	found := false
 	for _, o := range tenant.OwnedEmails {
-		if o == data.Domain {
+		if o.Domain == data.Domain {
 			found = true
 			break
 		}
