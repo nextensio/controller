@@ -8,7 +8,6 @@ TestTenantDel
 TestUserAdd_v1
 TestUserGet_v1
 TestGetAllUsers_v1
-TestUserAttrHdrAdd_v1
 TestAttrHdrGet_v1
 TestUserAttrAdd_v1
 TestUserAttrGet_v1
@@ -17,7 +16,6 @@ TestUserDel
 TestBundleAdd_v1
 TestBundleGet_v1
 TestGetAllBundles_v1
-TestBundleAttrHdrAdd_v1
 TestBundleAttrHdrGet_v1
 TestBundleAttrAdd_v1
 TestBundleAttrGet_v1
@@ -31,10 +29,7 @@ TestPolicyAdd_v1
 TestPolicyGet_v1
 TestGetAllPolicies_v1
 TestPolicyDel_v1
-TestRouteAdd_v1
-TestRouteGet_v1
-TestGetAllRoutes_v1
-TestRouteDel_v1
+TestHostAttrHdrGet_v1
 TestHostAttrAdd_v1
 TestHostAttrGet_v1
 TestHostAttrDel_v1

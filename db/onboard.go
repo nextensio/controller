@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
@@ -22,6 +23,10 @@ import (
 )
 
 const HDRKEY = "Header"
+
+var uattrLock sync.RWMutex
+var battrLock sync.RWMutex
+var hattrLock sync.RWMutex
 
 type Signup struct {
 	Tenant string `json:"tenant" bson:"tenant"`
@@ -168,6 +173,11 @@ type IDP struct {
 	Keyid    string `json:"keyid" bson:"keyid"`
 }
 
+type EmailDomains struct {
+	Domain string `json:"domain" bson:"domain"`
+	Admins int    `json:"admins" bson:"admins"`
+}
+
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type TenantJson struct {
 	ID        string  `json:"_id"`
@@ -183,18 +193,19 @@ type TenantJson struct {
 // If MSP, MgdTenants will contain tenant IDs of MSP-managed tenants
 // A self-managed tenant should not have any values in MspID or MgdTenants
 type Tenant struct {
-	ID            string   `json:"_id" bson:"_id"`
-	Name          string   `json:"name" bson:"name"`
-	Group         string   `json:"group" bson:"group"`
-	Domains       []Domain `json:"domains" bson:"domains"`
-	EasyMode      bool     `json:"easymode" bson:"easymode"`
-	SplitTunnel   bool     `json:"splittunnel" bson:"splittunnel"`
-	ConfigVersion uint64   `json:"cfgvn" bson:"cfgvn"`
-	Idps          []IDP    `json:"idps" bson:"idps"`
-	AdmGroups     []string `json:"admgroups" bson:"admgroups"`
-	Type          string   `json:"type" bson:"type"`
-	MspID         string   `json:"mspid" bson:"mspid"`
-	MgdTenants    []string `json:"mgdtenants" bson:"mgdtenants"`
+	ID            string         `json:"_id" bson:"_id"`
+	Name          string         `json:"name" bson:"name"`
+	Group         string         `json:"group" bson:"group"`
+	Domains       []Domain       `json:"domains" bson:"domains"`
+	EasyMode      bool           `json:"easymode" bson:"easymode"`
+	SplitTunnel   bool           `json:"splittunnel" bson:"splittunnel"`
+	ConfigVersion uint64         `json:"cfgvn" bson:"cfgvn"`
+	Idps          []IDP          `json:"idps" bson:"idps"`
+	AdmGroups     []string       `json:"admgroups" bson:"admgroups"`
+	Type          string         `json:"type" bson:"type"`
+	MspID         string         `json:"mspid" bson:"mspid"`
+	MgdTenants    []string       `json:"mgdtenants" bson:"mgdtenants"`
+	OwnedEmails   []EmailDomains `json:"ownedemails" bson:"ownedemails"`
 }
 
 type Domain struct {
@@ -471,6 +482,7 @@ func dbTenantUpdateJson(tenant *Tenant, data *TenantJson) *Tenant {
 		}
 		t.Group = data.Group
 		t.Domains = []Domain{}
+		t.OwnedEmails = []EmailDomains{}
 		if data.IsMsp {
 			t.Type = "MSP"
 		} else if data.IsManaged {
@@ -539,23 +551,23 @@ func DBAddTenant(data *TenantJson, admin string) error {
 func DBAddTenantCollectionHdrs(tenant string, admin string) {
 	hdr := DataHdr{Majver: 1, Minver: 0}
 
-	_ = DBAddUserInfoHdr(tenant, admin, &hdr)
-	_ = DBAddUserAttrHdr(tenant, admin, &hdr)
-	_ = DBAddBundleInfoHdr(tenant, admin, &hdr)
-	_ = DBAddBundleAttrHdr(tenant, admin, &hdr)
-	_ = DBAddHostAttrHdr(tenant, admin, &hdr)
-	_ = DBAddTraceRequestsHdr(tenant, admin, &hdr)
+	_ = dbAddUserInfoHdr(tenant, admin, &hdr)
+	_ = dbAddUserAttrHdr(tenant, admin, &hdr)
+	_ = dbAddBundleInfoHdr(tenant, admin, &hdr)
+	_ = dbAddBundleAttrHdr(tenant, admin, &hdr)
+	_ = dbAddHostAttrHdr(tenant, admin, &hdr)
+	_ = dbAddTraceRequestsHdr(tenant, admin, &hdr)
 	// TenantCluster collection does not have a header doc for now
 }
 
 func DBDelTenantCollectionHdrs(tenant string) {
 
-	_ = DBDelUserInfoHdr(tenant)
-	_ = DBDelUserAttrHdr(tenant)
-	_ = DBDelBundleInfoHdr(tenant)
-	_ = DBDelBundleAttrHdr(tenant)
-	_ = DBDelHostAttrHdr(tenant)
-	_ = DBDelTraceRequestsHdr(tenant)
+	_ = dbDelUserInfoHdr(tenant)
+	_ = dbDelUserAttrHdr(tenant)
+	_ = dbDelBundleInfoHdr(tenant)
+	_ = dbDelBundleAttrHdr(tenant)
+	_ = dbDelHostAttrHdr(tenant)
+	_ = dbDelTraceRequestsHdr(tenant)
 	// TenantCluster collection does not have a header doc for now
 }
 
@@ -571,19 +583,19 @@ func DBFindTenant(id string) *Tenant {
 	return &tenant
 }
 
-func DBFindAllTenants() []Tenant {
+func DBFindAllTenants() ([]Tenant, error) {
 	var tenants []Tenant
 
 	cursor, err := tenantCltn.Find(context.TODO(), bson.M{})
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	err = cursor.All(context.TODO(), &tenants)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
-	return tenants
+	return tenants, nil
 }
 
 // TODO: This API returns ALL gateways as of now, but a tenant
@@ -799,7 +811,9 @@ type Certificate struct {
 
 // This API will add a new certificate or update a certificate if it already exists
 func DBAddCert(data *Certificate) error {
-
+	if err := DBSetGlboalCfgVn(); err != nil {
+		return err
+	}
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
 	after := options.After
@@ -824,7 +838,9 @@ func DBAddCert(data *Certificate) error {
 
 // This API will delete a certificate
 func DBDelCert(name string) error {
-
+	if err := DBSetGlboalCfgVn(); err != nil {
+		return err
+	}
 	_, err := certCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": name},
@@ -861,6 +877,51 @@ func DBFindAllCerts() []Certificate {
 	}
 
 	return certs
+}
+
+//---------------------------Version functions---------------------------
+
+// NOTE: The bson decoder will not work if the structure field names dont start with upper case
+type GlobalVersions struct {
+	ConfigVersion uint64 `json:"version" bson:"version"`
+}
+
+// This API will add a new certificate or update a certificate if it already exists
+func DBSetGlboalCfgVn() error {
+
+	// The upsert option asks the DB to add if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	err := versionCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": "cfgvn"},
+		bson.D{
+			{"$set", bson.M{"_id": "cfgvn", "version": uint64(time.Now().Unix())}},
+		},
+		&opt,
+	)
+
+	if err.Err() != nil {
+		return err.Err()
+	}
+	return nil
+}
+
+func DBGetGlboalCfgVn() uint64 {
+	var vn GlobalVersions
+	err := versionCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": "cfgvn"},
+	).Decode(&vn)
+	if err != nil {
+		fmt.Println("Get global version failed", err)
+		return 0
+	}
+	return vn.ConfigVersion
 }
 
 //---------------------------Clientid functions---------------------------
@@ -976,6 +1037,31 @@ func DBAddGateway(data *Gateway) error {
 		}
 	}
 
+	// TODO: This is not scaleable and needs to change, but initially at least till our
+	// solution gets customer acceptance, we dont want them to know anything about our
+	// gateways and stuff, we just want to keep it simple for them. So we just want to assign
+	// ALL gateways to ALL tenants. Obviously that wont work in the long run for the same
+	// reason mentioned in the TODO above. So we will have to come back and revisit this
+	tenants, e := DBFindAllTenants()
+	if e != nil {
+		return e
+	}
+	for _, t := range tenants {
+		tcl := TenantCluster{Gateway: data.Name, Image: "", ApodSets: 1, ApodRepl: 1}
+		e = DBAddTenantCluster(t.ID, &tcl)
+		if e != nil {
+			// Well, try to cleanup all that we added and get out. The cleanup can fail,
+			// in which case
+			for _, t := range tenants {
+				ec := DBDelTenantCluster(t.ID, DBGetClusterName(data.Name))
+				if ec != nil {
+					fmt.Println("Error cleaning up failed tenant cluster", e, t.ID, data.Name)
+				}
+			}
+			return e
+		}
+	}
+
 	return nil
 }
 
@@ -1071,61 +1157,104 @@ type AttrSet struct {
 }
 
 func DBAddAttrSet(tenant string, admin string, group string, s AttrSet, rsrvd bool) error {
-	s.Group = group
-	uscore := strings.HasPrefix(s.Name, "_")
-	if rsrvd && !uscore {
-		return fmt.Errorf("Attribute name does not conform to reserved attributes")
-	}
-	if !rsrvd && uscore {
-		return fmt.Errorf("Attribute name indicates reserved attribute")
-	}
+	var attrdef AttrSet
 
-	// Validate some fields in the AttrSet
+	Cltn := dbGetCollection(tenant, "NxtAttrSet")
+	if Cltn == nil {
+		return fmt.Errorf("Unknown Collection")
+	}
+	uscore := strings.HasPrefix(s.Name, "_")
+	afound := true
 	switch s.AppliesTo {
 	case "Users":
+		uattrLock.Lock()
+		defer uattrLock.Unlock()
 	case "Hosts":
+		hattrLock.Lock()
+		defer hattrLock.Unlock()
 	case "Bundles":
+		battrLock.Lock()
+		defer battrLock.Unlock()
 	default:
 		return fmt.Errorf("Attribute has invalid AppliesTo " + s.AppliesTo)
 	}
-	switch s.Type {
-	case "String":
-	case "Number":
-	case "Boolean":
-	case "Date":
-	default:
-		return fmt.Errorf("Attribute has invalid type " + s.Type)
+	err := Cltn.FindOne(context.TODO(), bson.M{"_id": s.Name + ":" + s.AppliesTo}).Decode(&attrdef)
+	if err != nil {
+		// This attribute is not defined, so validate input
+		afound = false
+		if rsrvd && !uscore {
+			return fmt.Errorf("Attribute name does not conform to reserved attributes")
+		}
+		if !rsrvd && uscore {
+			return fmt.Errorf("Attribute name indicates reserved attribute")
+		}
+
+		// Validate some fields in the AttrSet
+		switch s.Type {
+		case "String":
+		case "Number":
+		case "Boolean":
+			if s.IsArray == "true" {
+				return fmt.Errorf("Boolean type attribute cannot be an array")
+			}
+		case "Date":
+		default:
+			return fmt.Errorf("Attribute has invalid type " + s.Type)
+		}
+		switch s.IsArray {
+		case "true":
+		case "false":
+		default:
+			return fmt.Errorf("Attribute has invalid isArray " + s.IsArray)
+		}
 	}
-	switch s.IsArray {
-	case "true":
-	case "false":
-	default:
-		return fmt.Errorf("Attribute has invalid isArray " + s.IsArray)
+	if afound {
+		// Attribute is already defined, ensure that its type is not
+		// being changed in any way.
+		if attrdef.Type != s.Type || attrdef.IsArray != s.IsArray {
+			return fmt.Errorf("Attribute is defined. Its type cannot be changed")
+		}
+		if attrdef.Group == group {
+			// If group is not changing, nothing has changed in the
+			// attribute definition, so return without fuss.
+			return nil
+		}
+		// Only Group field is changing. Allow this only for a rsrvd attribute,
+		// for eg., the device attributes. If not reserved, return error.
+		if !uscore {
+			return fmt.Errorf("To change attribute group, ensure it is not in use, then delete and recreate it")
+		}
+		glog.Infof("AddAttrSet: Updating %s attribute %s from group %s to %s", s.AppliesTo, s.Name, attrdef.Group, group)
 	}
+	s.Group = group
+
 	upsert := true
 	after := options.After
 	opt := options.FindOneAndUpdateOptions{
 		ReturnDocument: &after,
 		Upsert:         &upsert,
 	}
-	Cltn := dbGetCollection(tenant, "NxtAttrSet")
-	if Cltn == nil {
-		return fmt.Errorf("Unknown Collection")
-	}
-	err := Cltn.FindOneAndUpdate(
+	ferr := Cltn.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": s.Name + ":" + s.AppliesTo},
 		bson.D{
 			{"$set", bson.M{"name": s.Name, "appliesTo": s.AppliesTo,
-				"type": s.Type, "isArray": s.IsArray, "group": group}},
+				"type": s.Type, "isArray": s.IsArray, "group": s.Group}},
 		},
 		&opt,
 	)
-	if err.Err() != nil {
-		glog.Errorf("AttrSet: Add error - %v", err)
-		return err.Err()
+	if ferr.Err() != nil {
+		glog.Errorf("AttrSet: Add/update error - %v", ferr)
+		return ferr.Err()
 	}
-	glog.Infof("AddAttrSet: Added %s attribute %s in group %s", s.AppliesTo, s.Name, group)
+	if uscore || afound {
+		// If attribute exists, no need to add it again to docs in the attribute
+		// collection involved.
+		// Also, if it's a reserved attribute, don't add it to any attribute
+		// collection. Reserved attribute names start with _.
+		return nil
+	}
+	glog.Infof("AddAttrSet: Added %s attribute %s in group %s", s.AppliesTo, s.Name, s.Group)
 	switch s.AppliesTo {
 	case "Hosts":
 		if err := DBAddAllHostsOneAttr(tenant, admin, s); err != nil {
@@ -1143,41 +1272,71 @@ func DBAddAttrSet(tenant string, admin string, group string, s AttrSet, rsrvd bo
 	return nil
 }
 
-func DBDelAttrSet(tenant string, admin string, group string, set AttrSet) error {
+// Delete an attribute definition. At a minimum, the name and appliesTo fields
+// are required. System attributes cannot be deleted via the api, only from
+// within the system.
+func DBDelAttrSet(tenant string, admin string, group string, set AttrSet, apicall bool) error {
 
+	sysattr := strings.HasPrefix(set.Name, "_")
+	if apicall && sysattr {
+		return fmt.Errorf("Cannot delete a system attribute via the api")
+	}
 	Cltn := dbGetCollection(tenant, "NxtAttrSet")
 	if Cltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
 
+	switch set.AppliesTo {
+	case "Hosts":
+		hattrLock.Lock()
+		defer hattrLock.Unlock()
+	case "Users":
+		uattrLock.Lock()
+		defer uattrLock.Unlock()
+	case "Bundles":
+		battrLock.Lock()
+		defer battrLock.Unlock()
+	}
 	var curSet AttrSet
 	err := Cltn.FindOne(context.TODO(), bson.M{"_id": set.Name + ":" + set.AppliesTo}).Decode(&curSet)
 	if err != nil {
 		return err
 	}
-	if curSet.Group != "" && curSet.Group != group {
-		return fmt.Errorf("Admin group not matching attribute group")
+	if apicall {
+		// Check group privilege if it's an api call. If an internal delete to
+		// clean up, disregard group.
+		if group != "admin" && group != "superadmin" {
+			// If user trying to delete attribute is a group admin, ensure the
+			// group admin owns the attribute
+			if curSet.Group != "" && curSet.Group != group {
+				return fmt.Errorf("Admin group not matching attribute group")
+			}
+		}
 	}
-	switch set.AppliesTo {
-	case "Hosts":
-		if err := DBDelAllHostsOneAttr(tenant, admin, set.Name); err != nil {
-			return err
-		}
-	case "Users":
-		// First check if attribute is being used in any rules (in Easy mode)
-		tnt := DBFindTenant(tenant)
-		if tnt == nil {
-			return fmt.Errorf("Tenant " + tenant + " not found")
-		}
-		if tnt.EasyMode && DBRulesContainAttribute(tenant, set.Name) {
-			return fmt.Errorf("Rules contain attribute " + set.Name + " being deleted")
-		}
-		if err := DBDelAllUsersOneAttr(tenant, admin, set.Name); err != nil {
-			return err
-		}
-	case "Bundles":
-		if err := DBDelAllBundlesOneAttr(tenant, admin, set.Name); err != nil {
-			return err
+	if !sysattr {
+		// Do not try to remove system attributes from any attribute collection.
+		// They don't exist there.
+		switch set.AppliesTo {
+		case "Hosts":
+			if err := DBDelAllHostsOneAttr(tenant, admin, set.Name); err != nil {
+				return err
+			}
+		case "Users":
+			// First check if attribute is being used in any rules (in Easy mode)
+			tnt := DBFindTenant(tenant)
+			if tnt == nil {
+				return fmt.Errorf("Tenant " + tenant + " not found")
+			}
+			if tnt.EasyMode && DBRulesContainAttribute(tenant, set.Name) {
+				return fmt.Errorf("Rules contain attribute " + set.Name + " being deleted")
+			}
+			if err := DBDelAllUsersOneAttr(tenant, admin, set.Name); err != nil {
+				return err
+			}
+		case "Bundles":
+			if err := DBDelAllBundlesOneAttr(tenant, admin, set.Name); err != nil {
+				return err
+			}
 		}
 	}
 	_, err = Cltn.DeleteOne(
@@ -1202,6 +1361,15 @@ func DBFindSpecificAttrSet(tenant string, atyp string, group string) []AttrSet {
 		return nil
 	}
 
+	switch atyp {
+	case "Users":
+	case "Hosts":
+	case "Bundles":
+	case "all":
+	default:
+		glog.Errorf("Attribute has invalid AppliesTo " + atyp)
+		return nil
+	}
 	if group == "all" {
 		if atyp == "all" {
 			cursor, err = attrSetCltn.Find(context.TODO(), bson.M{})
@@ -1241,7 +1409,7 @@ func DBGetHdrKey(val string) string {
 	return HDRKEY // common name for all header docs
 }
 
-func DBAddCollectionHdr(uuid string, admin string, data *DataHdr, htype string, hkey string) error {
+func dbAddCollectionHdr(uuid string, admin string, data *DataHdr, htype string, hkey string) error {
 	// The upsert option asks the DB to add  if one is not found
 	upsert := true
 	after := options.After
@@ -1267,16 +1435,16 @@ func DBAddCollectionHdr(uuid string, admin string, data *DataHdr, htype string, 
 	return err.Err()
 }
 
-func DBUpdateCollectionHdr(tenant string, admin string, htype string, hkey string) error {
-	hdr := DBFindCollectionHdr(tenant, htype, hkey)
+func dbUpdateCollectionHdr(tenant string, admin string, htype string, hkey string) error {
+	hdr := dbFindCollectionHdr(tenant, htype, hkey)
 	if hdr == nil {
 		return nil //TODO return error ?
 	}
 	hdr.Minver += 1
-	return DBAddCollectionHdr(tenant, admin, hdr, htype, hkey)
+	return dbAddCollectionHdr(tenant, admin, hdr, htype, hkey)
 }
 
-func DBFindCollectionHdr(tenant string, htype string, hkey string) *DataHdr {
+func dbFindCollectionHdr(tenant string, htype string, hkey string) *DataHdr {
 	var hdr DataHdr
 	Cltn := dbGetCollection(tenant, htype)
 	if Cltn == nil {
@@ -1293,7 +1461,7 @@ func DBFindCollectionHdr(tenant string, htype string, hkey string) *DataHdr {
 	return &hdr
 }
 
-func DBDelCollectionHdr(tenant string, htype string, hkey string) error {
+func dbDelCollectionHdr(tenant string, htype string, hkey string) error {
 
 	Cltn := dbGetCollection(tenant, htype)
 	if Cltn == nil {
@@ -1310,46 +1478,46 @@ func DBDelCollectionHdr(tenant string, htype string, hkey string) error {
 //--------------------------User Info and Attributes---------=-------------------
 
 // This API will add/update a user info Header
-func DBAddUserInfoHdr(uuid string, admin string, data *DataHdr) error {
+func dbAddUserInfoHdr(uuid string, admin string, data *DataHdr) error {
 
-	return DBAddCollectionHdr(uuid, admin, data, "NxtUsers", "UserInfo")
+	return dbAddCollectionHdr(uuid, admin, data, "NxtUsers", "UserInfo")
 }
 
 // This API will update a user Info Header
-func DBUpdateUserInfoHdr(uuid string, admin string) error {
+func dbUpdateUserInfoHdr(uuid string, admin string) error {
 
-	return DBUpdateCollectionHdr(uuid, admin, "NxtUsers", "UserInfo")
+	return dbUpdateCollectionHdr(uuid, admin, "NxtUsers", "UserInfo")
 }
 
 func DBFindUserInfoHdr(tenant string) *DataHdr {
 
-	return DBFindCollectionHdr(tenant, "NxtUsers", "UserInfo")
+	return dbFindCollectionHdr(tenant, "NxtUsers", "UserInfo")
 }
 
-func DBDelUserInfoHdr(tenant string) error {
+func dbDelUserInfoHdr(tenant string) error {
 
-	return DBDelCollectionHdr(tenant, "NxtUsers", "UserInfo")
+	return dbDelCollectionHdr(tenant, "NxtUsers", "UserInfo")
 }
 
 // This API will add a user Attribute Header
-func DBAddUserAttrHdr(uuid string, admin string, data *DataHdr) error {
+func dbAddUserAttrHdr(uuid string, admin string, data *DataHdr) error {
 
-	return DBAddCollectionHdr(uuid, admin, data, "NxtUserAttr", "UserAttr")
+	return dbAddCollectionHdr(uuid, admin, data, "NxtUserAttr", "UserAttr")
 }
 
 // This API will update a user Attribute Header
-func DBUpdateUserAttrHdr(uuid string, admin string) error {
+func dbUpdateUserAttrHdr(uuid string, admin string) error {
 
-	return DBUpdateCollectionHdr(uuid, admin, "NxtUserAttr", "UserAttr")
+	return dbUpdateCollectionHdr(uuid, admin, "NxtUserAttr", "UserAttr")
 }
 
 func DBFindUserAttrHdr(tenant string) *DataHdr {
 
-	return DBFindCollectionHdr(tenant, "NxtUserAttr", "UserAttr")
+	return dbFindCollectionHdr(tenant, "NxtUserAttr", "UserAttr")
 }
 
-func DBDelUserAttrHdr(tenant string) error {
-	return DBDelCollectionHdr(tenant, "NxtUserAttr", "UserAttr")
+func dbDelUserAttrHdr(tenant string) error {
+	return dbDelCollectionHdr(tenant, "NxtUserAttr", "UserAttr")
 }
 
 type UserKeyJson struct {
@@ -1495,6 +1663,104 @@ func DBGetUserKeys(uuid string, userid string) (*[]UserKeyJson, error) {
 	return &keys, nil
 }
 
+type DomainOwner struct {
+	Domain string `json:"domain" bson:"domain"`
+	Tenant string `json:"tenant" bson:"tenant"`
+}
+
+func DBAddEmailOwner(email string, tenant string) error {
+	owned := DomainOwner{Domain: email, Tenant: tenant}
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	err := domainsCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"domain": email},
+		bson.D{
+			{"$set", owned},
+		},
+		&opt,
+	)
+	if err.Err() != nil {
+		return err.Err()
+	}
+	return nil
+}
+
+func DBDelEmailOwner(email string) error {
+	_, err := domainsCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"domain": email},
+	)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func DBDelTenantOwnedDomains(uuid string) error {
+	tenant := DBFindTenant(uuid)
+	if tenant == nil {
+		return fmt.Errorf("Unknown tenant")
+	}
+	for _, owned := range tenant.OwnedEmails {
+		err := DBDelEmailOwner(owned.Domain)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func DBGetEmailOwner(email string) (string, error) {
+	var owner DomainOwner
+	err := domainsCltn.FindOne(
+		context.TODO(),
+		bson.M{"domain": email},
+	).Decode(&owner)
+	if err != nil {
+		// No tenant owns this email-domain yet
+		if err == mongo.ErrNoDocuments {
+			return "", nil
+		}
+		return "", err
+	}
+	return email, nil
+}
+
+func DBUpdateOwnedDomains(ownedDomain string, tenantid string) error {
+	tenant := DBFindTenant(tenantid)
+	if tenant == nil {
+		return fmt.Errorf("Unknown tenant")
+	}
+	for _, o := range tenant.OwnedEmails {
+		if o.Domain == ownedDomain {
+			return nil
+		}
+	}
+	curOwner, err := DBGetEmailOwner(ownedDomain)
+	if err != nil {
+		return err
+	}
+	if curOwner != "" && curOwner != tenant.ID {
+		return fmt.Errorf("Domain name already registered by another customer, please contact sales@nextensio.com")
+	}
+	err = DBAddEmailOwner(ownedDomain, tenant.ID)
+	if err != nil {
+		return err
+	}
+	tenant.OwnedEmails = append(tenant.OwnedEmails, EmailDomains{Domain: ownedDomain, Admins: 0})
+	err = dbUpdateTenant(tenant)
+	if err != nil {
+		DBDelEmailOwner(ownedDomain)
+		return err
+	}
+	return nil
+}
+
 // This API will add/update a new user
 func DBAddUser(uuid string, admin string, data *User) error {
 
@@ -1502,6 +1768,7 @@ func DBAddUser(uuid string, admin string, data *User) error {
 	if tenant == nil {
 		return fmt.Errorf("Unknown tenant")
 	}
+
 	user := DBFindUser(uuid, data.Uid)
 	bundle := DBFindBundle(uuid, data.Uid)
 	if bundle != nil {
@@ -1576,7 +1843,8 @@ func DBAddUser(uuid string, admin string, data *User) error {
 		bson.D{
 			{"$set", bson.M{"name": data.Username, "email": data.Email,
 				"gateway": data.Gateway, "pod": data.Pod, "connectid": data.Connectid,
-				"services": data.Services, "usertype": data.Usertype, "keys": keys}},
+				"services": data.Services, "usertype": data.Usertype, "keys": keys,
+				"ownedemails": tenant.OwnedEmails}},
 		},
 		&opt,
 	)
@@ -1584,7 +1852,7 @@ func DBAddUser(uuid string, admin string, data *User) error {
 	if result.Err() != nil {
 		return result.Err()
 	}
-	DBUpdateUserInfoHdr(uuid, admin)
+	dbUpdateUserInfoHdr(uuid, admin)
 
 	return nil
 }
@@ -1665,7 +1933,7 @@ func DBDelUser(tenant string, admin string, userid string) error {
 	if err != nil {
 		return err
 	}
-	DBUpdateUserInfoHdr(tenant, admin)
+	dbUpdateUserInfoHdr(tenant, admin)
 
 	return nil
 }
@@ -1749,23 +2017,18 @@ func DBFindUserStatus(tenant string, userid string) []UserStatus {
 	return status
 }
 
-// When adding a new user, we also create a user attributes doc with
-// just the userid (key field). This is ok if no user attributes have
-// been defined. But if user attributes have been defined, then create
-// the user attributes doc with default values for those attributes
-// defined.
-// This function looks at the AttrSet to see if there are user attributes
-// we should add to the doc.
-func dbGetDefaultUserAttr(tenant string) *bson.M {
+// Common function to get default set of attributes for Users,
+// or bundles
+func dbGetDefaultAttrs(tenant string, appliesTo string) *bson.M {
 	defAttr := make(bson.M, 0)
-	attrset := DBFindSpecificAttrSet(tenant, "Users", "all")
+	attrset := DBFindSpecificAttrSet(tenant, appliesTo, "all")
 	if attrset == nil || len(attrset) == 0 {
 		return nil
 	}
 	nattrs := 0
 	for _, a := range attrset {
 		if strings.HasPrefix(a.Name, "_") {
-			// Skip system attributes
+			// Skip any system attributes
 			continue
 		}
 		switch a.Type {
@@ -1794,7 +2057,30 @@ func dbGetDefaultUserAttr(tenant string) *bson.M {
 	return &defAttr
 }
 
-func dbCheckUserAttrGroupOwnership(tenant string, group string, Uattr *bson.M, upd bool) (bool, string) {
+// When adding a new bundle, we also create a bundle attributes doc with
+// just the bid (key field). This is ok if no bundle attributes have
+// been defined. But if bundle attributes have been defined, then create
+// the bundle attributes doc with default values for those attributes
+// defined.
+// This function looks at the AttrSet to see if there are bundle attributes
+// we should add to the doc.
+func dbGetDefaultBundleAttr(tenant string) *bson.M {
+	return dbGetDefaultAttrs(tenant, "Bundles")
+}
+
+// When adding a new user, we also create a user attributes doc with
+// just the userid (key field). This is ok if no user attributes have
+// been defined. But if user attributes have been defined, then create
+// the user attributes doc with default values for those attributes
+// defined.
+// This function looks at the AttrSet to see if there are user attributes
+// we should add to the doc.
+func dbGetDefaultUserAttr(tenant string) *bson.M {
+	return dbGetDefaultAttrs(tenant, "Users")
+}
+
+func dbCheckAttrGroupOwnership(tenant string, group string, appliesTo string, Xattr *bson.M, upd bool) (bool, string) {
+
 	grp := group
 	if group == "admin" || group == "superadmin" {
 		grp = "all"
@@ -1805,7 +2091,7 @@ func dbCheckUserAttrGroupOwnership(tenant string, group string, Uattr *bson.M, u
 		// be done by group.
 		grp = "all"
 	}
-	attrset := DBFindSpecificAttrSet(tenant, "Users", grp)
+	attrset := DBFindSpecificAttrSet(tenant, appliesTo, grp)
 	nattrs := 0
 	if !upd {
 		// New attributes are being added. A group admin has to add all
@@ -1813,13 +2099,13 @@ func dbCheckUserAttrGroupOwnership(tenant string, group string, Uattr *bson.M, u
 		// has to add all user attributes.
 		for _, a := range attrset {
 			if strings.HasPrefix(a.Name, "_") {
-				// Skip system attributes since their values
+				// Skip any system attributes since their values
 				// cannot be updated.
 				continue
 			}
 			nattrs += 1
 			found := false
-			for k := range *Uattr {
+			for k := range *Xattr {
 				if k == a.Name {
 					found = true
 					break
@@ -1836,7 +2122,7 @@ func dbCheckUserAttrGroupOwnership(tenant string, group string, Uattr *bson.M, u
 	// For now, filter out attributes not belonging to group since
 	// ux code sends all attributes if group admin is updating.
 	invalid := false
-	for k := range *Uattr {
+	for k := range *Xattr {
 		if strings.HasPrefix(k, "_") {
 			// Cannot add/update a system user attribute
 			invalid = true
@@ -1850,7 +2136,7 @@ func dbCheckUserAttrGroupOwnership(tenant string, group string, Uattr *bson.M, u
 			}
 		}
 		if !found {
-			delete(*Uattr, k)
+			delete(*Xattr, k)
 			continue
 			// invalid = true
 			// break
@@ -1860,6 +2146,14 @@ func dbCheckUserAttrGroupOwnership(tenant string, group string, Uattr *bson.M, u
 		return false, "Attribute list has attributes without required privilege"
 	}
 	return true, ""
+}
+
+func dbCheckUserAttrGroupOwnership(tenant string, group string, Uattr *bson.M, upd bool) (bool, string) {
+	return dbCheckAttrGroupOwnership(tenant, group, "Users", Uattr, upd)
+}
+
+func dbCheckBundleAttrGroupOwnership(tenant string, group string, Uattr *bson.M, upd bool) (bool, string) {
+	return dbCheckAttrGroupOwnership(tenant, group, "Bundles", Uattr, upd)
 }
 
 func dbAddUserAttr(uuid string, user string, Uattr bson.M, replace bool) error {
@@ -1909,6 +2203,7 @@ func dbAddUserAttr(uuid string, user string, Uattr bson.M, replace bool) error {
 			Uattr,
 		)
 		if err != nil {
+			glog.Errorf("User attribute doc replace error - %v", err)
 			return err
 		}
 		if result.MatchedCount == 0 {
@@ -1969,7 +2264,7 @@ func DBUpdateAttrsForMultipleUsers(uuid string, admin string, group string, Uatt
 	}
 	if count > 0 {
 		// Some user attribute docs were updated
-		DBUpdateUserAttrHdr(uuid, admin)
+		dbUpdateUserAttrHdr(uuid, admin)
 		glog.Infof("DBUpdateAttrsForMultpleUsers: updated %d users", count)
 	} else {
 		glog.Infof("DBUpdateAttrsForMultpleUsers: could not update any users")
@@ -1998,6 +2293,8 @@ func DBAddUserAttr(uuid string, admin string, user string, group string, Uattr b
 		return fmt.Errorf("Cannot find user " + user)
 	}
 
+	uattrLock.Lock()
+	defer uattrLock.Unlock()
 	upd := false
 	uattr := DBFindUserAttr(uuid, user)
 	if Uattr != nil {
@@ -2033,7 +2330,7 @@ func DBAddUserAttr(uuid string, admin string, user string, group string, Uattr b
 	}
 	err := dbAddUserAttr(uuid, user, Uattr, false)
 	if err == nil {
-		DBUpdateUserAttrHdr(uuid, admin)
+		dbUpdateUserAttrHdr(uuid, admin)
 	}
 	return err
 }
@@ -2099,18 +2396,26 @@ func DBDelUserAttr(tenant string, admin string, userid string) error {
 	if userAttrCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
+	uattrLock.Lock()
+	defer uattrLock.Unlock()
 	_, err := userAttrCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": userid},
 	)
 
 	if err == nil {
-		DBUpdateUserAttrHdr(tenant, admin)
+		dbUpdateUserAttrHdr(tenant, admin)
 	}
 	return err
 }
 
 func DBDelAllUsersOneAttr(tenant string, admin string, todel string) error {
+
+	if strings.HasPrefix(todel, "_") {
+		// Silently ignore system attributes (names starting with _)
+		return nil
+	}
+
 	userAttrCltn := dbGetCollection(tenant, "NxtUserAttr")
 	if userAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -2138,12 +2443,18 @@ func DBDelAllUsersOneAttr(tenant string, admin string, todel string) error {
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateUserAttrHdr(tenant, admin)
+		dbUpdateUserAttrHdr(tenant, admin)
 	}
 	return err
 }
 
 func DBAddAllUsersOneAttr(tenant string, admin string, set AttrSet) error {
+
+	if strings.HasPrefix(set.Name, "_") {
+		// Silently ignore system attributes (names starting with _)
+		return nil
+	}
+
 	userAttrCltn := dbGetCollection(tenant, "NxtUserAttr")
 	if userAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -2176,7 +2487,7 @@ func DBAddAllUsersOneAttr(tenant string, admin string, set AttrSet) error {
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateUserAttrHdr(tenant, admin)
+		dbUpdateUserAttrHdr(tenant, admin)
 	}
 	return err
 }
@@ -2184,47 +2495,47 @@ func DBAddAllUsersOneAttr(tenant string, admin string, set AttrSet) error {
 //----------------------App bundle Info and Attributes-----------------------
 
 // This API will add/update a bundle info Header
-func DBAddBundleInfoHdr(uuid string, admin string, data *DataHdr) error {
+func dbAddBundleInfoHdr(uuid string, admin string, data *DataHdr) error {
 
-	return DBAddCollectionHdr(uuid, admin, data, "NxtApps", "AppInfo")
+	return dbAddCollectionHdr(uuid, admin, data, "NxtApps", "AppInfo")
 }
 
 // This API will update a bundle Info Header
-func DBUpdateBundleInfoHdr(uuid string, admin string) error {
+func dbUpdateBundleInfoHdr(uuid string, admin string) error {
 
-	return DBUpdateCollectionHdr(uuid, admin, "NxtApps", "AppInfo")
+	return dbUpdateCollectionHdr(uuid, admin, "NxtApps", "AppInfo")
 }
 
 func DBFindBundleInfoHdr(tenant string) *DataHdr {
 
-	return DBFindCollectionHdr(tenant, "NxtApps", "AppInfo")
+	return dbFindCollectionHdr(tenant, "NxtApps", "AppInfo")
 }
 
-func DBDelBundleInfoHdr(tenant string) error {
+func dbDelBundleInfoHdr(tenant string) error {
 
-	return DBDelCollectionHdr(tenant, "NxtApps", "AppInfo")
+	return dbDelCollectionHdr(tenant, "NxtApps", "AppInfo")
 }
 
 // This API will add a bundle Attribute Header
-func DBAddBundleAttrHdr(uuid string, admin string, data *DataHdr) error {
+func dbAddBundleAttrHdr(uuid string, admin string, data *DataHdr) error {
 
-	return DBAddCollectionHdr(uuid, admin, data, "NxtAppAttr", "AppAttr")
+	return dbAddCollectionHdr(uuid, admin, data, "NxtAppAttr", "AppAttr")
 }
 
 // This API will update a bundle Attribute Header
-func DBUpdateBundleAttrHdr(uuid string, admin string) error {
+func dbUpdateBundleAttrHdr(uuid string, admin string) error {
 
-	return DBUpdateCollectionHdr(uuid, admin, "NxtAppAttr", "AppAttr")
+	return dbUpdateCollectionHdr(uuid, admin, "NxtAppAttr", "AppAttr")
 }
 
 func DBFindBundleAttrHdr(tenant string) *DataHdr {
 
-	return DBFindCollectionHdr(tenant, "NxtAppAttr", "AppAttr")
+	return dbFindCollectionHdr(tenant, "NxtAppAttr", "AppAttr")
 }
 
-func DBDelBundleAttrHdr(tenant string) error {
+func dbDelBundleAttrHdr(tenant string) error {
 
-	return DBDelCollectionHdr(tenant, "NxtAppAttr", "AppAttr")
+	return dbDelCollectionHdr(tenant, "NxtAppAttr", "AppAttr")
 }
 
 // The Pod here indicates the "pod set" that this user should
@@ -2363,7 +2674,7 @@ func DBAddBundle(uuid string, admin string, data *Bundle) error {
 	if result.Err() != nil {
 		return result.Err()
 	}
-	DBUpdateBundleInfoHdr(uuid, admin)
+	dbUpdateBundleInfoHdr(uuid, admin)
 
 	err := DBAddClusterBundle(uuid, data)
 	if err != nil {
@@ -2400,7 +2711,7 @@ func DBUpdateBundle(tenant string, admin string, data *Bundle) error {
 	if result.Err() != nil {
 		return result.Err()
 	}
-	DBUpdateBundleInfoHdr(tenant, admin)
+	dbUpdateBundleInfoHdr(tenant, admin)
 
 	return nil
 }
@@ -2512,7 +2823,7 @@ func DBDelBundle(tenant string, admin string, bundleid string) error {
 	if err != nil {
 		return err
 	}
-	DBUpdateBundleInfoHdr(tenant, admin)
+	dbUpdateBundleInfoHdr(tenant, admin)
 
 	err = DBDelClusterBundle(tenant, bundleid)
 	if err != nil {
@@ -2615,6 +2926,7 @@ func dbAddBundleAttr(uuid string, bid string, Battr bson.M, replace bool) error 
 				bson.M{"_id": bid},
 			)
 			if err != nil {
+				glog.Errorf("AppGroup attribute doc insert error - %v", err)
 				return err
 			}
 		} else {
@@ -2625,6 +2937,7 @@ func dbAddBundleAttr(uuid string, bid string, Battr bson.M, replace bool) error 
 				&opt,
 			)
 			if result.Err() != nil {
+				glog.Errorf("AppGroup attribute doc add/update error - %v", result.Err())
 				return result.Err()
 			}
 		}
@@ -2635,10 +2948,11 @@ func dbAddBundleAttr(uuid string, bid string, Battr bson.M, replace bool) error 
 			Battr,
 		)
 		if err != nil {
+			glog.Errorf("AppGroup attribute doc replace error - %v", err)
 			return err
 		}
 		if result.MatchedCount == 0 {
-			return fmt.Errorf("Did not update any bundle")
+			return fmt.Errorf("Did not update any AppGroup")
 		}
 	}
 	return nil
@@ -2691,39 +3005,51 @@ func DBUpdateBundleServices(uuid string, admin string, host string, deleted *[]s
 
 // This API will add/update a bundle attribute. If the data is nil,
 // it just updates the "base" attributes and returns
-func DBAddBundleAttr(uuid string, admin string, bid string, Battr bson.M) error {
+func DBAddBundleAttr(uuid string, admin string, bid string, group string, Battr bson.M) error {
 	dbBundle := DBFindBundle(uuid, bid)
 	if dbBundle == nil {
+		glog.Errorf("AddAppGroupAttr: cannot find AppGroup " + bid)
 		return fmt.Errorf("Cannot find bundle")
 	}
 
+	battrLock.Lock()
+	defer battrLock.Unlock()
+	upd := false
+	battr := DBFindBundleAttr(uuid, bid)
 	if Battr != nil {
-		attrset := DBFindSpecificAttrSet(uuid, "Bundles", "all")
-		nattrs := 0
-		for _, a := range attrset {
-			nattrs += 1
-			found := false
-			for k := range Battr {
-				if k == a.Name {
-					found = true
-				}
-			}
-			if !found {
-				return fmt.Errorf("Attribute %s not defined in AttributeEditor", a.Name)
+		// Bundle attributes add or update via api. Figure out if it's an
+		// add or update
+		if battr != nil {
+			// A bundle attributes doc exists. If the doc has just the
+			// key field, it's an add case, else an update
+			if len(*battr) > 1 {
+				upd = true
 			}
 		}
+		sts, errstr := dbCheckBundleAttrGroupOwnership(uuid, group, &Battr, upd)
+		if !sts {
+			return fmt.Errorf(errstr)
+		}
 	}
+
 	if Battr == nil || len(Battr) == 0 {
-		attr := DBFindBundleAttr(uuid, bid)
-		if attr != nil {
-			// Well there is already some attributes, and we are not
-			// having anything new / changing here, so just return
+		if battr != nil {
+			// Bundle attributes doc exists and no new bundle attributes
+			// supplied, so just return
 			return nil
+		} else {
+			// bundle attributes doc does not exist and no bundle attributes have
+			// been supplied. See if AttrSet has any attributes defined, and
+			// if so, add them with default values.
+			defAttr := dbGetDefaultBundleAttr(uuid)
+			if defAttr != nil {
+				Battr = *defAttr
+			}
 		}
 	}
 	err := dbAddBundleAttr(uuid, bid, Battr, false)
 	if err == nil {
-		DBUpdateBundleAttrHdr(uuid, admin)
+		dbUpdateBundleAttrHdr(uuid, admin)
 	}
 	return err
 }
@@ -2789,18 +3115,26 @@ func DBDelBundleAttr(tenant string, admin string, bundleid string) error {
 	if appAttrCltn == nil {
 		return fmt.Errorf("Unknown Collection")
 	}
+	battrLock.Lock()
+	defer battrLock.Unlock()
 	_, err := appAttrCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": bundleid},
 	)
 
 	if err == nil {
-		DBUpdateBundleAttrHdr(tenant, admin)
+		dbUpdateBundleAttrHdr(tenant, admin)
 	}
 	return err
 }
 
 func DBDelAllBundlesOneAttr(tenant string, admin string, todel string) error {
+
+	if strings.HasPrefix(todel, "_") {
+		// Silently ignore system attributes (names starting with _)
+		return nil
+	}
+
 	appAttrCltn := dbGetCollection(tenant, "NxtAppAttr")
 	if appAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -2828,12 +3162,18 @@ func DBDelAllBundlesOneAttr(tenant string, admin string, todel string) error {
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateBundleAttrHdr(tenant, admin)
+		dbUpdateBundleAttrHdr(tenant, admin)
 	}
 	return err
 }
 
 func DBAddAllBundlesOneAttr(tenant string, admin string, set AttrSet) error {
+
+	if strings.HasPrefix(set.Name, "_") {
+		// Silently ignore system attributes (names starting with _)
+		return nil
+	}
+
 	appAttrCltn := dbGetCollection(tenant, "NxtAppAttr")
 	if appAttrCltn == nil {
 		return fmt.Errorf("Cant find AppGroup collection")
@@ -2864,7 +3204,7 @@ func DBAddAllBundlesOneAttr(tenant string, admin string, set AttrSet) error {
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateBundleAttrHdr(tenant, admin)
+		dbUpdateBundleAttrHdr(tenant, admin)
 	}
 	return err
 }
@@ -2872,27 +3212,27 @@ func DBAddAllBundlesOneAttr(tenant string, admin string, set AttrSet) error {
 //-------------------------------Host Attributes -------------------------
 
 // This API will add a Host Attributes Header
-func DBAddHostAttrHdr(uuid string, admin string, data *DataHdr) error {
+func dbAddHostAttrHdr(uuid string, admin string, data *DataHdr) error {
 
-	return DBAddCollectionHdr(uuid, admin, data, "NxtHostAttr", "HostAttr")
+	return dbAddCollectionHdr(uuid, admin, data, "NxtHostAttr", "HostAttr")
 
 }
 
 // This API will update a Host Attributes Header
-func DBUpdateHostAttrHdr(uuid string, admin string) error {
+func dbUpdateHostAttrHdr(uuid string, admin string) error {
 
-	return DBUpdateCollectionHdr(uuid, admin, "NxtHostAttr", "HostAttr")
+	return dbUpdateCollectionHdr(uuid, admin, "NxtHostAttr", "HostAttr")
 
 }
 
 func DBFindHostAttrHdr(tenant string) *DataHdr {
 
-	return DBFindCollectionHdr(tenant, "NxtHostAttr", "HostAttr")
+	return dbFindCollectionHdr(tenant, "NxtHostAttr", "HostAttr")
 }
 
-func DBDelHostAttrHdr(tenant string) error {
+func dbDelHostAttrHdr(tenant string) error {
 
-	return DBDelCollectionHdr(tenant, "NxtHostAttr", "HostAttr")
+	return dbDelCollectionHdr(tenant, "NxtHostAttr", "HostAttr")
 }
 
 func DBFindHostAttr(tenant string, host string) *bson.M {
@@ -3076,6 +3416,8 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 		tags[tag] = true
 	}
 
+	hattrLock.Lock()
+	defer hattrLock.Unlock()
 	// See if we have a new host or it's an existing host
 	hosts := DBFindAllHosts(uuid)
 	hostfound := false
@@ -3111,8 +3453,26 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 				}
 			}
 			if !found {
-				glog.Errorf("AddHostAttr: AttrSet attribute missing - " + a.Name)
-				return fmt.Errorf("All attributes defined in AttributeEditor need to be present - " + a.Name)
+				// Add the attribute from the AttrSet if missing. Don't
+				// flag an error.
+				switch a.Type {
+				case "String":
+					if a.IsArray == "true" {
+						route[a.Name] = []string{}
+					} else {
+						route[a.Name] = ""
+					}
+				case "Number":
+					if a.IsArray == "true" {
+						route[a.Name] = []int{}
+					} else {
+						route[a.Name] = 0
+					}
+				case "Boolean":
+					route[a.Name] = false
+				case "Date":
+					route[a.Name] = ""
+				}
 			}
 		}
 	}
@@ -3198,7 +3558,7 @@ func DBAddHostAttr(uuid string, admin string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	DBUpdateHostAttrHdr(uuid, admin)
+	dbUpdateHostAttrHdr(uuid, admin)
 
 	if !hostfound {
 		// Adding a new host, aka App. Add it to tenant's domain list.
@@ -3225,6 +3585,8 @@ func DBDelHostAttr(tenant string, admin string, hostid string) error {
 		return fmt.Errorf("Unknown Collection")
 	}
 
+	hattrLock.Lock()
+	defer hattrLock.Unlock()
 	_, err := hostAttrCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": hostid},
@@ -3232,7 +3594,7 @@ func DBDelHostAttr(tenant string, admin string, hostid string) error {
 	if err != nil {
 		return err
 	}
-	DBUpdateHostAttrHdr(tenant, admin)
+	dbUpdateHostAttrHdr(tenant, admin)
 	dbUpdateBundleServices(tenant, admin, hostid)
 	err = dbdelTenantDomain(tenant, hostid)
 	if err != nil {
@@ -3243,6 +3605,12 @@ func DBDelHostAttr(tenant string, admin string, hostid string) error {
 }
 
 func DBDelAllHostsOneAttr(tenant string, admin string, todel string) error {
+
+	if strings.HasPrefix(todel, "_") {
+		// Silently ignore system attributes (names starting with _)
+		return nil
+	}
+
 	hostAttrCltn := dbGetCollection(tenant, "NxtHostAttr")
 	if hostAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -3273,7 +3641,7 @@ func DBDelAllHostsOneAttr(tenant string, admin string, todel string) error {
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateHostAttrHdr(tenant, admin)
+		dbUpdateHostAttrHdr(tenant, admin)
 	}
 	return err
 }
@@ -3311,6 +3679,12 @@ func defaultType(set AttrSet) interface{} {
 }
 
 func DBAddAllHostsOneAttr(tenant string, admin string, set AttrSet) error {
+
+	if strings.HasPrefix(set.Name, "_") {
+		// Silently ignore system attributes (names starting with _)
+		return nil
+	}
+
 	hostAttrCltn := dbGetCollection(tenant, "NxtHostAttr")
 	if hostAttrCltn == nil {
 		return fmt.Errorf("Cant find user collection")
@@ -3344,7 +3718,7 @@ func DBAddAllHostsOneAttr(tenant string, admin string, set AttrSet) error {
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateHostAttrHdr(tenant, admin)
+		dbUpdateHostAttrHdr(tenant, admin)
 	}
 	return err
 }
@@ -3352,27 +3726,27 @@ func DBAddAllHostsOneAttr(tenant string, admin string, set AttrSet) error {
 //-------------------------------Trace Attributes -------------------------
 
 // This API will add a Trace Requests Header
-func DBAddTraceRequestsHdr(uuid string, admin string, data *DataHdr) error {
+func dbAddTraceRequestsHdr(uuid string, admin string, data *DataHdr) error {
 
-	return DBAddCollectionHdr(uuid, admin, data, "NxtTraceRequests", "TraceReqs")
+	return dbAddCollectionHdr(uuid, admin, data, "NxtTraceRequests", "TraceReqs")
 
 }
 
 // This API will update a Trace Requests Header
-func DBUpdateTraceRequestsHdr(uuid string, admin string) error {
+func dbUpdateTraceRequestsHdr(uuid string, admin string) error {
 
-	return DBUpdateCollectionHdr(uuid, admin, "NxtTraceRequests", "TraceReqs")
+	return dbUpdateCollectionHdr(uuid, admin, "NxtTraceRequests", "TraceReqs")
 
 }
 
 func DBFindTraceRequestsHdr(tenant string) *DataHdr {
 
-	return DBFindCollectionHdr(tenant, "NxtTraceRequests", "TraceReqs")
+	return dbFindCollectionHdr(tenant, "NxtTraceRequests", "TraceReqs")
 }
 
-func DBDelTraceRequestsHdr(tenant string) error {
+func dbDelTraceRequestsHdr(tenant string) error {
 
-	return DBDelCollectionHdr(tenant, "NxtTraceRequests", "TraceReqs")
+	return dbDelCollectionHdr(tenant, "NxtTraceRequests", "TraceReqs")
 }
 
 func dbAddTraceReq(uuid string, traceid string, Uattr bson.M, replace bool) error {
@@ -3420,7 +3794,7 @@ func DBAddTraceReq(uuid string, admin string, traceid string, Uattr bson.M) erro
 
 	err := dbAddTraceReq(uuid, traceid, Uattr, false)
 	if err == nil {
-		DBUpdateTraceRequestsHdr(uuid, admin)
+		dbUpdateTraceRequestsHdr(uuid, admin)
 	}
 	return err
 }
@@ -3495,7 +3869,7 @@ func DBDelTraceReq(tenant string, admin string, traceid string) error {
 	)
 
 	if err == nil {
-		DBUpdateTraceRequestsHdr(tenant, admin)
+		dbUpdateTraceRequestsHdr(tenant, admin)
 	}
 	return err
 }
@@ -3530,7 +3904,7 @@ func DBDelAllTraceReqsOneAttr(tenant string, admin string, attrtodel string) err
 	// Hopefully, such errors will not happen, else we need to
 	// figure out how to recover from such errors.
 	if err == nil {
-		DBUpdateTraceRequestsHdr(tenant, admin)
+		dbUpdateTraceRequestsHdr(tenant, admin)
 	}
 	return err
 }

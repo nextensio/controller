@@ -68,6 +68,10 @@ func rdonlyOnboard() {
 	// This route is used to get all user attributes for a tenant
 	getTenantRoute("/alluserattr", "GET", getAllUserAttrHandler)
 
+	// This route is used to get the header doc of an attribute collection
+	// {type} can be "Users", "Apps", or "AppGroups"
+	getTenantRoute("/attrhdr/{type}", "GET", getAttrHdrHandler)
+
 	// This route is used to get all bundles for a tenant
 	getTenantRoute("/allbundles", "GET", getAllBundlesHandler)
 
@@ -105,6 +109,9 @@ func rdonlyOnboard() {
 
 	// This route is used to get a specific user onboard log entry
 	getTenantRoute("/allgateways", "GET", getAllTenantGatewaysHandler)
+
+	// This route is used to get the header doc for trace requests for a tenant
+	getTenantRoute("/tracereqhdr", "GET", getTraceReqHdrHandler)
 
 	// This route is used to get a specific trace request for a tenant
 	getTenantRoute("/tracereq/{traceid}", "GET", getTraceReqHandler)
@@ -207,17 +214,8 @@ func rdwrOnboard() {
 	// This route is used to delete a set of attributes for users/bundles
 	delTenantRoute("/attrset", "POST", delAttrSet)
 
-	// This route is used to add new user attributes header
-	addTenantRoute("/userattrhdr", "POST", addUserAttrHdrHandler)
-
-	// This route is used to add bundle attributes header
-	addTenantRoute("/bundleattrhdr", "POST", addBundleAttrHdrHandler)
-
-	// This route is used to add host attributes header
-	addTenantRoute("/hostattrhdr", "POST", addHostAttrHdrHandler)
-
 	// This route is used to add attributes for a user
-	addTenantRoute("/userattr/{userid}", "POST", addUserAttrHandler)
+	addTenantRoute("/userattr/single/{userid}", "POST", addUserAttrHandler)
 
 	// This route is used to update attributes for multiple users
 	addTenantRoute("/userattr/multiple", "POST", updMultiUsersAttrHandler)
@@ -252,9 +250,6 @@ func rdwrOnboard() {
 
 	// This route is used to delete an onboarding log entry for a user
 	delTenantRoute("/onboardlog/{userid}", "GET", delOnboardLogHandler)
-
-	// This route is used to add a new trace requests header
-	addTenantRoute("/tracereqhdr", "POST", addTraceRequestsHdrHandler)
 
 	// This route is used to add a trace request
 	addTenantRoute("/tracereq", "POST", addTraceReqHandler)
@@ -887,7 +882,7 @@ func addtenantHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get all tenants
 func getAllTenantsHandler(w http.ResponseWriter, r *http.Request) {
-	tenants := db.DBFindAllTenants()
+	tenants, _ := db.DBFindAllTenants()
 	if tenants == nil {
 		tenants = make([]db.Tenant, 0)
 	}
@@ -933,6 +928,7 @@ func deltenantHandlerFunc(w http.ResponseWriter, r *http.Request, uuid string) {
 		utils.WriteResult(w, result)
 		return
 	}
+	db.DBDelPolicies(uuid)
 	if db.DBFindAllPolicies(uuid) != nil {
 		result.Result = "Tenant still has policies"
 		utils.WriteResult(w, result)
@@ -961,6 +957,13 @@ func deltenantHandlerFunc(w http.ResponseWriter, r *http.Request, uuid string) {
 			utils.WriteResult(w, result)
 			return
 		}
+	}
+
+	err = db.DBDelTenantOwnedDomains(uuid)
+	if err != nil {
+		result.Result = err.Error()
+		utils.WriteResult(w, result)
+		return
 	}
 
 	// DBDelTenant() will remove all header docs for tenant collections
@@ -1331,7 +1334,10 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 		result.Services = user.Services
 		result.Gateway = user.Gateway
 		result.Cluster = db.DBGetClusterName(user.Gateway)
-		result.Version = strconv.FormatUint(tenant.ConfigVersion, 10)
+		// there is no particular logic behind the math here, we just want a unique
+		// number combining both the numbers, it can be addition/xor whatever
+		ver := tenant.ConfigVersion + db.DBGetGlboalCfgVn()
+		result.Version = strconv.FormatUint(ver, 10)
 		result.SplitTunnel = tenant.SplitTunnel
 	} else {
 		bundle := db.DBFindBundle(data.Tenant, data.Userid)
@@ -1357,7 +1363,7 @@ func onboardHandler(w http.ResponseWriter, r *http.Request) {
 			result.Cluster = db.DBGetClusterName(bundle.Gateway)
 			// there is no particular logic behind the math here, we just want a unique
 			// number combining both the numbers, it can be addition/xor whatever
-			ver := tenant.ConfigVersion + bundle.ConfigVersion
+			ver := tenant.ConfigVersion + bundle.ConfigVersion + db.DBGetGlboalCfgVn()
 			result.Version = strconv.FormatUint(ver, 10)
 		} else {
 			result.Result = "IDP user/bundle not found on controller"
@@ -1450,7 +1456,8 @@ func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
 		if client_id != nil {
 			result.Clientid = client_id.Clientid
 		}
-		result.Version = strconv.FormatUint(t.ConfigVersion, 10)
+		ver := t.ConfigVersion + db.DBGetGlboalCfgVn()
+		result.Version = strconv.FormatUint(ver, 10)
 	} else {
 		bundle := db.DBFindBundle(tenant, userid)
 		if bundle == nil {
@@ -1460,7 +1467,7 @@ func keepaliveReqHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		// there is no particular logic behind the math here, we just want a unique
 		// number combining both the numbers, it can be addition/xor whatever
-		ver := t.ConfigVersion + bundle.ConfigVersion
+		ver := t.ConfigVersion + bundle.ConfigVersion + db.DBGetGlboalCfgVn()
 		result.Version = strconv.FormatUint(ver, 10)
 		// We dont check the keepalive return value, keepalives are sent periodically
 		db.BundleKeepalive(tenant, bundle, data)
@@ -1946,6 +1953,11 @@ func addAttrSet(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
+	if data.Name == "all" {
+		result.Result = "all is a reserved keyword, please choose another group name"
+		utils.WriteResult(w, result)
+		return
+	}
 	// If data.Group is not set, we will set it to group of caller.
 	// If it is set, ensure it matches group of caller.
 	if !allowAnyAdminAccess(r, data.Group) {
@@ -2003,7 +2015,7 @@ func delAttrSet(w http.ResponseWriter, r *http.Request) {
 		utils.WriteResult(w, result)
 		return
 	}
-	err = db.DBDelAttrSet(uuid, admin, group, data)
+	err = db.DBDelAttrSet(uuid, admin, group, data, true)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -2014,37 +2026,44 @@ func delAttrSet(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-// Add a user's attribute headers
-func addUserAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
-	var result OpResult
-	var data db.DataHdr
+type HdrResult struct {
+	Result  string `json:"Result"`
+	DataHdr db.DataHdr
+}
 
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		result.Result = "Add user attribute header - HTTP Req Read fail"
-		utils.WriteResult(w, result)
-		return
-	}
+// Get the header doc for an attribute collection
+func getAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
+	var result HdrResult
+	var hdr *db.DataHdr
 
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		result.Result = "Add user attribute header - Error parsing json"
-		utils.WriteResult(w, result)
-		return
-	}
 	uuid := r.Context().Value("tenant").(string)
-	admin, ok := r.Context().Value("userid").(string)
-	if !ok {
-		admin = "UnknownUser"
-	}
-	err = db.DBAddUserAttrHdr(uuid, admin, &data)
-	if err != nil {
-		result.Result = err.Error()
+	v := mux.Vars(r)
+	htype := v["type"]
+	switch htype {
+	case "Users":
+		hdr = db.DBFindUserAttrHdr(uuid)
+		if hdr != nil {
+			result.DataHdr = *hdr
+		}
+	case "Apps":
+		hdr = db.DBFindHostAttrHdr(uuid)
+		if hdr != nil {
+			result.DataHdr = *hdr
+		}
+	case "AppGroups":
+		hdr = db.DBFindBundleAttrHdr(uuid)
+		if hdr != nil {
+			result.DataHdr = *hdr
+		}
+	default:
+		result.Result = "Invalid header document type requested"
 		utils.WriteResult(w, result)
 		return
 	}
-
 	result.Result = "ok"
+	if hdr == nil {
+		result.Result = "Error getting header doc"
+	}
 	utils.WriteResult(w, result)
 }
 
@@ -2212,6 +2231,10 @@ func addBundleHandler(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		admin = "UnknownUser"
 	}
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = "regular"
+	}
 	err = db.DBAddBundle(uuid, admin, &data)
 	if err != nil {
 		result.Result = err.Error()
@@ -2219,7 +2242,7 @@ func addBundleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Add/update "base" attributes
-	err = db.DBAddBundleAttr(uuid, admin, data.Bid, nil)
+	err = db.DBAddBundleAttr(uuid, admin, data.Bid, group, nil)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -2288,40 +2311,6 @@ func delBundleHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, result)
 }
 
-// Add a bundle attributes header
-func addBundleAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
-	var result OpResult
-	var data db.DataHdr
-
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		result.Result = "Add App-bundle attributes header - HTTP Req Read fail"
-		utils.WriteResult(w, result)
-		return
-	}
-
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		result.Result = "Error parsing json"
-		utils.WriteResult(w, result)
-		return
-	}
-	uuid := r.Context().Value("tenant").(string)
-	admin, ok := r.Context().Value("userid").(string)
-	if !ok {
-		admin = "UnknownUser"
-	}
-	err = db.DBAddBundleAttrHdr(uuid, admin, &data)
-	if err != nil {
-		result.Result = err.Error()
-		utils.WriteResult(w, result)
-		return
-	}
-
-	result.Result = "ok"
-	utils.WriteResult(w, result)
-}
-
 // Add a bundle's attribute, used to decide what policies are applied to the bundle etc.
 func addBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 	var result OpResult
@@ -2354,7 +2343,11 @@ func addBundleAttrHandler(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		admin = "UnknownUser"
 	}
-	err = db.DBAddBundleAttr(uuid, admin, bid, Battr)
+	group, ok := r.Context().Value("group").(string)
+	if !ok {
+		group = "regular"
+	}
+	err = db.DBAddBundleAttr(uuid, admin, bid, group, Battr)
 	if err != nil {
 		result.Result = err.Error()
 		utils.WriteResult(w, result)
@@ -2426,40 +2419,6 @@ func getHostAttrHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		result = GethostResult{Result: "ok", HAttr: *hostattr}
 	}
-	utils.WriteResult(w, result)
-}
-
-// Add a host attributes header
-func addHostAttrHdrHandler(w http.ResponseWriter, r *http.Request) {
-	var result OpResult
-	var data db.DataHdr
-
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		result.Result = "Add Host attribute header - HTTP Req Read fail"
-		utils.WriteResult(w, result)
-		return
-	}
-
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		result.Result = "Host attribute header - Error parsing json"
-		utils.WriteResult(w, result)
-		return
-	}
-	uuid := r.Context().Value("tenant").(string)
-	admin, ok := r.Context().Value("userid").(string)
-	if !ok {
-		admin = "UnknownUser"
-	}
-	err = db.DBAddHostAttrHdr(uuid, admin, &data)
-	if err != nil {
-		result.Result = err.Error()
-		utils.WriteResult(w, result)
-		return
-	}
-
-	result.Result = "ok"
 	utils.WriteResult(w, result)
 }
 
@@ -2661,6 +2620,22 @@ func getAllTenantGatewaysHandler(w http.ResponseWriter, r *http.Request) {
 	utils.WriteResult(w, gws)
 }
 
+// Get header doc for trace requests collection
+func getTraceReqHdrHandler(w http.ResponseWriter, r *http.Request) {
+	var result HdrResult
+	var hdr *db.DataHdr
+
+	uuid := r.Context().Value("tenant").(string)
+	hdr = db.DBFindTraceRequestsHdr(uuid)
+	if hdr == nil {
+		result.Result = "Error getting header doc"
+	} else {
+		result.Result = "ok"
+		result.DataHdr = *hdr
+	}
+	utils.WriteResult(w, result)
+}
+
 type GetTraceReqResult struct {
 	Result string `json:"Result"`
 	TrReq  bson.M
@@ -2691,40 +2666,6 @@ func getAllTraceReqHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	utils.WriteResult(w, treqs)
 
-}
-
-// Add a trace requests collection header
-func addTraceRequestsHdrHandler(w http.ResponseWriter, r *http.Request) {
-	var result OpResult
-	var data db.DataHdr
-
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		result.Result = "Add trace request header - HTTP Req Read fail"
-		utils.WriteResult(w, result)
-		return
-	}
-
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		result.Result = "Add trace request header - Error parsing json"
-		utils.WriteResult(w, result)
-		return
-	}
-	uuid := r.Context().Value("tenant").(string)
-	admin, ok := r.Context().Value("userid").(string)
-	if !ok {
-		admin = "UnknownUser"
-	}
-	err = db.DBAddTraceRequestsHdr(uuid, admin, &data)
-	if err != nil {
-		result.Result = err.Error()
-		utils.WriteResult(w, result)
-		return
-	}
-
-	result.Result = "ok"
-	utils.WriteResult(w, result)
 }
 
 // Add a trace request
@@ -2831,6 +2772,18 @@ func addIDPHandler(w http.ResponseWriter, r *http.Request) {
 	tenant := db.DBFindTenant(uuid)
 	if tenant == nil {
 		result.Result = "Cant find tenant: " + uuid
+		utils.WriteResult(w, result)
+		return
+	}
+	found := false
+	for _, o := range tenant.OwnedEmails {
+		if o.Domain == data.Domain {
+			found = true
+			break
+		}
+	}
+	if !found {
+		result.Result = "Please add an admin for the domain " + data.Domain + ", and have the admin login to the controller first to verify the domain ownership"
 		utils.WriteResult(w, result)
 		return
 	}
